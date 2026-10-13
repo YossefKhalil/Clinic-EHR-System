@@ -1,10 +1,16 @@
+import Alpine from 'alpinejs';
 import en from '../locales/en.json';
 import ar from '../locales/ar.json';
 
 const dictionaries = { en, ar };
 
-let currentLocale = 'en';
-let translations = dictionaries[currentLocale];
+// The locale lives on an Alpine-reactive object so every `x-text="t('...')"`
+// expression that reads it re-renders when the language changes.
+const state = Alpine.reactive({ locale: 'en' });
+
+function dictionary(locale) {
+    return dictionaries[locale] || dictionaries.en;
+}
 
 export async function initI18n() {
     const saved = localStorage.getItem('locale') || 'en';
@@ -12,12 +18,14 @@ export async function initI18n() {
 }
 
 export async function setLocale(locale) {
-    currentLocale = dictionaries[locale] ? locale : 'en';
-    translations = dictionaries[currentLocale];
-    localStorage.setItem('locale', currentLocale);
+    const next = dictionaries[locale] ? locale : 'en';
+    const translations = dictionary(next);
 
-    document.documentElement.lang = currentLocale;
-    document.documentElement.dir = translations.direction || (currentLocale === 'ar' ? 'rtl' : 'ltr');
+    state.locale = next;
+    localStorage.setItem('locale', next);
+
+    document.documentElement.lang = next;
+    document.documentElement.dir = translations.direction || (next === 'ar' ? 'rtl' : 'ltr');
 
     document.querySelectorAll('[data-i18n]').forEach((el) => {
         const key = el.getAttribute('data-i18n');
@@ -30,10 +38,11 @@ export async function setLocale(locale) {
 }
 
 export function getLocale() {
-    return currentLocale;
+    return state.locale;
 }
 
 export function t(key, params = {}) {
+    const translations = dictionary(state.locale);
     let text = translations[key] ?? key;
 
     Object.entries(params).forEach(([k, v]) => {
