@@ -16,6 +16,27 @@ function translate(key, params = {}) {
     return t(key, params);
 }
 
+// Empty form inputs must be sent as null, not '' — Postgres rejects '' for numeric/int columns.
+function toNullableNumber(value) {
+    return value === '' || value === null || value === undefined ? null : Number(value);
+}
+
+// Whole years between a date of birth (YYYY-MM-DD) and today.
+// Returns null when there is no usable date, so callers can tell "unknown"
+// apart from a real age of 0.
+function calcAge(dateOfBirth) {
+    if (!dateOfBirth) return null;
+    const dob = new Date(`${String(dateOfBirth).slice(0, 10)}T00:00:00`);
+    if (Number.isNaN(dob.getTime())) return null;
+
+    const today = new Date();
+    let age = today.getFullYear() - dob.getFullYear();
+    const months = today.getMonth() - dob.getMonth();
+    if (months < 0 || (months === 0 && today.getDate() < dob.getDate())) age -= 1;
+
+    return age >= 0 ? age : null;
+}
+
 async function loadUserProfile() {
     const authUser = getCurrentUser();
     if (!authUser) return null;
@@ -85,10 +106,17 @@ function app() {
         
         async init() {
             try {
+                // Every page's inputs are x-model-bound, so the form objects must
+                // hold a value before Alpine walks the tree. Left as `null`, each
+                // input logs a TypeError on load (23 of them) before any form is
+                // opened, and the bindings only recover once the form is opened.
+                this.patientForm = this.newPatientForm();
+                this.userForm = { name: '', email: '', password: '', is_admin: false, section: '' };
+
                 await initI18n();
                 await initSupabase();
                 initCloudinary();
-                
+
                 const authUser = getCurrentUser();
                 if (authUser) {
                     try {
@@ -257,12 +285,30 @@ function app() {
             }, 4000);
         },
         
+        // Age is derived, never typed: with a date of birth present it is
+        // recalculated and the input goes read-only (see index.html). Without a
+        // date of birth the field stays editable, so ages transcribed from the
+        // paper forms can still be recorded.
+        refreshAge() {
+            if (!this.patientForm) return;
+            const calculated = calcAge(this.patientForm.date_of_birth);
+            if (calculated !== null) this.patientForm.age = calculated;
+        },
+
+        // Same rule for the read-only patient profile.
+        patientAgeOf(patient) {
+            if (!patient) return 'N/A';
+            const calculated = calcAge(patient.date_of_birth);
+            return calculated !== null ? calculated : (patient.age ?? 'N/A');
+        },
+
         newPatientForm() {
             return {
                 name: '',
                 national_id: '',
                 mobile: '',
                 date_of_birth: '',
+                age: '',
                 marital_status: '',
                 children_count: 0,
                 governorate: '',
@@ -280,6 +326,7 @@ function app() {
         async openPatientForm() {
             this.editingPatient = null;
             this.patientForm = this.newPatientForm();
+            this.refreshAge();
             this.patientNotes = [''];
             this.currentPage = 'patient-form';
         },
@@ -291,6 +338,7 @@ function app() {
                 national_id: patient.national_id || '',
                 mobile: patient.mobile || '',
                 date_of_birth: patient.date_of_birth || '',
+                age: patient.age ?? '',
                 marital_status: patient.marital_status || '',
                 children_count: patient.children_count ?? 0,
                 governorate: patient.governorate || '',
@@ -303,6 +351,7 @@ function app() {
                 section: patient.section || this.profile?.section || '',
                 source_of_money: patient.source_of_money || '',
             };
+            this.refreshAge();
             this.patientNotes = (patient.notes && patient.notes.length) ? [...patient.notes] : [''];
             this.currentPage = 'patient-form';
         },
@@ -323,6 +372,8 @@ function app() {
             const { createPatient, updatePatient } = await import('./services/patients.js');
             const payload = {
                 ...this.patientForm,
+                age: toNullableNumber(this.patientForm.age),
+                price: toNullableNumber(this.patientForm.price),
                 visit_date: this.patientForm.visit_date ? String(this.patientForm.visit_date).slice(0, 10) : null,
                 notes: this.patientNotes.map(n => n.trim()).filter(Boolean),
                 is_completed: this.editingPatient?.is_completed ?? false,

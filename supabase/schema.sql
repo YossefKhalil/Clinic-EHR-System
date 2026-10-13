@@ -19,6 +19,7 @@ CREATE TABLE public.patients (
     national_id TEXT UNIQUE NOT NULL,
     mobile TEXT,
     date_of_birth DATE,
+    age INTEGER,
     marital_status TEXT,
     children_count INTEGER,
     governorate TEXT,
@@ -151,3 +152,7 @@ CREATE TRIGGER update_users_updated_at
 CREATE TRIGGER update_patients_updated_at
     BEFORE UPDATE ON public.patients
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+-- Migration for databases created before the age column existed.
+-- Safe to re-run: no-op when the column is already present.
+ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS age INTEGER;

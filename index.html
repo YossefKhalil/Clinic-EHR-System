@@ -670,6 +670,11 @@
                                     </div>
 
                                     <div>
+                                        <small class="text-muted d-block fw-semibold" x-text="t('Age')"></small>
+                                        <span class="fw-semibold text-dark" x-text="patientAgeOf(selectedPatient)"></span>
+                                    </div>
+
+                                    <div>
                                         <small class="text-muted d-block fw-semibold" x-text="t('Dependents / Children')"></small>
                                         <span class="fw-semibold text-dark"><span x-text="selectedPatient?.children_count ?? '0'"></span> <span x-text="t('child(ren)')"></span></span>
                                     </div>
@@ -838,7 +843,17 @@
                                             </div>
                                             <div class="col-md-4">
                                                 <label class="form-label fw-semibold" x-text="t('Date of Birth')"></label>
-                                                <input type="date" class="form-control" x-model="patientForm.date_of_birth">
+                                                <input type="date" class="form-control" x-model="patientForm.date_of_birth" @change="refreshAge()">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label fw-semibold">
+                                                    <span x-text="t('Age')"></span>
+                                                    <small class="text-muted fw-normal" x-show="patientForm?.date_of_birth" x-cloak>(<span x-text="t('auto')"></span>)</small>
+                                                </label>
+                                                <input type="number" min="0" max="130" class="form-control"
+                                                       :class="patientForm?.date_of_birth ? 'bg-light' : ''"
+                                                       :readonly="!!patientForm?.date_of_birth"
+                                                       x-model="patientForm.age" placeholder="—">
                                             </div>
                                             <div class="col-md-4">
                                                 <label class="form-label fw-semibold" x-text="t('Marital Status')"></label>
@@ -854,7 +869,7 @@
                                                 <label class="form-label fw-semibold" x-text="t('Number of Children')"></label>
                                                 <input type="number" min="0" class="form-control" x-model="patientForm.children_count">
                                             </div>
-                                            <div class="col-md-8">
+                                            <div class="col-md-4">
                                                 <label class="form-label fw-semibold" x-text="t('Governorate')"></label>
                                                 <select class="form-select" x-model="patientForm.governorate" dir="rtl">
                                                     <option value="" x-text="t('-- Select Governorate --')"></option>
