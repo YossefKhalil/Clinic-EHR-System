@@ -80,6 +80,15 @@ function app() {
         // Navbar search
         globalSearch: '',
         exporting: false,
+        
+        // AI bulk import
+        aiPrompt: '',
+        aiAttachments: [],
+        aiMessages: [],
+        aiBusy: false,
+        aiSaving: false,
+        aiDraftRows: [],
+        aiKeyStatus: 'unknown',
         globalSearchFocused: false,
         globalSearchLoading: false,
         globalSearchResults: [],
@@ -440,6 +449,164 @@ function app() {
                 this.showAlert(error.message || 'Export failed', 'danger');
             } finally {
                 this.exporting = false;
+            }
+        },
+        
+        // ---- AI bulk import ------------------------------------------------
+        
+        async openBulkImport() {
+            this.aiPrompt = '';
+            this.aiAttachments = [];
+            this.aiDraftRows = [];
+            if (!this.aiMessages.length) {
+                this.aiMessages = [{
+                    role: 'assistant',
+                    text: this.t('Send me the patient list — describe them in words, or attach an image/spreadsheet/text file. I will extract every patient I can find and show them for your review before anything is saved.'),
+                }];
+            }
+            this.currentPage = 'ai-import';
+        },
+        
+        async onAiAttach(event) {
+            const { fileToContents, isSupportedFile } = await import('./services/ai-import-client.js');
+            const selected = Array.from(event.target.files ?? []);
+            event.target.value = '';
+            for (const file of selected) {
+                if (!isSupportedFile(file).ok) {
+                    this.showAlert(this.t('Unsupported file type: :name', { name: file.name }), 'warning');
+                    continue;
+                }
+                try {
+                    const content = await fileToContents(file);
+                    this.aiAttachments.push({ name: file.name, kind: content.kind, content });
+                } catch (error) {
+                    this.showAlert(error.message, 'warning');
+                }
+            }
+        },
+        
+        async sendAiRequest() {
+            const prompt = this.aiPrompt.trim();
+            if ((!prompt && !this.aiAttachments.length) || this.aiBusy) return;
+            
+            this.aiMessages.push({ role: 'user', text: prompt + (this.aiAttachments.length ? ` [${this.aiAttachments.map((a) => a.name).join(', ')}]` : '') });
+            this.aiPrompt = '';
+            this.aiBusy = true;
+            
+            try {
+                const [{ generatePatientYaml }, { parsePatientYaml, validateRow, normalizeRow }] = await Promise.all([
+                    import('./services/ai-import-client.js'),
+                    import('./services/ai-import.js'),
+                ]);
+                
+                const contents = [];
+                if (prompt) contents.push({ kind: 'text', name: 'prompt', text: prompt });
+                this.aiAttachments.forEach((a) => contents.push(a.content));
+                
+                // Section defaults the model should stamp onto every row.
+                const defaults = this.profile?.section && !this.isSuperAdmin
+                    ? [`section: ${this.profile.section}`]
+                    : [];
+                
+                const yaml = await generatePatientYaml({ contents, defaults });
+                const { rows, errors } = parsePatientYaml(yaml);
+                
+                if (rows.length) {
+                    rows.forEach((raw) => {
+                        const { row } = normalizeRow(raw);
+                        this.aiDraftRows.push({ ...row, id: `row-${Date.now()}-${Math.random().toString(36).slice(2, 7)}` });
+                    });
+                    const labeled = this.t('Found :count patient(s). Review the table below — edit anything green, fix or delete yellow rows, then import.', { count: rows.length });
+                    this.aiMessages.push({ role: 'assistant', text: labeled + (errors.length ? ' ' + errors.join(' ') : '') });
+                } else {
+                    this.aiMessages.push({ role: 'assistant', text: this.t('I could not find any patients in that. Try describing them more explicitly or attach a clearer file.') });
+                }
+            } catch (error) {
+                this.aiMessages.push({ role: 'assistant', text: error.message || this.t('Something went wrong.') });
+            } finally {
+                this.aiBusy = false;
+                this.aiAttachments = [];
+            }
+        },
+        
+        rowErrors(row) {
+            // Mirrors validateRow() in src/services/ai-import.js; kept local so
+            // the markup stays synchronous and cheap.
+            const errors = [];
+            if (!row.name || !String(row.name).trim()) errors.push(this.t('Name is required'));
+            const nid = String(row.national_id ?? '').trim();
+            if (!nid) errors.push(this.t('National ID is required'));
+            else if (!/^\d{14}$/.test(nid)) errors.push(this.t('National ID must be 14 digits'));
+            if (row.date_of_birth && !/^\d{4}-\d{2}-\d{2}$/.test(String(row.date_of_birth))) errors.push(this.t('Invalid date'));
+            if (row.visit_date && !/^\d{4}-\d{2}-\d{2}$/.test(String(row.visit_date))) errors.push(this.t('Invalid date'));
+            if (row.age !== null && row.age !== '' && row.age !== undefined && !Number.isFinite(Number(row.age))) errors.push(this.t('Age must be a number'));
+            if (row.price !== null && row.price !== '' && row.price !== undefined && !Number.isFinite(Number(row.price))) errors.push(this.t('Price must be a number'));
+            if (row.source_of_money && !['charity', 'country'].includes(row.source_of_money)) errors.push(this.t('Invalid source'));
+            if (row.marital_status && !['single', 'married', 'divorced', 'widowed'].includes(row.marital_status)) errors.push(this.t('Invalid marital status'));
+            if (row.governorate && !this.governorates.includes(row.governorate)) errors.push(this.t('Unknown governorate'));
+            return errors;
+        },
+        
+        acceptableAiDraftCount() {
+            return this.aiDraftRows.filter((row) => !this.rowErrors(row).length).length;
+        },
+        
+        // Ask the (admin-checked) function whether OPENROUTER_API_KEY is set;
+        // it answers without burning any tokens.
+        async refreshAiKeyStatus() {
+            this.aiKeyStatus = 'checking';
+            try {
+                const fnUrl = import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, '') + '/functions/v1/ai-import';
+                const token = (await supabase().auth.getSession()).data.session?.access_token;
+                const res = await fetch(fnUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ contents: [] }),
+                });
+                const data = await res.json().catch(() => ({}));
+                this.aiKeyStatus = (res.ok && data.status === 'set') ? 'set' : 'missing';
+            } catch (e) {
+                console.error('ai key status failed:', e);
+                this.aiKeyStatus = 'missing';
+            }
+        },
+        
+        async saveAiDraft() {
+            if (this.aiSaving) return;
+            const ready = this.aiDraftRows.filter((row) => !this.rowErrors(row).length);
+            if (!ready.length) return;
+            
+            this.aiSaving = true;
+            try {
+                const { sanitizeForInsert } = await import('./services/ai-import.js');
+                const { createPatient } = await import('./services/patients.js');
+                const accepted = [];
+                const failed = [];
+                for (const row of ready) {
+                    try {
+                        const created = await createPatient({
+                            ...sanitizeForInsert(row),
+                            section: this.profile?.section || row.section || null,
+                            user_id: this.user.id,
+                        });
+                        accepted.push(created);
+                    } catch (e) {
+                        failed.push({ name: row.name, reason: e.message });
+                    }
+                }
+                
+                // Keep only the rows that failed, so the user can fix them.
+                this.aiDraftRows = this.aiDraftRows.filter((row) => this.rowErrors(row).length || failed.some((f) => f.name === row.name));
+                
+                const summary = this.t('Imported :count patient(s).', { count: accepted.length });
+                if (failed.length) {
+                    this.showAlert(`${summary} ${this.t(':count row(s) failed:', { count: failed.length })} ${failed.map((f) => `${f.name}: ${f.reason}`).join(' | ')}`, 'warning');
+                } else {
+                    this.showAlert(summary);
+                }
+                if (accepted.length) await this.loadPatients();
+            } finally {
+                this.aiSaving = false;
             }
         },
         
