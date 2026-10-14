@@ -104,11 +104,24 @@ i.bi {
 
 .global-search-input {
     border-radius: 999px !important;
-    padding-inline-start: 2.4rem;
+    /* Bootstrap's .form-control padding shorthand wins on cascade order;
+       the search icon sits inside the input, so the side padding must hold. */
+    padding-inline-start: 2.4rem !important;
+    padding-inline-end: 2.4rem !important;
     background-color: rgba(255, 255, 255, 0.12) !important;
     border-color: rgba(255, 255, 255, 0.35) !important;
     color: #fff;
     min-width: 0;
+}
+
+/* Bootstrap's own native search input (type="search") uses ::-webkit-search-
+   decorations which eat into the side padding area on some engines; clear it
+   so the leading icon and trailing spinner are never overlapped by the
+   browser's own clear button. */
+.global-search-input::-webkit-search-cancel-button,
+.global-search-input::-webkit-search-decoration {
+    -webkit-appearance: none;
+    appearance: none;
 }
 
 .global-search-input::placeholder {
@@ -131,6 +144,14 @@ i.bi {
     transform: translateY(-50%);
     color: rgba(255, 255, 255, 0.75);
     pointer-events: none;
+}
+
+/* The stylesheet's direction-agnostic icon rule (i.bi { margin-inline:
+   0.35em !important }) shifts the absolutely-positioned icons sideways and
+   left them sitting under the placeholder text. Anchored glyphs belong
+   exactly at inset-inline-*; strip the margin inside the search box. */
+.global-search i.bi {
+    margin-inline: 0 !important;
 }
 
 .global-search-spinner {

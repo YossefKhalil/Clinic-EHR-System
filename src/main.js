@@ -520,6 +520,9 @@ function app() {
                 ...this.patientForm,
                 age: toNullableNumber(this.patientForm.age),
                 price: toNullableNumber(this.patientForm.price),
+                // Postgres date columns reject '' outright ("invalid input
+                // syntax for type date"), so empty date fields go as null.
+                date_of_birth: this.patientForm.date_of_birth ? String(this.patientForm.date_of_birth).slice(0, 10) : null,
                 visit_date: this.patientForm.visit_date ? String(this.patientForm.visit_date).slice(0, 10) : null,
                 notes: this.patientNotes.map(n => n.trim()).filter(Boolean),
                 is_completed: this.editingPatient?.is_completed ?? false,
