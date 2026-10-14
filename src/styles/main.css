@@ -132,7 +132,10 @@ i.bi {
 }
 
 @media (max-width: 991.98px) {
-    .container {
+    /* Clear the fixed bottom bar. Scoped to the page container on purpose:
+       a bare `.container` also matches the navbar's own container, and the
+       70px it adds there showed up as a blue band under the topbar on mobile. */
+    .page-container {
         padding-bottom: 70px;
     }
 }
