@@ -1284,6 +1284,24 @@
                                         <div class="form-text text-muted" x-text="t('Leave empty if this user is a Super Admin.')"></div>
                                     </div>
 
+                                    <template x-if="editingUser?.is_admin">
+                                        <div class="mb-4">
+                                            <label for="uf-openrouter" class="form-label fw-semibold">
+                                                OpenRouter API Key
+                                                <template x-if="editingUser">
+                                                    <span class="text-muted fw-normal" x-text="t('(leave blank to keep current)')"></span>
+                                                </template>
+                                            </label>
+                                            <div class="input-group">
+                                                <span class="input-group-text bg-light"><i class="bi bi-key"></i></span>
+                                                <input type="password" id="uf-openrouter" class="form-control" x-model="userForm.openrouter_api_key" placeholder="sk-or-v1-...">
+                                            </div>
+                                            <div class="form-text text-muted">
+                                                Set this on a Super Admin account so the AI bulk import can call the OpenRouter model without exposing any key to the browser. The key is stored server-side and read only by the Edge Function.
+                                            </div>
+                                        </div>
+                                    </template>
+
                                     <hr class="text-muted opacity-25">
 
                                     <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-3">

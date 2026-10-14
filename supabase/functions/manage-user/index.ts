@@ -96,6 +96,21 @@ Deno.serve(async (req) => {
             return json({ ok: true });
         }
 
+        if (action === 'setAiKey') {
+            const { id, openrouter_api_key } = body;
+            if (!id || !openrouter_api_key) return json({ error: 'id and openrouter_api_key are required' }, 400);
+
+            const { data: profile, error: pErr } = await supabase
+                .from('users')
+                .update({ openrouter_api_key })
+                .eq('id', id)
+                .select()
+                .single();
+            if (pErr) return json({ error: pErr.message }, 400);
+
+            return json({ user: profile });
+        }
+
         return json({ error: 'Unknown action' }, 400);
     } catch (e) {
         return json({ error: e.message }, 500);

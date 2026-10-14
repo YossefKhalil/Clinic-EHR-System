@@ -770,7 +770,7 @@ function app() {
         
         editUser(u) {
             this.editingUser = u;
-            this.userForm = { name: u.name, email: u.email, password: '', is_admin: !!u.is_admin, section: u.section || '' };
+            this.userForm = { name: u.name, email: u.email, password: '', is_admin: !!u.is_admin, section: u.section || '', openrouter_api_key: u.openrouter_api_key || '' };
             this.currentPage = 'user-form';
         },
         
@@ -778,6 +778,10 @@ function app() {
             const { createUser, updateUser } = await import('./services/users.js');
             try {
                 if (this.editingUser) {
+                    // Persist OpenRouter key changes without touching the password.
+                    if (typeof this.userForm.openrouter_api_key === 'string') {
+                        await setUserAiKey(this.editingUser.id, this.userForm.openrouter_api_key);
+                    }
                     await updateUser(this.editingUser.id, this.userForm);
                     this.showAlert(this.t('user updated successfully'));
                 } else {
