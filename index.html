@@ -358,6 +358,11 @@
                         </h2>
                     </div>
                     <div class="col-md-6 text-end">
+                        <button class="btn btn-success shadow-sm me-2" @click="exportPatients()" :disabled="exporting">
+                            <span x-show="exporting" class="spinner-border spinner-border-sm me-1" x-cloak></span>
+                            <i class="bi bi-file-earmark-spreadsheet" x-show="!exporting"></i>
+                            <span x-text="exporting ? t('Preparing...') : t('Export Excel')"></span>
+                        </button>
                         <button class="btn btn-primary shadow-sm" @click="openPatientForm()">
                             <i class="bi bi-person-plus-fill me-1"></i> <span x-text="t('Add New Patient')"></span>
                         </button>

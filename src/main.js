@@ -79,6 +79,7 @@ function app() {
         
         // Navbar search
         globalSearch: '',
+        exporting: false,
         globalSearchFocused: false,
         globalSearchLoading: false,
         globalSearchResults: [],
@@ -411,6 +412,26 @@ function app() {
             }
         },
         
+        // Export every row the current viewer is allowed to see (same RLS
+        // scope as the on-screen table; active filters are honored too).
+        async exportPatients() {
+            if (this.exporting) return;
+            this.exporting = true;
+            try {
+                const { exportPatientsToExcel } = await import('./services/export.js');
+                const noEmpty = {};
+                Object.entries(this.patientFilters).forEach(([k, v]) => {
+                    if (v !== '' && v !== null && v !== undefined) noEmpty[k] = v;
+                });
+                const filename = await exportPatientsToExcel(noEmpty, this.isSuperAdmin, this.profile?.section);
+                this.showAlert(this.t('Export ready:') + ' ' + filename);
+            } catch (error) {
+                this.showAlert(error.message || 'Export failed', 'danger');
+            } finally {
+                this.exporting = false;
+            }
+        },
+        
         formatMoney(value) {
             if (value === null || value === undefined || value === '') return '0.00';
             return Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -469,6 +490,14 @@ function app() {
             };
         },
         
+        // The RLS insert policy requires either an admin row or a matching
+        // section; an empty-string section would satisfy neither and Postgres
+        // answers with the opaque row-level-security message.
+        validatePatientForm() {
+            if (this.isSuperAdmin || this.profile?.section) return null;
+            return this.t('Your account has no clinic section assigned. Ask a Super Admin to set your section or grant you administrator access.');
+        },
+        
         async openPatientForm() {
             this.editingPatient = null;
             this.patientForm = this.newPatientForm();
@@ -515,9 +544,14 @@ function app() {
         },
         
         async submitPatientForm() {
+            const blocked = this.validatePatientForm();
+            if (blocked) { this.showAlert(blocked, 'danger'); return; }
+
             const { createPatient, updatePatient } = await import('./services/patients.js');
             const payload = {
                 ...this.patientForm,
+                // 'agamy'/'dekhila' or NULL — never '' (CHECK constraint).
+                section: this.patientForm.section || null,
                 age: toNullableNumber(this.patientForm.age),
                 price: toNullableNumber(this.patientForm.price),
                 // Postgres date columns reject '' outright ("invalid input

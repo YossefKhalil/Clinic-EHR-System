@@ -166,5 +166,9 @@
     "By Source of Money": "By Source of Money",
     "Search patients...": "Search patients...",
     "See all results": "See all results",
-    "Search any patient field...": "Search any patient field..."
+    "Search any patient field...": "Search any patient field...",
+    "Your account has no clinic section assigned. Ask a Super Admin to set your section or grant you administrator access.": "Your account has no clinic section assigned. Ask a Super Admin to set your section or grant you administrator access.",
+    "Export Excel": "Export Excel",
+    "Preparing...": "Preparing...",
+    "Export ready:": "Export ready:"
 }
