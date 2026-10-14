@@ -366,17 +366,9 @@
 
                 <form @submit.prevent="handleFilter()" class="mb-4">
                     <div class="row g-2 align-items-end">
-                        <div class="col-md-2">
-                            <label class="form-label text-muted small mb-1" x-text="t('Filter By')"></label>
-                            <select class="form-select form-select-sm shadow-sm" x-model="patientFilters.filter_by">
-                                <option value="name" x-text="t('Patient Name')"></option>
-                                <option value="national_id" x-text="t('National ID')"></option>
-                                <option value="mobile" x-text="t('Mobile No.')"></option>
-                            </select>
-                        </div>
                         <div class="col-md-3">
                             <label class="form-label text-muted small mb-1" x-text="t('Search')"></label>
-                            <input type="text" class="form-control form-control-sm shadow-sm" x-model="patientFilters.search" :placeholder="t('Search by patient name...')">
+                            <input type="text" class="form-control form-control-sm shadow-sm" x-model="patientFilters.search" :placeholder="t('Search any patient field...')">
                         </div>
                         <div class="col-md-2">
                             <label class="form-label text-muted small mb-1" x-text="t('Status')"></label>
