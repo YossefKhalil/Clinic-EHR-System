@@ -177,6 +177,17 @@ function app() {
             this.isSuperAdmin = !!this.profile?.is_admin;
         },
         
+        // Role = what the account is allowed to do, straight from the users
+        // table: an admin row sees and touches every clinic's data, a section
+        // staff row only their own clinic's, and neither means a plain viewer
+        // with no granted scope (reads permitted by "Users can view own
+        // profile" alone). Shown under the name on the dashboard.
+        roleLabel() {
+            if (this.isSuperAdmin) return this.t('Super Admin');
+            if (this.profile?.section) return this.t('Section') + ': ' + this.t(this.profile.section === 'agamy' ? 'Agamy' : 'Dekhila');
+            return this.t('No role assigned');
+        },
+        
         t(key, params = {}) {
             return translate(key, params);
         },

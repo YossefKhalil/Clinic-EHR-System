@@ -161,14 +161,16 @@
     "Grand Total": "الإجمالي الكلي",
     "EGP": "ج.م",
     "patients": "مريض",
-    "By Section": "حسب القسم",
+    "By Section": "حسب الشعبة",
     "Total Revenue": "إجمالي الإيرادات",
-    "By Source of Money": "حسب مصدر المال",
+    "By Source of Money": "حسب مصدر التمويل",
     "Search patients...": "ابحث في المرضى...",
     "See all results": "كل النتائج",
     "Search any patient field...": "ابحث في أي حقل...",
     "Your account has no clinic section assigned. Ask a Super Admin to set your section or grant you administrator access.": "لا توجد شعبة مخصصة لحسابك. اطلب من المسؤول تعيين شعبتك أو منحك صلاحيات المسؤول.",
     "Export Excel": "تصدير Excel",
     "Preparing...": "جارٍ التحضير...",
-    "Export ready:": "تم تجهيز الملف:"
+    "Export ready:": "تم تجهيز الملف:",
+    "Super Admin": "مسؤول عام",
+    "No role assigned": "لا يوجد دور محدد"
 }

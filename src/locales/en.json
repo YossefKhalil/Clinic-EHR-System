@@ -170,5 +170,7 @@
     "Your account has no clinic section assigned. Ask a Super Admin to set your section or grant you administrator access.": "Your account has no clinic section assigned. Ask a Super Admin to set your section or grant you administrator access.",
     "Export Excel": "Export Excel",
     "Preparing...": "Preparing...",
-    "Export ready:": "Export ready:"
+    "Export ready:": "Export ready:",
+    "Super Admin": "Super Admin",
+    "No role assigned": "No role assigned"
 }
