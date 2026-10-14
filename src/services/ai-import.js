@@ -110,8 +110,11 @@ export function validateRow(row, index = 0) {
     if (row.marital_status && !MARITAL.has(row.marital_status)) errors.push(`marital_status must be one of ${[...MARITAL].join('/')}`);
     if (row.source_of_money && !MONEY.has(row.source_of_money)) errors.push(`source_of_money must be charity or country`);
     if (row.governorate && !GOVERNORATES.has(row.governorate)) errors.push(`governorate "${row.governorate}" is not in the list`);
-    if (row.age !== null && row.age !== '' && !Number.isFinite(Number(row.age))) errors.push('age must be a number');
-    if (row.price !== null && row.price !== '' && !Number.isFinite(Number(row.price))) errors.push('price must be a number');
+    // Optional: only reject a value when one was actually provided. The model
+    // omits fields entirely (undefined) as well as sending null, so both count
+    // as "not provided" — and both become correct SQL NULLs at insert time.
+    if (row.age !== null && row.age !== undefined && row.age !== '' && !Number.isFinite(Number(row.age))) errors.push('age must be a number');
+    if (row.price !== null && row.price !== undefined && row.price !== '' && !Number.isFinite(Number(row.price))) errors.push('price must be a number');
 
     const id = `row-${index}`;
     return { id, errors, tabindex: index };
