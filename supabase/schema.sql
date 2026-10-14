@@ -155,6 +155,31 @@ DROP POLICY IF EXISTS "Section users can delete patients in their section" ON pu
 CREATE POLICY "Section users can delete patients in their section" ON public.patients
     FOR DELETE USING (public.is_section_user(patients.section));
 
+-- Any-value search support: a computed field that renders every patient
+-- column as one space-joined text blob. PostgREST exposes it automatically
+-- (GET /patients?anysearch=ilike.*term*), so one search box can match a name,
+-- a phone number, a year, an id, or a note without knowing which column.
+-- Casts live inside the function because PostgREST does not allow casting
+-- columns in filter expressions, and ilike on int4/timestamptz/jsonb raises
+-- "operator does not exist".
+-- It only reads the row itself, so no SECURITY DEFINER and no RLS change:
+-- callers still only ever see patient rows their policies allow.
+CREATE OR REPLACE FUNCTION public.anysearch(p public.patients)
+RETURNS TEXT
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT concat_ws(
+        ' ',
+        p.name, p.national_id, p.mobile, p.governorate, p.address,
+        p.problem, p.solution, p.follower, p.marital_status,
+        p.source_of_money, p.section,
+        p.age, p.children_count, p.visit_date, p.created_at, p.price,
+        CASE WHEN p.is_completed THEN 'complete completed' ELSE 'pending' END,
+        p.notes
+    );
+$$;
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_patients_national_id ON public.patients(national_id);
 CREATE INDEX IF NOT EXISTS idx_patients_user_id ON public.patients(user_id);

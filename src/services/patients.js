@@ -11,9 +11,14 @@ export async function getPatients(filters = {}, isSuperAdmin = false, userSectio
     }
     
     if (filters.search) {
-        const field = filters.filter_by || 'name';
-        const allowed = ['name', 'national_id', 'mobile'];
-        if (allowed.includes(field)) {
+        const field = filters.filter_by || 'all';
+        if (field === 'all') {
+            // Any-value search across every patient field at once via the
+            // anysearch computed field (see schema.sql). It renders every
+            // column, including numbers/dates/jsonb, as text.
+            const term = `%${filters.search}%`;
+            query = query.ilike('anysearch', term);
+        } else if (['name', 'national_id', 'mobile'].includes(field)) {
             query = query.ilike(field, `%${filters.search}%`);
         }
     }

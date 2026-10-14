@@ -25,6 +25,51 @@
                     <span class="navbar-toggler-icon"></span>
                 </button>
                 <div class="collapse navbar-collapse" id="navbarNav">
+                    <!-- Global patient search: one box, no options. -->
+                    <div class="global-search position-relative" @click.outside="closeGlobalSearch({ clearFocus: true })">
+                        <div class="position-relative">
+                            <i class="bi bi-search global-search-icon" aria-hidden="true"></i>
+                            <input
+                                type="search"
+                                class="form-control global-search-input"
+                                x-model="globalSearch"
+                                @input.debounce="onGlobalInput()"
+                                @focus="globalSearchFocused = true"
+                                @keydown="onGlobalKeydown($event)"
+                                :placeholder="t('Search patients...')"
+                                :aria-label="t('Search patients...')"
+                                autocomplete="off"
+                            >
+                            <span class="global-search-spinner spinner-border spinner-border-sm text-light" x-show="globalSearchLoading" x-cloak></span>
+                        </div>
+                        <div class="global-search-menu list-group shadow" x-show="globalSearchFocused && globalSearch && (globalSuggestions().length || globalSearchLoading)" x-cloak>
+                            <template x-for="(patient, index) in globalSuggestions()" :key="patient.id">
+                                <button type="button" class="list-group-item list-group-item-action global-search-item"
+                                    :class="{ 'active': index === globalSearchSelectedIndex }"
+                                    @click="pickGlobalResult(patient)"
+                                    @mousemove="globalSearchSelectedIndex = index"
+                                >
+                                    <div class="d-flex align-items-center gap-2">
+                                        <i class="bi bi-person-circle text-primary fs-5"></i>
+                                        <div class="flex-grow-1 text-start">
+                                            <div class="fw-semibold" x-text="patient.name"></div>
+                                            <div class="small text-muted d-flex flex-wrap gap-2">
+                                                <span x-show="patient.national_id"><i class="bi bi-credit-card-2-front"></i> <span x-text="patient.national_id"></span></span>
+                                                <span x-show="patient.mobile"><i class="bi bi-telephone"></i> <span x-text="patient.mobile"></span></span>
+                                                <span x-show="patient.section"><i class="bi bi-building"></i> <span x-text="patient.section === 'agamy' ? t('Agamy') : t('Dekhila')"></span></span>
+                                                <span x-show="patient.governorate"><i class="bi bi-geo-alt"></i> <span x-text="patient.governorate"></span></span>
+                                            </div>
+                                        </div>
+                                        <span class="badge" :class="patient.is_completed ? 'bg-success' : 'bg-secondary'" x-text="patient.is_completed ? t('Completed') : t('Pending')"></span>
+                                    </div>
+                                </button>
+                            </template>
+                            <button type="button" class="list-group-item list-group-item-action text-primary fw-semibold global-search-item" @click="runGlobalList()">
+                                <i class="bi bi-arrow-right-short"></i>
+                                <span x-text="t('See all results')"></span>
+                            </button>
+                        </div>
+                    </div>
                     <ul class="navbar-nav ms-auto align-items-center">
                         <li class="nav-item">
                             <span class="nav-link" :class="{ 'active fw-semibold': currentPage === 'dashboard' }" @click="navigate('dashboard')" style="cursor:pointer">
@@ -1112,6 +1157,10 @@
             <button class="bottom-bar-item" :class="{ 'active': currentPage === 'patients' }" @click="navigate('patients')">
                 <i class="bi bi-people"></i>
                 <small x-text="t('Patients')"></small>
+            </button>
+            <button class="bottom-bar-item" @click="openMobileSearch()">
+                <i class="bi bi-search"></i>
+                <small x-text="t('Search')"></small>
             </button>
             <button class="bottom-bar-item" :class="{ 'active': currentPage === 'patient-form' }" @click="openPatientForm()">
                 <i class="bi bi-plus-circle-fill"></i>

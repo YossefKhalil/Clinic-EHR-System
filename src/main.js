@@ -7,6 +7,7 @@ import { initSupabase, supabase, getCurrentUser, signIn, signOut } from './servi
 import { initCloudinary } from './services/cloudinary.js';
 import { getDashboardStats, getRecentPatients } from './services/dashboard.js';
 import { getPatients, deletePatient, togglePatientStatus, FOLLOWERS, GOVERNORATES } from './services/patients.js';
+import { patientMatchesQuery } from './services/fuzzy.js';
 import { getPriceStats, SECTION_COLORS, SECTION_ICONS, SOURCE_COLORS, SOURCE_ICONS } from './services/prices.js';
 
 window.Alpine = Alpine;
@@ -75,6 +76,15 @@ function app() {
         patients: [],
         patientsLoading: false,
         patientFilters: { search: '', filter_by: 'name', section: '', source_of_money: '', follower: '', is_completed: '', date_from: '', date_to: '' },
+        
+        // Navbar search
+        globalSearch: '',
+        globalSearchFocused: false,
+        globalSearchLoading: false,
+        globalSearchResults: [],
+        globalSearchSelectedIndex: -1,
+        globalSearchDebounce: null,
+        globalSearchAbort: null,
         
         // Prices
         priceStats: null,
@@ -223,6 +233,7 @@ function app() {
         },
         
         async navigate(page) {
+            if (page !== 'patients') this.closeGlobalSearch();
             this.currentPage = page;
             try {
                 if (page === 'dashboard') await this.showDashboard();
@@ -272,6 +283,108 @@ function app() {
         
         async handleFilter() {
             await this.loadPatients();
+        },
+        
+        // Navbar search. One box, zero options: it searches every patient
+        // field at once server-side (anysearch) and shows a handful of live
+        // suggestions; picking one opens that patient, Enter opens the full
+        // filtered list.
+        async onGlobalInput() {
+            clearTimeout(this.globalSearchDebounce);
+            const query = (this.globalSearch || '').trim();
+            if (!query) { this.closeGlobalSearch(); return; }
+            
+            this.globalSearchDebounce = setTimeout(async () => {
+                this.globalSearchLoading = true;
+                try {
+                    const results = await getPatients(
+                        { search: query, filter_by: 'all' },
+                        this.isSuperAdmin, this.profile?.section
+                    );
+                    this.globalSearchResults = results.slice(0, 5);
+                    this.globalSearchSelectedIndex = -1;
+                } catch (error) {
+                    console.error('Global search failed:', error);
+                    this.globalSearchResults = [];
+                } finally {
+                    this.globalSearchLoading = false;
+                }
+            }, 250);
+        },
+        
+        // Instant local filtering while the request is in flight, so the
+        // dropdown feels immediate even on slow connections.
+        blurredGlobalResults() {
+            const query = (this.globalSearch || '').trim();
+            if (!query) return [];
+            return this.patients.slice(0, 50)
+                .filter((patient) => patientMatchesQuery(patient, query, (key) => FOLLOWERS[key] || key))
+                .slice(0, 5);
+        },
+        
+        globalSuggestions() {
+            return this.globalSearchResults.length
+                ? this.globalSearchResults
+                : this.blurredGlobalResults();
+        },
+        
+        onGlobalKeydown(event) {
+            const suggestions = this.globalSuggestions();
+            if (event.key === 'Escape') { this.closeGlobalSearch({ clearFocus: true }); return; }
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                this.globalSearchSelectedIndex = Math.min(
+                    this.globalSearchSelectedIndex + 1, suggestions.length - 1);
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                this.globalSearchSelectedIndex = Math.max(this.globalSearchSelectedIndex - 1, -1);
+            } else if (event.key === 'Enter') {
+                event.preventDefault();
+                if (this.globalSearchSelectedIndex >= 0 && suggestions[this.globalSearchSelectedIndex]) {
+                    this.pickGlobalResult(suggestions[this.globalSearchSelectedIndex]);
+                } else {
+                    this.runGlobalList();
+                }
+            }
+        },
+        
+        async runGlobalList() {
+            this.closeGlobalSearch({ keepQuery: true });
+            this.patientFilters = {
+                search: this.globalSearch,
+                filter_by: 'name',
+                section: '', source_of_money: '', follower: '',
+                is_completed: '', date_from: '', date_to: '',
+            };
+            await this.navigate('patients');
+            // anysearch is the server-side matcher for the free-text box; the
+            // filtered list uses it too, so both entry points agree.
+            this.patientFilters.filter_by = 'all';
+            await this.loadPatients();
+        },
+        
+        async pickGlobalResult(patient) {
+            const targetId = patient.id;
+            this.closeGlobalSearch({ keepQuery: false, clearFocus: true });
+            this.globalSearch = '';
+            await this.navigate('patients');
+            const found = this.patients.find((p) => p.id === targetId);
+            if (found) { await this.showPatient(found); }
+        },
+        
+        closeGlobalSearch({ keepQuery = false, clearFocus = false } = {}) {
+            clearTimeout(this.globalSearchDebounce);
+            if (!keepQuery) this.globalSearchResults = [];
+            this.globalSearchSelectedIndex = -1;
+            if (clearFocus) this.globalSearchFocused = false;
+        },
+        
+        // On small screens the navbar collapses away, so expose the search
+        // from the bottom bar: open the patients page and focus its search.
+        async openMobileSearch() {
+            await this.navigate('patients');
+            await this.$nextTick();
+            document.querySelector('input[x-model="patientFilters.search"]')?.focus();
         },
         
         async resetFilters() {
