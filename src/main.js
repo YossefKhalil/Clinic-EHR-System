@@ -143,7 +143,15 @@ function app() {
                 this.localeLabel = t('locale_label');
                 
                 if (this.isLoggedIn) {
-                    await this.showDashboard();
+                    // A persisted session must land on the dashboard rather than
+                    // back on the login screen, and a failed fetch must not leave
+                    // the whole app stuck behind the page loader.
+                    this.currentPage = 'dashboard';
+                    try {
+                        await this.showDashboard();
+                    } catch (error) {
+                        console.error('Dashboard load failed:', error);
+                    }
                 }
             } catch (error) {
                 console.error('Init error:', error);
@@ -162,21 +170,46 @@ function app() {
             return translate(key, params);
         },
         
+        // Supabase answers the same way for a wrong password and an unknown
+        // email, and that vagueness is worth keeping — but the user still needs
+        // to be told the credentials were rejected, in their own language.
+        loginErrorMessage(error) {
+            const message = String(error?.message || '');
+            const rejected = error?.status === 400 || error?.status === 401
+                || /invalid login credentials|invalid credentials/i.test(message);
+
+            return rejected ? this.t('Invalid email or password') : this.t('Login failed. Please try again.');
+        },
+        
         async handleLogin() {
             this.loginLoading = true;
             this.loginError = null;
             
             try {
                 await signIn(this.loginForm.email, this.loginForm.password);
+            } catch (error) {
+                // Credentials were rejected. Say so on the form instead of
+                // leaving the page looking frozen with no feedback at all.
+                this.loginError = this.loginErrorMessage(error);
+                this.loginLoading = false;
+                return;
+            }
+            
+            // The credentials were accepted, so the user is in from here on.
+            // Nothing below may strand them on the login screen: a missing
+            // profile row or a failed dashboard fetch is reported, not fatal.
+            this.updateAuthState();
+            this.loginForm = { email: '', password: '' };
+            this.currentPage = 'dashboard';
+            this.loginLoading = false;
+            
+            try {
                 this.profile = await loadUserProfile();
                 this.updateAuthState();
-                this.currentPage = 'dashboard';
-                this.loginForm = { email: '', password: '' };
-                this.showDashboard();
+                await this.showDashboard();
             } catch (error) {
-                this.loginError = error.message || 'Login failed';
-            } finally {
-                this.loginLoading = false;
+                console.error('Post-login setup failed:', error);
+                this.showAlert(this.t('You are signed in, but your profile could not be loaded.'), 'warning');
             }
         },
         

@@ -76,6 +76,20 @@
     display: none !important;
 }
 
+/*
+ * Icon spacing — direction-agnostic.
+ *
+ * Bootstrap Icons render as inline glyphs with no side bearing, so an icon in
+ * the middle of a text run butts up against its label. The markup's `me-*`
+ * utilities are physical (margin-right), which in RTL pushes the icon *away*
+ * from the label instead of separating it — hence icons stuck to text on the
+ * Arabic pages. `margin-inline` follows the reading direction, and being
+ * equal on both sides it also leaves standalone centred icons centred.
+ */
+i.bi {
+    margin-inline: 0.35em !important;
+}
+
 /* Mobile bottom bar */
 .mobile-bottom-bar {
     position: fixed;

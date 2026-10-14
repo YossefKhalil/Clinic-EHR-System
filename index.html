@@ -16,7 +16,9 @@
     <div x-show="!loading" x-cloak>
 
         <!-- NAVBAR (desktop) -->
-        <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm mb-4" x-show="isLoggedIn">
+        <!-- Bottom margin only from lg up: below that the bar is collapsed and a
+             1.5rem gap under it just looks like a rendering bug. -->
+        <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm mb-0 mb-lg-4" x-show="isLoggedIn">
             <div class="container">
                 <span class="navbar-brand" @click="navigate('dashboard')" style="cursor:pointer">
                     <i class="bi bi-heart-pulse-fill me-2"></i><span x-text="t('HealthCare Clinic')"></span>
@@ -75,6 +77,12 @@
 
         <div class="container">
 
+            <!-- Global alert bar (showAlert). Auto-hides after a few seconds. -->
+            <div class="alert alert-dismissible fade show" :class="'alert-' + alertType" x-show="alertMessage" x-cloak x-transition role="alert" aria-live="polite">
+                <span x-text="alertMessage"></span>
+                <button type="button" class="btn-close" @click="alertMessage = null" aria-label="Close"></button>
+            </div>
+
             <!-- LOGIN PAGE -->
             <div x-show="currentPage === 'login'" x-cloak>
                 <div class="d-flex flex-column justify-content-center align-items-center min-vh-100 py-4">
@@ -85,6 +93,10 @@
                     </div>
                     <div class="w-100 mt-4 px-4 py-4 bg-white shadow overflow-hidden rounded" style="max-width: 28rem;">
                         <form @submit.prevent="handleLogin()">
+                            <div class="alert alert-danger py-2 d-flex align-items-start gap-2" x-show="loginError" x-cloak x-transition role="alert" aria-live="assertive">
+                                <i class="bi bi-exclamation-circle-fill mt-1"></i>
+                                <span x-text="loginError"></span>
+                            </div>
                             <div class="mb-3">
                                 <label class="form-label" x-text="t('Email')"></label>
                                 <input id="email" type="email" class="form-control" x-model="loginForm.email" required autofocus autocomplete="username">
