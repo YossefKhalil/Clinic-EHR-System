@@ -1,0 +1,59 @@
+name: Supabase Schema
+
+# Applies supabase/schema.sql to the hosted database.
+#
+# The schema file is deliberately idempotent (CREATE ... IF NOT EXISTS,
+# DROP POLICY IF EXISTS + CREATE POLICY), so the whole thing can be re-applied
+# on every change instead of being pasted into the SQL editor by hand.
+#
+# Required repository secret:
+#   SUPABASE_DB_URL - Postgres connection string for the project, e.g.
+#     postgresql://postgres.<project-ref>:<db-password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+#   Use the shared *session* pooler on port 5432 (or the direct connection).
+#   Do not use the transaction pooler on port 6543: it cannot run DDL reliably.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'supabase/schema.sql'
+      - '.github/workflows/supabase-schema.yml'
+  workflow_dispatch:
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check database secret is configured
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::Repository secret SUPABASE_DB_URL is not set. Add it under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+      - name: Apply schema
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          psql "$SUPABASE_DB_URL" \
+            --set ON_ERROR_STOP=1 \
+            --single-transaction \
+            --no-psqlrc \
+            --file supabase/schema.sql
+
+      - name: Verify schema
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          psql "$SUPABASE_DB_URL" --set ON_ERROR_STOP=1 --no-psqlrc -c "
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'patients'
+              AND column_name IN ('age', 'mobile')
+            ORDER BY column_name;
+          "

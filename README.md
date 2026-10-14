@@ -1,8 +1,10 @@
 # Clinic EHR System — Lightning
 
-A static JAMstack Electronic Health Record (EHR) system for multi-section clinics, rebuilt from [BelalAhmed2214/health](https://github.com/BelalAhmed2214/health) as a modern SPA.
+A free, cloud-native Electronic Health Record (EHR) system for multi-section clinics.
 
-Originally a Laravel + Blade application, this version ports the full UI pixel-perfectly to **Vite + Alpine.js + Bootstrap 5.3** with **Supabase** (database & auth) and **Cloudinary** (image uploads), deployed to **Cloudflare Pages**.
+**Goal.** Migrate the project off a self-hosted Laravel stack and make it fully cloud-based with zero server to own or scale: Supabase for the database and authentication, Cloudinary for image storage, Cloudflare Pages for hosting. Cloudflare Pages is a static host, so the app is rebuilt as a client-rendered SPA instead of a server-side Laravel + Blade app.
+
+It is rebuilt from [BelalAhmed2214/health](https://github.com/BelalAhmed2214/health) by porting the same UI onto **Vite + Alpine.js + Bootstrap 5.3** with **Supabase** (database & auth) and **Cloudinary** (image uploads). A first-class goal of the rewrite is that it stays fast and responsive: mostly static HTML/CSS from a CDN-backed static host, with any client-side work kept lightweight and lazy.
 
 ## Features
 
@@ -31,9 +33,11 @@ Originally a Laravel + Blade application, this version ports the full UI pixel-p
 ### Prerequisites
 
 - Node.js 18+
-- A [Supabase](https://supabase.com) project
-- A [Cloudinary](https://cloudinary.com) account
-- A Cloudflare Pages project (optional, for deployment)
+- A [Supabase](https://supabase.com) project — database + Postgres Auth + (for user management) an Edge Function
+- A [Cloudinary](https://cloudinary.com) account — optional; only if you want patient photo uploads
+- A [Cloudflare Pages](https://pages.cloudflare.com) project — optional; the app runs locally without it
+
+Cloudflare Pages is a static host, so "moving off Laravel" means the app runs entirely from a **static build artifact** — no app server, no PHP, and no managed runtime to pay for. Everything live (data, auth, uploads, hosting) is a managed service.
 
 ### 1. Clone & Install
 
@@ -50,14 +54,53 @@ Copy `.env.example` to `.env` and fill in your credentials:
 ```
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
-VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 VITE_CLOUDINARY_CLOUD_NAME=your-cloud-name
 VITE_CLOUDINARY_UPLOAD_PRESET=clinic_ehr_uploads
 ```
 
 ### 3. Database Schema
 
-Run the SQL in `supabase/schema.sql` in your Supabase SQL Editor. This creates all tables, RLS policies, triggers, and indexes.
+The whole schema lives in `supabase/schema.sql`: tables, RLS policies, triggers,
+indexes, and the column migrations. The file is **idempotent** — running it on a
+database that already has the schema is a no-op, so it can be re-applied safely.
+
+**One-time setup**, pick either route:
+
+**Automated (push to `master` applies it).** Add one repository secret under
+*Settings → Secrets and variables → Actions*:
+
+| Secret | Value |
+| --- | --- |
+| `SUPABASE_DB_URL` | Postgres connection string, e.g. `postgresql://postgres.<project-ref>:<db-password>@aws-0-<region>.pooler.supabase.com:5432/postgres` |
+
+Use the shared **session** pooler on port `5432` (or the direct connection).
+GitHub runners are IPv4-only, so the direct `db.<ref>.supabase.co` host will not
+resolve unless your project has the IPv4 add-on — the session pooler works either
+way. Do **not** use the transaction pooler on port `6543`: it cannot reliably run
+DDL.
+
+`.github/workflows/supabase-schema.yml` then applies the schema with
+`psql --single-transaction --set ON_ERROR_STOP=1` whenever `supabase/schema.sql`
+changes, verifies the columns afterwards, and rolls the whole file back if any
+statement fails. Run it manually from *Actions → Supabase Schema → Run workflow*.
+
+**Manual.** Paste `supabase/schema.sql` into the Supabase SQL Editor and Run.
+
+Either way, re-running the file after a schema change is the repair path: it
+drops and recreates the RLS policies and backfills any `auth.users` rows that are
+missing a `public.users` profile row.
+
+> **Growing past one file?** Once you want versioned, ordered migrations, move to
+> the Supabase CLI (`supabase init`, `supabase link`, then `supabase migration new`
+> + `supabase db push` in CI). This project was set up by pasting SQL, so the
+> remote migration history is empty — run `supabase db pull` once and accept the
+> prompt to record it as already applied, otherwise `db push` will try to recreate
+> existing objects.
+
+> `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` are **build-time** variables
+> (`import.meta.env`, read in `src/services/supabase.js`). For Cloudflare Pages
+> they must be set in the Pages project's build environment variables, not in the
+> Worker's runtime variables.
 
 ### 4. Deploy Edge Function
 
@@ -75,6 +118,8 @@ Set the `SUPABASE_SERVICE_ROLE_KEY` secret in your Supabase project.
 npm run dev
 ```
 
+A local dev server is still the fastest way to iterate — Supabase is still the real backend. Cloudflare Pages is only for hosting the built artifact.
+
 ### 6. Build & Deploy
 
 ```bash
@@ -85,6 +130,8 @@ Output goes to `dist/`. Deploy to Cloudflare Pages with:
 
 - **Build command:** `npm run build`
 - **Output directory:** `dist`
+
+Since Cloudflare Pages only serves the static `dist/`, the build step does not depend on Supabase or Cloudinary being live — it can fail loudly at runtime if the env vars are missing, but it cannot fail at build time because of them.
 
 ## Project Structure
 
