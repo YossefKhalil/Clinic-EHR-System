@@ -559,10 +559,14 @@ function app() {
             if (blocked) { this.showAlert(blocked, 'danger'); return; }
 
             const { createPatient, updatePatient } = await import('./services/patients.js');
+            // Enum columns have CHECK constraints listing their allowed
+            // values, so '' is rejected ("violates check constraint").
+            // Send a real NULL for "not chosen" instead.
             const payload = {
                 ...this.patientForm,
-                // 'agamy'/'dekhila' or NULL — never '' (CHECK constraint).
                 section: this.patientForm.section || null,
+                source_of_money: this.patientForm.source_of_money || null,
+                marital_status: this.patientForm.marital_status || null,
                 age: toNullableNumber(this.patientForm.age),
                 price: toNullableNumber(this.patientForm.price),
                 // Postgres date columns reject '' outright ("invalid input

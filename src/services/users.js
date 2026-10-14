@@ -16,18 +16,35 @@ async function callManageUser(action, payload) {
     const fnUrl = import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, '') + '/functions/v1/manage-user';
     const token = (await supabase().auth.getSession()).data.session?.access_token;
 
-    const res = await fetch(fnUrl, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ action, ...payload }),
-    });
+    if (!token) {
+        throw new Error('Your session has expired. Please sign in again.');
+    }
+
+    let res;
+    try {
+        res = await fetch(fnUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ action, ...payload }),
+        });
+    } catch (e) {
+        // Browsers reduce CORS preflight failures, DNS errors and offline
+        // states to an opaque TypeError. Translate it into something the
+        // clinic staff can act on instead of "NetworkError when attempting
+        // to fetch resource".
+        console.error('manage-user request failed:', e);
+        throw new Error('Could not reach the user service. Check your connection or contact the administrator if this keeps happening.');
+    }
 
     if (!res.ok) {
         let msg = `HTTP ${res.status}`;
         try { msg = (await res.json()).error || msg; } catch {}
+        // A 401 here platform-side usually means the presented JWT was
+        // rejected (revoked session or too old); a plain re-login fixes it.
+        if (res.status === 401) msg = 'Your session was rejected. Please sign in again.';
         throw new Error(msg);
     }
 
