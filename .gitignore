@@ -1,6 +1,9 @@
 node_modules
 dist
 .env
+
+# Local-only dev config and the in-memory mock backend — never committed
+.local/
 *.log
 .DS_Store
 Thumbs.db
