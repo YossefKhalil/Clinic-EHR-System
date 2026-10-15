@@ -3,7 +3,7 @@ import { supabase } from './supabase.js';
 export async function getUsers() {
     const { data, error } = await supabase()
         .from('users')
-        .select('*')
+        .select('id, name, email, is_admin, section, created_at')
         .order('created_at', { ascending: true });
 
     if (error) throw error;

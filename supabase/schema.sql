@@ -208,6 +208,7 @@ CREATE OR REPLACE TRIGGER update_patients_updated_at
 -- Safe to re-run: each line is a no-op when the column is already present.
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS age INTEGER;
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS mobile TEXT;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS openrouter_api_key TEXT;
 
 -- Backfill profile rows for auth users created while the trigger was missing
 -- or broken (sign-in otherwise succeeds but the profile cannot be loaded).

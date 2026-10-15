@@ -775,12 +775,13 @@ function app() {
         },
         
         async submitUserForm() {
-            const { createUser, updateUser } = await import('./services/users.js');
+            const { createUser, updateUser, setUserAiKey } = await import('./services/users.js');
             try {
                 if (this.editingUser) {
                     // Persist OpenRouter key changes without touching the password.
-                    if (typeof this.userForm.openrouter_api_key === 'string') {
-                        await setUserAiKey(this.editingUser.id, this.userForm.openrouter_api_key);
+                    const aiKey = (this.userForm.openrouter_api_key || '').trim();
+                    if (aiKey) {
+                        await setUserAiKey(this.editingUser.id, aiKey);
                     }
                     await updateUser(this.editingUser.id, this.userForm);
                     this.showAlert(this.t('user updated successfully'));
