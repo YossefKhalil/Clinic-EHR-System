@@ -9,12 +9,13 @@ It is rebuilt from [BelalAhmed2214/health](https://github.com/BelalAhmed2214/hea
 ## Features
 
 - **Patient Registry** — create, read, update, delete patient records with visit history, symptoms, diagnosis, and internal notes
+- **Attachments** — medical/lab papers and images attached to each patient file via Cloudinary (unsigned uploads)
+- **AI Import** — 3-step import (Add data → Review → Done): drop Excel/CSV files, photos, Word/PDF documents or pasted text; an AI extraction pass proposes patient rows, a review grid flags problems, and the whole batch can be undone with one click
 - **Price Tracking** — section and source breakdowns for clinic revenue
+- **Editable Option Lists** — super-admin Settings page manages followers, sections and sources (EN/AR labels, activate/deactivate) across the whole app
 - **User Management** — admin/staff roles with section-based access via Supabase Edge Functions
 - **Dashboard** — stats cards (total, completed, pending, per-section, per-source) and recent patient table
 - **Bilingual** — full English/Arabic translations with RTL support
-- **Excel Import** — bulk import patients from `.xlsx` files via SheetJS
-- **Image Uploads** — patient profile photos uploaded to Cloudinary with auto-optimization
 
 ## Tech Stack
 
@@ -24,9 +25,10 @@ It is rebuilt from [BelalAhmed2214/health](https://github.com/BelalAhmed2214/hea
 | UI | Alpine.js 3.14 + Bootstrap 5.3.3 |
 | Database | Supabase (PostgreSQL) |
 | Auth | Supabase Auth |
-| Images | Cloudinary (unsigned upload) |
+| Files | Cloudinary (unsigned upload) |
+| AI extraction | OpenRouter (server-side key, via Supabase Edge Function) |
 | Hosting | Cloudflare Pages |
-| Excel | SheetJS (xlsx) |
+| Spreadsheet/docs | SheetJS (xlsx), js-yaml, mammoth |
 
 ## Getting Started
 
@@ -42,7 +44,7 @@ Cloudflare Pages is a static host, so "moving off Laravel" means the app runs en
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/yossefAraby/Clinic-EHR-System.git
+git clone https://github.com/YossefKhalil/Clinic-EHR-System.git
 cd Clinic-EHR-System
 npm install
 ```

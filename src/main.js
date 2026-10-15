@@ -1,6 +1,7 @@
 import './styles/main.css';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
+import 'bootstrap/dist/js/bootstrap.bundle.min.js';
 import Alpine from 'alpinejs';
 import { initI18n, t, setLocale, getLocale } from './services/i18n.js';
 import { initSupabase, supabase, getCurrentUser, signIn, signOut } from './services/supabase.js';
@@ -138,7 +139,7 @@ function app() {
         globalSearchResults: [],
         globalSearchSelectedIndex: -1,
         globalSearchDebounce: null,
-        globalSearchAbort: null,
+        globalSearchRequestId: 0,
         
         // Prices
         priceStats: null,
@@ -178,6 +179,7 @@ function app() {
         // Alerts
         alertMessage: null,
         alertType: 'success',
+        alertTimer: null,
         
         async init() {
             try {
@@ -515,19 +517,25 @@ function app() {
             if (!query) { this.closeGlobalSearch(); return; }
             
             this.globalSearchDebounce = setTimeout(async () => {
+                const requestId = this.globalSearchRequestId + 1;
+                this.globalSearchRequestId = requestId;
                 this.globalSearchLoading = true;
                 try {
                     const results = await getPatients(
                         { search: query, filter_by: 'all' },
                         this.isSuperAdmin, this.profile?.section
                     );
+                    // Ignore stale responses: only the latest request may
+                    // touch the dropdown.
+                    if (requestId !== this.globalSearchRequestId) return;
                     this.globalSearchResults = results.slice(0, 5);
                     this.globalSearchSelectedIndex = -1;
                 } catch (error) {
+                    if (requestId !== this.globalSearchRequestId) return;
                     console.error('Global search failed:', error);
                     this.globalSearchResults = [];
                 } finally {
-                    this.globalSearchLoading = false;
+                    if (requestId === this.globalSearchRequestId) this.globalSearchLoading = false;
                 }
             }, 250);
         },
@@ -585,11 +593,22 @@ function app() {
             this.globalSearch = '';
             await this.navigate('patients');
             const found = this.patients.find((p) => p.id === targetId);
-            if (found) { await this.showPatient(found); }
+            if (found) { await this.showPatient(found); return; }
+            // The loaded list can miss the row when active filters exclude
+            // it — fetch it directly by id so the pick always opens.
+            try {
+                const { getPatient } = await import('./services/patients.js');
+                const full = await getPatient(targetId);
+                if (full) { await this.showPatient(full); return; }
+            } catch (error) {
+                console.error(error);
+            }
+            this.showAlert(this.t('Could not open that patient. They may be outside your current filters.'), 'danger');
         },
         
         closeGlobalSearch({ keepQuery = false, clearFocus = false } = {}) {
             clearTimeout(this.globalSearchDebounce);
+            this.globalSearchRequestId += 1;
             if (!keepQuery) this.globalSearchResults = [];
             this.globalSearchSelectedIndex = -1;
             if (clearFocus) this.globalSearchFocused = false;
@@ -606,6 +625,7 @@ function app() {
                 patient.is_completed = !patient.is_completed;
             } catch (error) {
                 console.error(error);
+                this.showAlert(this.t('Could not update the patient status. Please try again.'), 'danger');
             }
         },
         
@@ -616,6 +636,7 @@ function app() {
                 this.patients = this.patients.filter(p => p.id !== patient.id);
             } catch (error) {
                 console.error(error);
+                this.showAlert(this.t('Could not delete the patient. Please try again.'), 'danger');
             }
         },
         
@@ -1234,7 +1255,9 @@ function app() {
         showAlert(message, type = 'success') {
             this.alertMessage = message;
             this.alertType = type;
-            setTimeout(() => {
+            // A newer alert must not be cleared early by the previous timer.
+            clearTimeout(this.alertTimer);
+            this.alertTimer = setTimeout(() => {
                 this.alertMessage = null;
             }, 4000);
         },
