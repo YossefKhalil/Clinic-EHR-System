@@ -75,7 +75,7 @@ function app() {
         // Patients
         patients: [],
         patientsLoading: false,
-        patientFilters: { search: '', filter_by: 'name', section: '', source_of_money: '', follower: '', is_completed: '', date_from: '', date_to: '' },
+        patientFilters: { search: '', filter_by: 'all', section: '', source_of_money: '', follower: '', is_completed: '', date_from: '', date_to: '' },
         
         // Navbar search
         globalSearch: '',
@@ -373,15 +373,11 @@ function app() {
             this.closeGlobalSearch({ keepQuery: true });
             this.patientFilters = {
                 search: this.globalSearch,
-                filter_by: 'name',
+                filter_by: 'all',
                 section: '', source_of_money: '', follower: '',
                 is_completed: '', date_from: '', date_to: '',
             };
             await this.navigate('patients');
-            // anysearch is the server-side matcher for the free-text box; the
-            // filtered list uses it too, so both entry points agree.
-            this.patientFilters.filter_by = 'all';
-            await this.loadPatients();
         },
         
         async pickGlobalResult(patient) {
@@ -409,7 +405,7 @@ function app() {
         },
         
         async resetFilters() {
-            this.patientFilters = { search: '', filter_by: 'name', section: '', source_of_money: '', follower: '', is_completed: '', date_from: '', date_to: '' };
+            this.patientFilters = { search: '', filter_by: 'all', section: '', source_of_money: '', follower: '', is_completed: '', date_from: '', date_to: '' };
             await this.loadPatients();
         },
         
