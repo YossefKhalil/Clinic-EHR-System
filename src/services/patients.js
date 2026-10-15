@@ -45,9 +45,66 @@ export async function getPatient(id) {
         .select('*')
         .eq('id', id)
         .single();
-    
+
     if (error) throw error;
     return data;
+}
+
+/**
+ * Persist a patient media attachment record.
+ *
+ * `patient_media` is a JSONB array of Canon-style objects kept on the patient
+ * row so the clinic can delete them later through the authenticated backend.
+ * The Cloudinary public_id is the only value stored; nothing secret crosses
+ * the wire here.
+ */
+export function normalizePatientMedia(raw) {
+    if (!raw) return [];
+    try {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+        return parsed.filter(
+            (m) => m && typeof m.id === 'string' && typeof m.public_id === 'string'
+        );
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Add / update / remove a single media attachment on a patient row.
+ */
+export async function setPatientMedia(id, mediaList) {
+    const { data, error } = await supabase()
+        .from('patients')
+        .update({ patient_media: mediaList })
+        .eq('id', id)
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data;
+}
+
+/**
+ * Remove a single media attachment from a patient row without deleting the
+ * file from Cloudinary here. We only drop the row reference; the actual
+ * asset deletion is left to the clinic admin through Cloudinary's Media
+ * Library (or a future admin action backed by the Cloudinary Admin API).
+ */
+export async function removePatientMedia(id, publicId) {
+    const { data: existing, error } = await supabase()
+        .from('patients')
+        .select('patient_media')
+        .eq('id', id)
+        .single();
+
+    if (error) throw error;
+
+    const media = normalizePatientMedia(existing?.patient_media);
+    const updated = media.filter(m => m.public_id !== publicId);
+
+    return setPatientMedia(id, updated);
 }
 
 export async function createPatient(patientData) {

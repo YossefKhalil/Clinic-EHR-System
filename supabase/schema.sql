@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS public.patients (
     section TEXT CHECK (section IN ('agamy', 'dekhila')),
     source_of_money TEXT CHECK (source_of_money IN ('charity', 'country')),
     user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+    patient_media JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -231,6 +232,31 @@ ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS mobile TEXT;
 -- The per-user OpenRouter key was superseded by the shared ai_settings row
 -- above; drop the legacy column wherever it exists.
 ALTER TABLE public.users DROP COLUMN IF EXISTS openrouter_api_key;
+
+-- AI Import batch tracking: every row created by one Import click gets the
+-- same UUID, which is what makes "Undo this import" possible — the undo
+-- handler deletes only rows carrying that batch id.
+ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS import_batch_id UUID;
+CREATE INDEX IF NOT EXISTS idx_patients_import_batch_id ON public.patients(import_batch_id);
+
+-- Cross-section duplicate detection: RLS lets a section user see only their
+-- own patients, so the client cannot reliably know that a national ID already
+-- exists under another section. This SECURITY DEFINER helper answers that
+-- question for any signed-in caller without leaking the other rows.
+CREATE OR REPLACE FUNCTION public.existing_national_ids(ids text[])
+RETURNS text[]
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT COALESCE(array_agg(DISTINCT p.national_id), '{}')
+    FROM unnest(ids) AS nid
+    JOIN public.patients p ON p.national_id = nid
+$$;
+
+REVOKE ALL ON FUNCTION public.existing_national_ids(text[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.existing_national_ids(text[]) TO authenticated;
 
 -- Backfill profile rows for auth users created while the trigger was missing
 -- or broken (sign-in otherwise succeeds but the profile cannot be loaded).
