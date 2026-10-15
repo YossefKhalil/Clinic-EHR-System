@@ -6,9 +6,10 @@ import { initI18n, t, setLocale, getLocale } from './services/i18n.js';
 import { initSupabase, supabase, getCurrentUser, signIn, signOut } from './services/supabase.js';
 import { initCloudinary, getImageUrl, isImageAttachment } from './services/cloudinary.js';
 import { getDashboardStats, getRecentPatients } from './services/dashboard.js';
-import { getPatients, deletePatient, togglePatientStatus, FOLLOWERS, GOVERNORATES } from './services/patients.js';
+import { getPatients, deletePatient, togglePatientStatus, GOVERNORATES } from './services/patients.js';
 import { patientMatchesQuery } from './services/fuzzy.js';
-import { getPriceStats, SECTION_COLORS, SECTION_ICONS, SOURCE_COLORS, SOURCE_ICONS } from './services/prices.js';
+import { getPriceStats } from './services/prices.js';
+import { loadOptions as fetchOptions, allOptions, createOption, updateOption, optionLabel as lookupOptionLabel } from './services/options.js';
 
 window.Alpine = Alpine;
 window.t = t;
@@ -36,6 +37,28 @@ function calcAge(dateOfBirth) {
     if (months < 0 || (months === 0 && today.getDate() < dob.getDate())) age -= 1;
 
     return age >= 0 ? age : null;
+}
+
+// Options added on the Settings page (issue #1) have no bespoke colors/icons,
+// so they get a stable one derived from their key. The four historical keys
+// keep exactly the look they had before the lists became editable.
+const KNOWN_OPTION_COLORS = { agamy: 'success', dekhila: 'info', charity: 'warning', country: 'danger' };
+const KNOWN_OPTION_ICONS = { agamy: 'bi-pin-map-fill', dekhila: 'bi-geo-alt-fill', charity: 'bi-heart-fill', country: 'bi-flag-fill' };
+const OPTION_PALETTE = ['primary', 'success', 'info', 'warning', 'danger', 'secondary'];
+
+function colorForOption(key) {
+    const name = String(key || '');
+    if (KNOWN_OPTION_COLORS[name]) return KNOWN_OPTION_COLORS[name];
+    let hash = 0;
+    for (let i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) % 997;
+    return OPTION_PALETTE[hash % OPTION_PALETTE.length];
+}
+
+function iconForOption(kind, key) {
+    const name = String(key || '');
+    if (KNOWN_OPTION_ICONS[name]) return KNOWN_OPTION_ICONS[name];
+    if (kind === 'follower') return 'bi-person-check-fill';
+    return kind === 'source' ? 'bi-cash-coin' : 'bi-diagram-3-fill';
 }
 
 async function loadUserProfile() {
@@ -69,7 +92,7 @@ function app() {
         currentDate: new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }),
         
         // Dashboard
-        stats: { total: 0, completed: 0, pending: 0, agamy: 0, dekhila: 0, charity: 0, country: 0 },
+        stats: { total: 0, completed: 0, pending: 0, sections: {}, sources: {}, totalRevenue: 0 },
         recentPatients: [],
         
         // Patients
@@ -103,17 +126,25 @@ function app() {
         
         // Prices
         priceStats: null,
-        sectionColors: SECTION_COLORS,
-        sectionIcons: SECTION_ICONS,
-        sourceColors: SOURCE_COLORS,
-        sourceIcons: SOURCE_ICONS,
         
         // Users
         users: [],
         
-        // Governorates & Followers
+        // Governorates & editable options
         governorates: GOVERNORATES,
-        followerOptions: FOLLOWERS,
+        // Loaded from the app_options table on login and after every Settings
+        // edit; helpers below read only from here.
+        options: { follower: [], section: [], source: [] },
+        optionKinds: ['follower', 'section', 'source'],
+        
+        // Settings page (issue #1): row copies that can be edited freely,
+        // plus per-kind drafts for the "add option" inputs.
+        settingsOptions: { follower: [], section: [], source: [] },
+        newOption: {
+            follower: { label_en: '', label_ar: '' },
+            section: { label_en: '', label_ar: '' },
+            source: { label_en: '', label_ar: '' },
+        },
         
         // Patient form
         editingPatient: null,
@@ -196,6 +227,7 @@ function app() {
             if (this.isLoggedIn) {
                 // Fire-and-forget: failures must never block or break auth.
                 this.refreshAiImportEnabled();
+                this.refreshOptions();
                 if (this.isSuperAdmin) this.loadAiSettings();
             }
         },
@@ -207,7 +239,7 @@ function app() {
         // profile" alone). Shown under the name on the dashboard.
         roleLabel() {
             if (this.isSuperAdmin) return this.t('Super Admin');
-            if (this.profile?.section) return this.t('Section') + ': ' + this.t(this.profile.section === 'agamy' ? 'Agamy' : 'Dekhila');
+            if (this.profile?.section) return this.t('Section') + ': ' + this.optionLabel('section', this.profile.section);
             return this.t('No role assigned');
         },
         
@@ -268,16 +300,17 @@ function app() {
         },
         
         async navigate(page) {
+            // Settings is super-admin-only: no nav entry is rendered for other
+            // roles and this guard keeps a stale page value from reaching it.
+            if (page === 'settings' && !this.isSuperAdmin) return;
             if (page !== 'patients') this.closeGlobalSearch();
             this.currentPage = page;
             try {
                 if (page === 'dashboard') await this.showDashboard();
                 if (page === 'patients') await this.loadPatients();
                 if (page === 'prices') await this.showPrices();
-                if (page === 'users') {
-                    await this.loadUsers();
-                    if (this.isSuperAdmin) await this.loadAiSettings();
-                }
+                if (page === 'users') await this.loadUsers();
+                if (page === 'settings') await this.showSettings();
             } catch (error) {
                 console.error(error);
             }
@@ -299,6 +332,139 @@ function app() {
         async showPrices() {
             if (!this.isLoggedIn) return;
             this.priceStats = await getPriceStats(this.isSuperAdmin, this.profile?.section);
+        },
+        
+        // ---- Editable options (issue #1) ------------------------------------
+        
+        async refreshOptions() {
+            try {
+                await fetchOptions();
+                this.options = {
+                    follower: allOptions('follower'),
+                    section: allOptions('section'),
+                    source: allOptions('source'),
+                };
+                // Keep the AI review grid's validation in step: a newly added
+                // source of money is accepted, a deactivated one is not.
+                try {
+                    const { setSourceOptions } = await import('./services/ai-import.js');
+                    setSourceOptions(this.activeOptions('source').map((opt) => opt.key));
+                } catch (error) {
+                    console.error('Could not sync AI source options:', error);
+                }
+            } catch (error) {
+                // Options failing to load must not break the page: selects
+                // simply render with whatever was cached.
+                console.error('Could not load options:', error);
+            }
+        },
+        
+        activeOptions(kind) {
+            return (this.options[kind] || []).filter((opt) => opt.active);
+        },
+        
+        optionLabel(kind, key) {
+            return lookupOptionLabel(kind, key);
+        },
+        
+        sectionColor(key) { return colorForOption(key); },
+        sectionIcon(key) { return iconForOption('section', key); },
+        sourceColor(key) { return colorForOption(key); },
+        sourceIcon(key) { return iconForOption('source', key); },
+        
+        // Dashboard/prices aggregation lists: every active option in its
+        // configured order (zero counts included), then any legacy key that
+        // still has rows but is no longer offered.
+        optionStatEntries(kind, counts) {
+            const entries = this.activeOptions(kind).map((opt) => ({
+                key: opt.key,
+                label: lookupOptionLabel(kind, opt.key),
+                count: counts?.[opt.key] || 0,
+            }));
+            Object.entries(counts || {}).forEach(([key, count]) => {
+                if (!entries.some((entry) => entry.key === key)) {
+                    entries.push({ key, label: lookupOptionLabel(kind, key), count });
+                }
+            });
+            return entries;
+        },
+        sectionStatEntries() {
+            const entries = this.optionStatEntries('section', this.stats?.sections);
+            // Section staff only ever see their own section's numbers on the
+            // dashboard, so show just that entry for them.
+            if (!this.isSuperAdmin && this.profile?.section) {
+                return entries.filter((entry) => entry.key === this.profile.section);
+            }
+            return entries;
+        },
+        sourceStatEntries() { return this.optionStatEntries('source', this.stats?.sources); },
+        
+        // ---- Settings page ---------------------------------------------------
+        
+        async showSettings() {
+            await this.refreshOptions();
+            this.resetSettingsOptions();
+            if (this.isSuperAdmin) await this.loadAiSettings();
+        },
+        
+        // Editable working copies so typing never writes through until Save.
+        resetSettingsOptions() {
+            const clone = (list) => list.map((opt) => ({ ...opt, _dirty: false, _saving: false }));
+            this.settingsOptions = {
+                follower: clone(allOptions('follower')),
+                section: clone(allOptions('section')),
+                source: clone(allOptions('source')),
+            };
+        },
+        
+        optionKindLabel(kind) {
+            if (kind === 'follower') return this.t('Followers');
+            if (kind === 'section') return this.t('Sections');
+            return this.t('Sources of Money');
+        },
+        
+        optionKindIcon(kind) {
+            if (kind === 'follower') return 'bi-person-check-fill';
+            if (kind === 'section') return 'bi-diagram-3-fill';
+            return 'bi-cash-coin';
+        },
+        
+        async addOption(kind) {
+            const draft = this.newOption[kind];
+            if (!draft.label_en.trim() && !draft.label_ar.trim()) {
+                this.showAlert(this.t('Enter a label in at least one language.'), 'warning');
+                return;
+            }
+            try {
+                await createOption(kind, draft);
+                draft.label_en = '';
+                draft.label_ar = '';
+                await this.refreshOptions();
+                this.resetSettingsOptions();
+                this.showAlert(this.t('Option added.'), 'success');
+            } catch (error) {
+                console.error(error);
+                this.showAlert(this.t('Could not save the option.') + ' ' + (error.message || ''), 'danger');
+            }
+        },
+        
+        async saveOption(kind, row) {
+            if (!String(row.label_en).trim() && !String(row.label_ar).trim()) {
+                this.showAlert(this.t('Enter a label in at least one language.'), 'warning');
+                return;
+            }
+            row._saving = true;
+            try {
+                await updateOption(row.id, { label_en: row.label_en, label_ar: row.label_ar, active: row.active });
+                row._dirty = false;
+                await this.refreshOptions();
+                this.showAlert(this.t('Option saved.'), 'success');
+            } catch (error) {
+                console.error(error);
+                this.showAlert(this.t('Could not save the option.') + ' ' + (error.message || ''), 'danger');
+            } finally {
+                row._saving = false;
+            }
         },
         
         async loadUsers() {
@@ -356,7 +522,7 @@ function app() {
             const query = (this.globalSearch || '').trim();
             if (!query) return [];
             return this.patients.slice(0, 50)
-                .filter((patient) => patientMatchesQuery(patient, query, (key) => FOLLOWERS[key] || key))
+                .filter((patient) => patientMatchesQuery(patient, query, (key) => lookupOptionLabel('follower', key)))
                 .slice(0, 5);
         },
         
@@ -550,7 +716,10 @@ function app() {
             if (row.visit_date && !/^\d{4}-\d{2}-\d{2}$/.test(String(row.visit_date))) errors.push(this.t('Invalid date'));
             if (row.age !== null && row.age !== '' && row.age !== undefined && !Number.isFinite(Number(row.age))) errors.push(this.t('Age must be a number'));
             if (row.price !== null && row.price !== '' && row.price !== undefined && !Number.isFinite(Number(row.price))) errors.push(this.t('Price must be a number'));
-            if (row.source_of_money && !['charity', 'country'].includes(row.source_of_money)) errors.push(this.t('Invalid source'));
+            // An empty list means options have not loaded yet — skip the check
+            // rather than flagging every row.
+            const sourceKeys = this.activeOptions('source').map((opt) => opt.key);
+            if (row.source_of_money && sourceKeys.length && !sourceKeys.includes(row.source_of_money)) errors.push(this.t('Invalid source'));
             if (row.marital_status && !['single', 'married', 'divorced', 'widowed'].includes(row.marital_status)) errors.push(this.t('Invalid marital status'));
             if (row.governorate && !this.governorates.includes(row.governorate)) errors.push(this.t('Unknown governorate'));
             return errors;
@@ -698,7 +867,7 @@ function app() {
             return new Date(dateStr).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
         },
         followerLabel(key) {
-            return FOLLOWERS[key] || key || this.t('None');
+            return key ? lookupOptionLabel('follower', key) : this.t('None');
         },
         
         showAlert(message, type = 'success') {

@@ -228,5 +228,21 @@
     "Attachments": "المرفقات",
     "Upload failed": "فشل الرفع",
     "Please wait for the uploads to finish.": "يرجى الانتظار حتى انتهاء رفع الملفات.",
-    "Remove the files that failed to upload before saving.": "احذف الملفات التي فشل رفعها قبل الحفظ."
+    "Remove the files that failed to upload before saving.": "احذف الملفات التي فشل رفعها قبل الحفظ.",
+    "Settings": "الإعدادات",
+    "Followers": "المتابعون",
+    "Sections": "المناطق",
+    "Sources of Money": "مصادر التمويل",
+    "These lists feed the patient form, filters, dashboard and Excel export. Deactivating an option hides it from new selections while existing patients keep their value.": "تغذّي هذه القوائم نموذج المريض والفلاتر ولوحة المعلومات وتصدير Excel. إلغاء تنشيط أي خيار يخفيه من الاختيارات الجديدة مع بقاء قيمته على المرضى الحاليين.",
+    "Active": "نشط",
+    "English label": "التسمية بالإنجليزية",
+    "Arabic label": "التسمية بالعربية",
+    "New English label": "تسمية إنجليزية جديدة",
+    "New Arabic label": "تسمية عربية جديدة",
+    "Add Option": "إضافة خيار",
+    "No options yet.": "لا توجد خيارات بعد.",
+    "Option added.": "تمت إضافة الخيار.",
+    "Option saved.": "تم حفظ الخيار.",
+    "Enter a label in at least one language.": "أدخل تسمية بلغة واحدة على الأقل.",
+    "Could not save the option.": "تعذر حفظ الخيار."
 }

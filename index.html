@@ -54,7 +54,7 @@
                                             <div class="small text-muted d-flex flex-wrap gap-2">
                                                 <span x-show="patient.national_id"><i class="bi bi-credit-card-2-front"></i> <span x-text="patient.national_id"></span></span>
                                                 <span x-show="patient.mobile"><i class="bi bi-telephone"></i> <span x-text="patient.mobile"></span></span>
-                                                <span x-show="patient.section"><i class="bi bi-building"></i> <span x-text="patient.section === 'agamy' ? t('Agamy') : t('Dekhila')"></span></span>
+                                                <span x-show="patient.section"><i class="bi bi-building"></i> <span x-text="optionLabel('section', patient.section)"></span></span>
                                                 <span x-show="patient.governorate"><i class="bi bi-geo-alt"></i> <span x-text="patient.governorate"></span></span>
                                             </div>
                                         </div>
@@ -81,6 +81,11 @@
                         <li class="nav-item" x-show="isSuperAdmin">
                             <span class="nav-link" :class="{ 'active fw-semibold': currentPage === 'users' }" @click="navigate('users')" style="cursor:pointer">
                                 <i class="bi bi-person-badge me-1"></i><span x-text="t('Users')"></span>
+                            </span>
+                        </li>
+                        <li class="nav-item" x-show="isSuperAdmin">
+                            <span class="nav-link" :class="{ 'active fw-semibold': currentPage === 'settings' }" @click="navigate('settings')" style="cursor:pointer">
+                                <i class="bi bi-gear me-1"></i><span x-text="t('Settings')"></span>
                             </span>
                         </li>
                         <li class="nav-item" x-show="isSuperAdmin">
@@ -244,7 +249,7 @@
                         </div>
                     </div>
 
-                    <!-- Sections: Dekhila + Agamy in one card -->
+                    <!-- Sections: one entry per configured section -->
                     <div class="col-md-3" x-show="isSuperAdmin || profile?.section">
                         <div class="card border-0 shadow-sm h-100">
                             <div class="card-body d-flex align-items-center gap-3 p-4">
@@ -252,15 +257,13 @@
                                     <i class="bi bi-buildings fs-2 text-info"></i>
                                 </div>
                                 <div>
-                                    <div class="d-flex align-items-baseline gap-3">
-                                        <div>
-                                            <span class="fs-2 fw-bold text-info" x-text="stats.dekhila"></span>
-                                            <div class="text-muted small" x-text="t('Dekhila')"></div>
-                                        </div>
-                                        <div>
-                                            <span class="fs-2 fw-bold text-warning" x-text="stats.agamy"></span>
-                                            <div class="text-muted small" x-text="t('Agamy')"></div>
-                                        </div>
+                                    <div class="d-flex flex-wrap align-items-baseline gap-3">
+                                        <template x-for="entry in sectionStatEntries()" :key="'sec-' + entry.key">
+                                            <div>
+                                                <span class="fs-3 fw-bold" :class="'text-' + sectionColor(entry.key)" x-text="entry.count"></span>
+                                                <div class="text-muted small" x-text="entry.label"></div>
+                                            </div>
+                                        </template>
                                     </div>
                                     <div class="text-muted small" x-text="t('By Section')"></div>
                                 </div>
@@ -268,7 +271,7 @@
                         </div>
                     </div>
 
-                    <!-- Sources: Charity + Country in one card -->
+                    <!-- Sources: one entry per configured source of money -->
                     <div class="col-md-3">
                         <div class="card border-0 shadow-sm h-100">
                             <div class="card-body d-flex align-items-center gap-3 p-4">
@@ -276,15 +279,13 @@
                                     <i class="bi bi-cash-coin fs-2 text-success"></i>
                                 </div>
                                 <div>
-                                    <div class="d-flex align-items-baseline gap-3">
-                                        <div>
-                                            <span class="fs-2 fw-bold text-success" x-text="stats.charity"></span>
-                                            <div class="text-muted small" x-text="t('Charity')"></div>
-                                        </div>
-                                        <div>
-                                            <span class="fs-2 fw-bold text-primary" x-text="stats.country"></span>
-                                            <div class="text-muted small" x-text="t('Country')"></div>
-                                        </div>
+                                    <div class="d-flex flex-wrap align-items-baseline gap-3">
+                                        <template x-for="entry in sourceStatEntries()" :key="'src-' + entry.key">
+                                            <div>
+                                                <span class="fs-3 fw-bold" :class="'text-' + sourceColor(entry.key)" x-text="entry.count"></span>
+                                                <div class="text-muted small" x-text="entry.label"></div>
+                                            </div>
+                                        </template>
                                     </div>
                                     <div class="text-muted small" x-text="t('By Source of Money')"></div>
                                 </div>
@@ -396,8 +397,8 @@
                             <label class="form-label text-muted small mb-1" x-text="t('Follower')"></label>
                             <select class="form-select form-select-sm shadow-sm" x-model="patientFilters.follower">
                                 <option value="" x-text="t('-- All Followers --')"></option>
-                                <template x-for="(label, key) in followerOptions" :key="key">
-                                    <option :value="key" x-text="label"></option>
+                                <template x-for="opt in activeOptions('follower')" :key="'fl-' + opt.key">
+                                    <option :value="opt.key" x-text="optionLabel('follower', opt.key)"></option>
                                 </template>
                             </select>
                         </div>
@@ -405,16 +406,18 @@
                             <label class="form-label text-muted small mb-1" x-text="t('Section')"></label>
                             <select class="form-select form-select-sm shadow-sm" x-model="patientFilters.section">
                                 <option value="" x-text="t('-- All Sections --')"></option>
-                                <option value="agamy" x-text="t('Agamy')"></option>
-                                <option value="dekhila" x-text="t('Dekhila')"></option>
+                                <template x-for="opt in activeOptions('section')" :key="'fs-' + opt.key">
+                                    <option :value="opt.key" x-text="optionLabel('section', opt.key)"></option>
+                                </template>
                             </select>
                         </div>
                         <div class="col-md-4" x-show="isSuperAdmin">
                             <label class="form-label text-muted small mb-1" x-text="t('Source of Money')"></label>
                             <select class="form-select form-select-sm shadow-sm" x-model="patientFilters.source_of_money">
                                 <option value="" x-text="t('-- All Sources --')"></option>
-                                <option value="charity" x-text="t('Charity')"></option>
-                                <option value="country" x-text="t('Country')"></option>
+                                <template x-for="opt in activeOptions('source')" :key="'fo-' + opt.key">
+                                    <option :value="opt.key" x-text="optionLabel('source', opt.key)"></option>
+                                </template>
                             </select>
                         </div>
                     </div>
@@ -472,10 +475,10 @@
                                                 <span class="text-secondary fs-7"><i class="bi bi-person-badge me-1"></i><span x-text="followerLabel(patient.follower)"></span></span>
                                             </td>
                                             <td>
-                                                <span class="text-secondary fs-7"><i class="bi bi-cash-coin me-1"></i><span x-text="patient.source_of_money ? t(patient.source_of_money === 'charity' ? 'Charity' : 'Country') : '—'"></span></span>
+                                                <span class="text-secondary fs-7"><i class="bi bi-cash-coin me-1"></i><span x-text="patient.source_of_money ? optionLabel('source', patient.source_of_money) : '—'"></span></span>
                                             </td>
                                             <td>
-                                                <span class="text-secondary fs-7"><i class="bi bi-building me-1"></i><span x-text="patient.section ? t(patient.section === 'agamy' ? 'Agamy' : 'Dekhila') : '—'"></span></span>
+                                                <span class="text-secondary fs-7"><i class="bi bi-building me-1"></i><span x-text="patient.section ? optionLabel('section', patient.section) : '—'"></span></span>
                                             </td>
                                             <td>
                                                 <span class="text-muted small" x-text="new Date(patient.created_at).toLocaleDateString(undefined,{day:'2-digit',month:'short',year:'numeric'})"></span>
@@ -543,19 +546,19 @@
                     <div class="row g-4">
                         <template x-for="(data, key) in (priceStats?.sectionTotals || {})" :key="key">
                             <div class="col-md-6">
-                                <div class="card h-100 shadow-sm border-0" :style="'border-top: 4px solid var(--bs-' + (sectionColors[key] || 'primary') + ') !important;'">
-                                    <div class="card-header border-0 d-flex align-items-center gap-3 py-3" :class="'bg-' + (sectionColors[key] || 'primary') + ' bg-opacity-10'">
-                                        <div class="rounded-circle d-flex align-items-center justify-content-center text-white flex-shrink-0" :class="'bg-' + (sectionColors[key] || 'primary')" style="width:44px;height:44px;">
-                                            <i class="bi fs-5" :class="sectionIcons[key] || 'bi-building'"></i>
+                                <div class="card h-100 shadow-sm border-0" :style="'border-top: 4px solid var(--bs-' + sectionColor(key) + ') !important;'">
+                                    <div class="card-header border-0 d-flex align-items-center gap-3 py-3" :class="'bg-' + sectionColor(key) + ' bg-opacity-10'">
+                                        <div class="rounded-circle d-flex align-items-center justify-content-center text-white flex-shrink-0" :class="'bg-' + sectionColor(key)" style="width:44px;height:44px;">
+                                            <i class="bi fs-5" :class="sectionIcon(key)"></i>
                                         </div>
                                         <div>
-                                            <div class="fw-bold fs-5 lh-1" x-text="t(data.label)"></div>
+                                            <div class="fw-bold fs-5 lh-1" x-text="optionLabel('section', key)"></div>
                                             <div class="text-muted small mt-1"><span x-text="data.count"></span> <span x-text="t('patients')"></span></div>
                                         </div>
                                     </div>
                                     <div class="card-body px-4 py-3">
                                         <div class="text-muted small mb-1" x-text="t('Total Revenue')"></div>
-                                        <div class="fw-bold display-6 lh-1" :class="'text-' + (sectionColors[key] || 'primary')">
+                                        <div class="fw-bold display-6 lh-1" :class="'text-' + sectionColor(key)">
                                             <span x-text="formatMoney(data.total)"></span>
                                             <span class="fs-6 fw-normal text-muted ms-1" x-text="t('EGP')"></span>
                                         </div>
@@ -573,19 +576,19 @@
                     <div class="row g-4">
                         <template x-for="(data, key) in (priceStats?.sourceTotals || {})" :key="key">
                             <div class="col-md-6">
-                                <div class="card h-100 shadow-sm border-0" :style="'border-top: 4px solid var(--bs-' + (sourceColors[key] || 'secondary') + ') !important;'">
-                                    <div class="card-header border-0 d-flex align-items-center gap-3 py-3" :class="'bg-' + (sourceColors[key] || 'secondary') + ' bg-opacity-10'">
-                                        <div class="rounded-circle d-flex align-items-center justify-content-center text-white flex-shrink-0" :class="'bg-' + (sourceColors[key] || 'secondary')" style="width:44px;height:44px;">
-                                            <i class="bi fs-5" :class="sourceIcons[key] || 'bi-cash-coin'"></i>
+                                <div class="card h-100 shadow-sm border-0" :style="'border-top: 4px solid var(--bs-' + sourceColor(key) + ') !important;'">
+                                    <div class="card-header border-0 d-flex align-items-center gap-3 py-3" :class="'bg-' + sourceColor(key) + ' bg-opacity-10'">
+                                        <div class="rounded-circle d-flex align-items-center justify-content-center text-white flex-shrink-0" :class="'bg-' + sourceColor(key)" style="width:44px;height:44px;">
+                                            <i class="bi fs-5" :class="sourceIcon(key)"></i>
                                         </div>
                                         <div>
-                                            <div class="fw-bold fs-5 lh-1" x-text="t(data.label)"></div>
+                                            <div class="fw-bold fs-5 lh-1" x-text="optionLabel('source', key)"></div>
                                             <div class="text-muted small mt-1"><span x-text="data.count"></span> <span x-text="t('patients')"></span></div>
                                         </div>
                                     </div>
                                     <div class="card-body px-4 py-3">
                                         <div class="text-muted small mb-1" x-text="t('Total Revenue')"></div>
-                                        <div class="fw-bold display-6 lh-1" :class="'text-' + (sourceColors[key] || 'secondary')">
+                                        <div class="fw-bold display-6 lh-1" :class="'text-' + sourceColor(key)">
                                             <span x-text="formatMoney(data.total)"></span>
                                             <span class="fs-6 fw-normal text-muted ms-1" x-text="t('EGP')"></span>
                                         </div>
@@ -635,7 +638,7 @@
                                             </td>
                                             <td>
                                                 <template x-if="u.section">
-                                                    <span x-text="t(u.section === 'agamy' ? 'Agamy' : 'Dekhila')"></span>
+                                                    <span x-text="optionLabel('section', u.section)"></span>
                                                 </template>
                                                 <template x-if="!u.section">
                                                     <span>—</span>
@@ -661,6 +664,67 @@
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <!-- SETTINGS PAGE (Super Admin only) -->
+            <div x-show="currentPage === 'settings'" x-cloak>
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <h2 class="text-secondary fw-bold"><i class="bi bi-gear-fill me-2 text-primary"></i><span x-text="t('Settings')"></span></h2>
+                        <p class="text-muted mb-0" x-text="t('These lists feed the patient form, filters, dashboard and Excel export. Deactivating an option hides it from new selections while existing patients keep their value.')"></p>
+                    </div>
+                </div>
+
+                <!-- Editable option lists -->
+                <template x-for="kind in optionKinds" :key="kind">
+                    <div class="card shadow-sm border-0 mb-4">
+                        <div class="card-header bg-white py-3 d-flex align-items-center">
+                            <i class="bi me-2 text-primary fs-5" :class="optionKindIcon(kind)"></i>
+                            <h5 class="mb-0 fw-semibold" x-text="optionKindLabel(kind)"></h5>
+                        </div>
+                        <div class="card-body">
+                            <template x-if="settingsOptions[kind].length === 0">
+                                <div class="text-muted small mb-2" x-text="t('No options yet.')"></div>
+                            </template>
+                            <template x-for="row in settingsOptions[kind]" :key="row.id">
+                                <div class="row g-2 align-items-center border-bottom py-2" :class="row.active ? '' : 'opacity-50'">
+                                    <div class="col-12 col-md-4">
+                                        <input type="text" class="form-control form-control-sm" x-model="row.label_en" @input="row._dirty = true" :placeholder="t('English label')">
+                                    </div>
+                                    <div class="col-12 col-md-4">
+                                        <input type="text" class="form-control form-control-sm" dir="rtl" x-model="row.label_ar" @input="row._dirty = true" :placeholder="t('Arabic label')">
+                                    </div>
+                                    <div class="col-6 col-md-2">
+                                        <div class="form-check form-switch mb-0">
+                                            <input class="form-check-input" type="checkbox" :id="'opt-active-' + row.id" x-model="row.active" @change="row._dirty = true">
+                                            <label class="form-check-label small" :for="'opt-active-' + row.id" x-text="t('Active')"></label>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-2 text-end">
+                                        <button class="btn btn-sm btn-primary" x-show="row._dirty" x-cloak @click="saveOption(kind, row)" :disabled="row._saving">
+                                            <span x-show="row._saving" class="spinner-border spinner-border-sm" x-cloak></span>
+                                            <i class="bi bi-save" x-show="!row._saving"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <div class="row g-2 align-items-center mt-3">
+                                <div class="col-12 col-md-4">
+                                    <input type="text" class="form-control form-control-sm" x-model="newOption[kind].label_en" :placeholder="t('New English label')">
+                                </div>
+                                <div class="col-12 col-md-4">
+                                    <input type="text" class="form-control form-control-sm" dir="rtl" x-model="newOption[kind].label_ar" :placeholder="t('New Arabic label')">
+                                </div>
+                                <div class="col-12 col-md-4">
+                                    <button class="btn btn-sm btn-success" @click="addOption(kind)">
+                                        <i class="bi bi-plus-circle me-1"></i><span x-text="t('Add Option')"></span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
 
                 <!-- AI provider settings (Super Admin only) -->
                 <div class="card shadow-sm border-0 mt-4" x-show="isSuperAdmin" x-cloak>
@@ -1028,8 +1092,9 @@
                                                     <td style="min-width: 110px">
                                                         <select class="form-select form-select-sm" x-model="row.source_of_money">
                                                             <option value="">—</option>
-                                                            <option value="charity" x-text="t('Charity')"></option>
-                                                            <option value="country" x-text="t('Country')"></option>
+                                                            <template x-for="opt in activeOptions('source')" :key="'ai-src-' + opt.key">
+                                                                <option :value="opt.key" x-text="optionLabel('source', opt.key)"></option>
+                                                            </template>
                                                         </select>
                                                     </td>
                                                     <td class="text-center">
@@ -1201,8 +1266,11 @@
                                                 </label>
                                                 <select class="form-select" x-model="patientForm.follower" dir="rtl">
                                                     <option value="">-- اختر المتابع --</option>
-                                                    <template x-for="(label, key) in followerOptions" :key="key">
-                                                        <option :value="key" x-text="label"></option>
+                                                    <template x-if="patientForm.follower && !activeOptions('follower').some(o => o.key === patientForm.follower)">
+                                                        <option :value="patientForm.follower" x-text="optionLabel('follower', patientForm.follower)"></option>
+                                                    </template>
+                                                    <template x-for="opt in activeOptions('follower')" :key="'pf-fl-' + opt.key">
+                                                        <option :value="opt.key" x-text="optionLabel('follower', opt.key)"></option>
                                                     </template>
                                                 </select>
                                             </div>
@@ -1211,13 +1279,17 @@
                                                     <i class="bi bi-building me-1"></i><span x-text="t('Section')"></span>
                                                 </label>
                                                 <template x-if="!isSuperAdmin && profile?.section">
-                                                    <input type="text" class="form-control bg-light" :value="profile.section === 'agamy' ? t('Agamy') : t('Dekhila')" dir="rtl" disabled>
+                                                    <input type="text" class="form-control bg-light" :value="optionLabel('section', profile.section)" dir="rtl" disabled>
                                                 </template>
                                                 <template x-if="isSuperAdmin || !profile?.section">
                                                     <select class="form-select" x-model="patientForm.section" dir="rtl">
                                                         <option value="">-- اختر المنطقة --</option>
-                                                        <option value="agamy" x-text="t('Agamy')"></option>
-                                                        <option value="dekhila" x-text="t('Dekhila')"></option>
+                                                        <template x-if="patientForm.section && !activeOptions('section').some(o => o.key === patientForm.section)">
+                                                            <option :value="patientForm.section" x-text="optionLabel('section', patientForm.section)"></option>
+                                                        </template>
+                                                        <template x-for="opt in activeOptions('section')" :key="'pf-sec-' + opt.key">
+                                                            <option :value="opt.key" x-text="optionLabel('section', opt.key)"></option>
+                                                        </template>
                                                     </select>
                                                 </template>
                                             </div>
@@ -1227,8 +1299,12 @@
                                                 </label>
                                                 <select class="form-select" x-model="patientForm.source_of_money" dir="rtl">
                                                     <option value="">-- اختر المصدر --</option>
-                                                    <option value="charity" x-text="t('Charity')"></option>
-                                                    <option value="country" x-text="t('Country')"></option>
+                                                    <template x-if="patientForm.source_of_money && !activeOptions('source').some(o => o.key === patientForm.source_of_money)">
+                                                        <option :value="patientForm.source_of_money" x-text="optionLabel('source', patientForm.source_of_money)"></option>
+                                                    </template>
+                                                    <template x-for="opt in activeOptions('source')" :key="'pf-src-' + opt.key">
+                                                        <option :value="opt.key" x-text="optionLabel('source', opt.key)"></option>
+                                                    </template>
                                                 </select>
                                             </div>
                                             <div class="col-12">
@@ -1385,8 +1461,12 @@
                                         <label for="uf-section" class="form-label fw-semibold" x-text="t('Section')"></label>
                                         <select id="uf-section" class="form-select" x-model="userForm.section">
                                             <option value="" x-text="t('— None (Super Admin) —')"></option>
-                                            <option value="agamy">العجمي</option>
-                                            <option value="dekhila">الدخيلة</option>
+                                            <template x-if="userForm.section && !activeOptions('section').some(o => o.key === userForm.section)">
+                                                <option :value="userForm.section" x-text="optionLabel('section', userForm.section)"></option>
+                                            </template>
+                                            <template x-for="opt in activeOptions('section')" :key="'uf-sec-' + opt.key">
+                                                <option :value="opt.key" x-text="optionLabel('section', opt.key)"></option>
+                                            </template>
                                         </select>
                                         <div class="form-text text-muted" x-text="t('Leave empty if this user is a Super Admin.')"></div>
                                     </div>

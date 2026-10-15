@@ -18,11 +18,7 @@ export async function getPriceStats(isSuperAdmin = false, userSection = null) {
         
         if (p.section) {
             if (!sectionTotals[p.section]) {
-                sectionTotals[p.section] = {
-                    label: p.section === 'agamy' ? 'Agamy' : 'Dekhila',
-                    total: 0,
-                    count: 0,
-                };
+                sectionTotals[p.section] = { total: 0, count: 0 };
             }
             sectionTotals[p.section].total += price;
             sectionTotals[p.section].count += 1;
@@ -30,11 +26,7 @@ export async function getPriceStats(isSuperAdmin = false, userSection = null) {
         
         if (p.source_of_money) {
             if (!sourceTotals[p.source_of_money]) {
-                sourceTotals[p.source_of_money] = {
-                    label: p.source_of_money === 'charity' ? 'Charity' : 'Country',
-                    total: 0,
-                    count: 0,
-                };
+                sourceTotals[p.source_of_money] = { total: 0, count: 0 };
             }
             sourceTotals[p.source_of_money].total += price;
             sourceTotals[p.source_of_money].count += 1;
@@ -45,8 +37,3 @@ export async function getPriceStats(isSuperAdmin = false, userSection = null) {
     
     return { sectionTotals, sourceTotals, grandTotal, totalPatients: data.length };
 }
-
-export const SECTION_COLORS = { agamy: 'success', dekhila: 'info' };
-export const SECTION_ICONS = { agamy: 'bi-pin-map-fill', dekhila: 'bi-geo-alt-fill' };
-export const SOURCE_COLORS = { charity: 'warning', country: 'danger' };
-export const SOURCE_ICONS = { charity: 'bi-heart-fill', country: 'bi-flag-fill' };

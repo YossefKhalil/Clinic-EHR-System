@@ -13,13 +13,17 @@ export async function getDashboardStats(userId, isSuperAdmin, userSection = null
     const total = patients.length;
     const completed = patients.filter(p => p.is_completed).length;
     const pending = total - completed;
-    const agamy = patients.filter(p => p.section === 'agamy').length;
-    const dekhila = patients.filter(p => p.section === 'dekhila').length;
-    const charity = patients.filter(p => p.source_of_money === 'charity').length;
-    const country = patients.filter(p => p.source_of_money === 'country').length;
+    // Keyed counts instead of fixed columns: sections and sources of money
+    // are editable lists now (issue #1), so any key can appear here.
+    const sections = {};
+    const sources = {};
+    patients.forEach(p => {
+        if (p.section) sections[p.section] = (sections[p.section] || 0) + 1;
+        if (p.source_of_money) sources[p.source_of_money] = (sources[p.source_of_money] || 0) + 1;
+    });
     const totalRevenue = patients.reduce((sum, p) => sum + (parseFloat(p.price) || 0), 0);
     
-    return { total, completed, pending, agamy, dekhila, charity, country, totalRevenue };
+    return { total, completed, pending, sections, sources, totalRevenue };
 }
 
 export async function getRecentPatients(userId, isSuperAdmin, userSection = null, limit = 5) {

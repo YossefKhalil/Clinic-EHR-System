@@ -27,6 +27,15 @@ const GOVERNORATES = new Set([
 const MARITAL = new Set(['single', 'married', 'divorced', 'widowed']);
 const MONEY = new Set(['charity', 'country']);
 
+// Sources of money are an editable list (issue #1). main.js pushes the
+// active keys in after loading app_options so the review grid validates
+// against the admin's current list instead of the seed values.
+export function setSourceOptions(keys) {
+    if (!Array.isArray(keys) || !keys.length) return;
+    MONEY.clear();
+    keys.forEach((key) => MONEY.add(key));
+}
+
 // --- parsing ---------------------------------------------------------------
 
 function cleanScalar(value) {
@@ -108,7 +117,7 @@ export function validateRow(row, index = 0) {
     if (row.date_of_birth && !/^\d{4}-\d{2}-\d{2}$/.test(row.date_of_birth)) errors.push('date_of_birth must be YYYY-MM-DD');
     if (row.visit_date && !/^\d{4}-\d{2}-\d{2}$/.test(row.visit_date)) errors.push('visit_date must be YYYY-MM-DD');
     if (row.marital_status && !MARITAL.has(row.marital_status)) errors.push(`marital_status must be one of ${[...MARITAL].join('/')}`);
-    if (row.source_of_money && !MONEY.has(row.source_of_money)) errors.push(`source_of_money must be charity or country`);
+    if (row.source_of_money && !MONEY.has(row.source_of_money)) errors.push(`source_of_money must be one of: ${[...MONEY].join(', ')}`);
     if (row.governorate && !GOVERNORATES.has(row.governorate)) errors.push(`governorate "${row.governorate}" is not in the list`);
     // Optional: only reject a value when one was actually provided. The model
     // omits fields entirely (undefined) as well as sending null, so both count

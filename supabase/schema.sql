@@ -204,6 +204,95 @@ CREATE OR REPLACE TRIGGER update_patients_updated_at
     BEFORE UPDATE ON public.patients
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
+-- Editable option lists (issue #1): followers, clinic sections and sources of
+-- money live here instead of being hard-coded in the client, the SQL CHECK
+-- constraints and the AI prompt. `key` is the immutable value stored on
+-- patients rows; renaming an option changes only its labels. Deactivation is
+-- a soft delete: existing patient rows keep rendering their stored key.
+CREATE TABLE IF NOT EXISTS public.app_options (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    kind TEXT NOT NULL CHECK (kind IN ('follower', 'section', 'source')),
+    key TEXT NOT NULL,
+    label_en TEXT NOT NULL DEFAULT '',
+    label_ar TEXT NOT NULL DEFAULT '',
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (kind, key)
+);
+
+ALTER TABLE public.app_options ENABLE ROW LEVEL SECURITY;
+
+-- Everyone signed in reads options (forms, filters, export labels need
+-- them); only admins write. This is the server-side half of the Settings
+-- page access control — non-admins get a 403/permission error from PostgREST.
+DROP POLICY IF EXISTS "Signed-in users can view options" ON public.app_options;
+CREATE POLICY "Signed-in users can view options" ON public.app_options
+    FOR SELECT USING (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS "Admins can insert options" ON public.app_options;
+CREATE POLICY "Admins can insert options" ON public.app_options
+    FOR INSERT WITH CHECK (public.is_admin());
+
+DROP POLICY IF EXISTS "Admins can update options" ON public.app_options;
+CREATE POLICY "Admins can update options" ON public.app_options
+    FOR UPDATE USING (public.is_admin());
+
+DROP POLICY IF EXISTS "Admins can delete options" ON public.app_options;
+CREATE POLICY "Admins can delete options" ON public.app_options
+    FOR DELETE USING (public.is_admin());
+
+-- Seed the historical lists. ON CONFLICT keeps re-runs idempotent and never
+-- overwrites an admin's later edit (no DO UPDATE on purpose).
+INSERT INTO public.app_options (kind, key, label_en, label_ar, sort_order) VALUES
+    ('follower', 'hassan_hamam', 'Hassan Hamam', 'حسن حمام', 1),
+    ('follower', 'abdel_rahman_ahmed', 'Abdel Rahman Ahmed', 'عبد الرحمن أحمد', 2),
+    ('follower', 'ahmed_saad', 'Ahmed Saad', 'احمد سعد', 3),
+    ('follower', 'mohamed_ali', 'Mohamed Ali', 'محمد علي', 4),
+    ('follower', 'mohamed_ahmed', 'Mohamed Ahmed', 'محمد أحمد', 5),
+    ('follower', 'hazem', 'Hazem', 'حازم', 6),
+    ('follower', 'mohamed_rabie', 'Mohamed Rabie', 'محمد ربيع', 7),
+    ('section', 'agamy', 'Agamy', 'العجمي', 1),
+    ('section', 'dekhila', 'Dekhila', 'الدخيلة', 2),
+    ('source', 'charity', 'Charity', 'الجمعية الخيرية', 1),
+    ('source', 'country', 'Country', 'الدولة', 2)
+ON CONFLICT (kind, key) DO NOTHING;
+
+-- The inline CHECKs only allowed the original two sections/sources and
+-- cannot reference another table, so they are replaced by a trigger that
+-- validates against app_options (any row, active or not: deactivated options
+-- must stay valid on the patients that already carry them).
+ALTER TABLE public.users DROP CONSTRAINT IF EXISTS users_section_check;
+ALTER TABLE public.patients DROP CONSTRAINT IF EXISTS patients_section_check;
+ALTER TABLE public.patients DROP CONSTRAINT IF EXISTS patients_source_of_money_check;
+
+CREATE OR REPLACE FUNCTION public.validate_patient_options()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.section IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM public.app_options WHERE kind = 'section' AND key = NEW.section
+    ) THEN
+        RAISE EXCEPTION 'Unknown section "%" - add it on the Settings page first', NEW.section;
+    END IF;
+    IF NEW.source_of_money IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM public.app_options WHERE kind = 'source' AND key = NEW.source_of_money
+    ) THEN
+        RAISE EXCEPTION 'Unknown source of money "%" - add it on the Settings page first', NEW.source_of_money;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS validate_patient_options_trigger ON public.patients;
+CREATE TRIGGER validate_patient_options_trigger
+    BEFORE INSERT OR UPDATE ON public.patients
+    FOR EACH ROW EXECUTE FUNCTION public.validate_patient_options();
+
+CREATE OR REPLACE TRIGGER update_app_options_updated_at
+    BEFORE UPDATE ON public.app_options
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
 -- Single-row table holding the OpenRouter integration settings (issue #10).
 -- The API key is stored as AES-GCM ciphertext produced by the ai-settings
 -- Edge Function; the encryption key is derived from the service-role key, so

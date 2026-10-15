@@ -228,5 +228,21 @@
     "Attachments": "Attachments",
     "Upload failed": "Upload failed",
     "Please wait for the uploads to finish.": "Please wait for the uploads to finish.",
-    "Remove the files that failed to upload before saving.": "Remove the files that failed to upload before saving."
+    "Remove the files that failed to upload before saving.": "Remove the files that failed to upload before saving.",
+    "Settings": "Settings",
+    "Followers": "Followers",
+    "Sections": "Sections",
+    "Sources of Money": "Sources of Money",
+    "These lists feed the patient form, filters, dashboard and Excel export. Deactivating an option hides it from new selections while existing patients keep their value.": "These lists feed the patient form, filters, dashboard and Excel export. Deactivating an option hides it from new selections while existing patients keep their value.",
+    "Active": "Active",
+    "English label": "English label",
+    "Arabic label": "Arabic label",
+    "New English label": "New English label",
+    "New Arabic label": "New Arabic label",
+    "Add Option": "Add Option",
+    "No options yet.": "No options yet.",
+    "Option added.": "Option added.",
+    "Option saved.": "Option saved.",
+    "Enter a label in at least one language.": "Enter a label in at least one language.",
+    "Could not save the option.": "Could not save the option."
 }

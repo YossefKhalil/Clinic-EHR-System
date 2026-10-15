@@ -6,7 +6,8 @@
 // everyone. Every patient column is included, one row per patient; notes are
 // joined with newlines into a single cell.
 import * as XLSX from 'xlsx';
-import { getPatients, FOLLOWERS } from './patients.js';
+import { getPatients } from './patients.js';
+import { optionLabel } from './options.js';
 import { t, getLocale } from './i18n.js';
 
 function profileOf(patient) {
@@ -21,10 +22,10 @@ function profileOf(patient) {
         patient.address ?? '',
         patient.problem ?? '',
         patient.solution ?? '',
-        patient.follower ? (FOLLOWERS[patient.follower] || patient.follower) : '',
+        patient.follower ? optionLabel('follower', patient.follower) : '',
         patient.is_completed ? t('Completed') : t('Pending'),
-        patient.source_of_money ? t(patient.source_of_money === 'charity' ? 'Charity' : 'Country') : '',
-        patient.section ? t(patient.section === 'agamy' ? 'Agamy' : 'Dekhila') : '',
+        patient.source_of_money ? optionLabel('source', patient.source_of_money) : '',
+        patient.section ? optionLabel('section', patient.section) : '',
         patient.price ?? '',
         (patient.visit_date ? String(patient.visit_date).slice(0, 10) : ''),
         (patient.created_at ? String(patient.created_at).slice(0, 10) : ''),
