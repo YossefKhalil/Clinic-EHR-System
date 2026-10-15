@@ -358,12 +358,25 @@
                             <i class="bi bi-file-earmark-spreadsheet" x-show="!exporting"></i>
                             <span x-text="exporting ? t('Preparing...') : t('Export Excel')"></span>
                         </button>
-                        <button class="btn btn-primary shadow-sm me-2" @click="openBulkImport()" x-show="aiImportEnabled" x-cloak>
-                            <i class="bi bi-stars"></i> <span x-text="t('AI Import')"></span>
-                        </button>
-                        <button class="btn btn-primary shadow-sm" @click="openPatientForm()">
-                            <i class="bi bi-person-plus-fill me-1"></i> <span x-text="t('Add New Patient')"></span>
-                        </button>
+                        <!-- Add New Patient as the primary action; AI import lives
+                             in its dropdown instead of competing for space. The
+                             split's right half disappears when AI import is
+                             disabled via the ai_settings toggle (issue #10). -->
+                        <div class="btn-group shadow-sm me-2">
+                            <button class="btn btn-primary" @click="openPatientForm()">
+                                <i class="bi bi-person-plus-fill me-1"></i> <span x-text="t('Add New Patient')"></span>
+                            </button>
+                            <button type="button" class="btn btn-primary dropdown-toggle dropdown-toggle-split" x-show="aiImportEnabled" x-cloak data-bs-toggle="dropdown" aria-expanded="false" :aria-label="t('Import from file or paste')">
+                                <span class="visually-hidden" x-text="t('Import from file or paste')"></span>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li x-show="aiImportEnabled">
+                                    <button class="dropdown-item" type="button" @click="openAiImport()">
+                                        <i class="bi bi-stars me-2"></i><span x-text="t('Import from file or paste')"></span>
+                                    </button>
+                                </li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
 
@@ -991,142 +1004,407 @@
                 </div>
             </div>
 
-            <!-- AI BULK IMPORT PAGE -->
-            <div x-show="currentPage === 'ai-import'" x-cloak>
+            <!-- AI IMPORT PAGE (3 steps: Add data -> Review -> Done) -->
+            <div x-show="currentPage === 'ai-import'" x-cloak @paste.prevent="onAiPaste($event)" @dragover.prevent="aiDragOver = true" @dragleave="aiDragOver = false">
                 <div class="row justify-content-center">
                     <div class="col-lg-10 col-md-11">
-                        <a href="#" class="btn btn-link text-decoration-none mb-3 p-0" @click="navigate('patients')">
+
+                        <!-- step header -->
+                        <a href="#" class="btn btn-link text-decoration-none mb-2 p-0" @click="navigate('patients')">
                             <i class="bi bi-arrow-left"></i> <span x-text="t('Back to Patients Directory')"></span>
                         </a>
-
-                        <div class="card shadow border-0 mb-4">
-                            <div class="card-header bg-primary text-white py-3 d-flex align-items-center">
-                                <i class="bi bi-stars me-2 fs-5"></i>
-                                <div>
-                                    <div class="fw-semibold" x-text="t('AI Bulk Import')"></div>
-                                    <div class="small opacity-75" x-text="t('Paste, describe, or attach a file — the AI extracts patients, you review before saving.')"></div>
+                        <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+                            <template x-for="(step, i) in ['Add data', 'Review', 'Done']" :key="i">
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="badge rounded-pill px-3 py-2"
+                                        :class="aiStepIndex() >= i ? 'bg-primary' : 'bg-secondary-subtle text-secondary'"
+                                        style="font-size:.8rem">
+                                        <span x-text="`${i + 1}. ${t(step)}`"></span>
+                                    </span>
+                                    <i class="bi bi-chevron-right text-muted" x-show="i < 2" x-cloak></i>
                                 </div>
-                            </div>
+                            </template>
+                        </div>
 
-                            <!-- conversation -->
-                            <div class="card-body bg-light" style="max-height: 46vh; overflow-y: auto;">
-                                <template x-for="(msg, i) in aiMessages" :key="i">
-                                    <div class="mb-3" :class="msg.role === 'user' ? 'text-end' : ''">
-                                        <div class="d-inline-block p-3 rounded-3 shadow-sm"
-                                            :class="msg.role === 'user' ? 'bg-primary-subtle' : 'bg-white border'"
-                                            style="max-width: 85%; white-space: pre-wrap; text-align: start;"
-                                            x-text="msg.text"></div>
-                                    </div>
-                                </template>
-                                <div class="text-center text-muted small" x-show="aiBusy" x-cloak>
-                                    <span class="spinner-border spinner-border-sm me-1"></span>
-                                    <span x-text="t('Thinking...')"></span>
+                        <!-- ================= STEP 1: ADD DATA ================= -->
+                        <div class="card shadow border-0" x-show="aiStep === 'add'" x-cloak>
+                            <div class="card-header bg-primary text-white py-3">
+                                <div class="fw-semibold"><i class="bi bi-stars me-2"></i><span x-text="t('AI Import')"></span></div>
+                                <div class="small opacity-75" x-text="t('Files or text in, patients out — review every row before anything is saved.')"></div>
+                            </div>
+                            <div class="card-body">
+
+                                <!-- dropzone: drag, paste anywhere on this page, or click -->
+                                <div class="ai-dropzone p-4 rounded-3 text-center mb-3"
+                                    :class="{ 'ai-dropzone-active': aiDragOver }"
+                                    role="button" tabindex="0"
+                                    @click="$refs.aiFileInput.click()"
+                                    @keydown.enter.prevent="$refs.aiFileInput.click()"
+                                    @drop.prevent="onAiDrop($event)">
+                                    <input x-ref="aiFileInput" type="file" class="d-none" multiple
+                                        @change="onAiFilesPicked($event)"
+                                        accept=".xlsx,.xls,.csv,.png,.jpg,.jpeg,.webp,.gif,.pdf,.docx,.txt,.md,.json,image/*">
+                                    <i class="bi bi-cloud-arrow-up fs-1 text-primary"></i>
+                                    <div class="fw-semibold mt-2" x-text="t('Drop files here, paste, or click to browse')"></div>
+                                    <div class="small text-muted" x-text="t('Excel, CSV, photos, Word, PDF, text — anything with patient info.')"></div>
                                 </div>
-                            </div>
 
-                            <!-- composer -->
-                            <div class="card-footer bg-white">
-                                <div class="d-flex gap-2 flex-wrap mb-2" x-show="aiAttachments.length" x-cloak>
-                                    <template x-for="(file, i) in aiAttachments" :key="i">
-                                        <span class="badge bg-secondary-subtle text-dark d-flex align-items-center gap-1">
-                                            <i class="bi bi-paperclip"></i>
-                                            <span x-text="file.name"></span>
-                                            <button type="button" class="btn-close btn-close-black" style="font-size:0.6em" @click="aiAttachments.splice(i, 1)" :aria-label="t('Remove')"></button>
+                                <!-- attachment chips -->
+                                <div class="d-flex flex-wrap gap-2 mb-3" x-show="aiFiles.length" x-cloak>
+                                    <template x-for="(chip, i) in aiFiles" :key="chip.id">
+                                        <span class="badge bg-secondary-subtle text-dark d-flex align-items-center gap-2 px-2 py-2">
+                                            <i class="bi" :class="aiChipIcon(chip)"></i>
+                                            <span x-text="chip.name"></span>
+                                            <span class="text-muted small" x-text="formatAiSize(chip.size)"></span>
+                                            <button type="button" class="btn-close btn-close-black" style="font-size:.6em"
+                                                @click="aiFiles.splice(i, 1)" :aria-label="t('Remove')"></button>
                                         </span>
                                     </template>
                                 </div>
-                                <div class="d-flex gap-2 align-items-start">
-                                    <button type="button" class="btn btn-outline-secondary" @click="$refs.aiFile.click()" :disabled="aiBusy" :title="t('Attach file')">
-                                        <i class="bi bi-paperclip"></i>
+
+                                <!-- pasted / typed details -->
+                                <div class="mb-3">
+                                    <label class="form-label fw-semibold" for="ai-typed-text" x-text="t('Or type / paste patient details')"></label>
+                                    <textarea id="ai-typed-text" class="form-control" rows="4" x-model="aiText"
+                                        :placeholder="t('One record per line works best — name, national ID, mobile, complaint.')"></textarea>
+                                </div>
+
+                                <!-- mobile camera shortcut -->
+                                <button type="button" class="btn btn-outline-primary mb-3 d-lg-none" @click="$refs.aiCameraInput.click()">
+                                    <i class="bi bi-camera me-1"></i><span x-text="t('Take photo')"></span>
+                                </button>
+                                <input x-ref="aiCameraInput" type="file" accept="image/*" capture="environment" class="d-none" @change="onAiFilesPicked($event)">
+
+                                <!-- defaults applied only to fields the AI leaves blank -->
+                                <div class="border rounded-3 p-3 mb-3 bg-light">
+                                    <div class="fw-semibold mb-2"><i class="bi bi-sliders me-1"></i><span x-text="t('Apply to every patient')"></span>
+                                        <span class="small text-muted fw-normal" x-text="t('(only fill blank fields)')"></span>
+                                    </div>
+                                    <div class="row g-2">
+                                        <div class="col-md-3">
+                                            <label class="form-label small text-muted mb-1" x-text="t('Section')"></label>
+                                            <select class="form-select form-select-sm" x-model="aiDefaults.section" :disabled="aiSectionLocked()">
+                                                <option value="">-- Select --</option>
+                                                <option value="agamy" x-text="t('Agamy')"></option>
+                                                <option value="dekhila" x-text="t('Dekhila')"></option>
+                                            </select>
+                                            <div class="small text-danger mt-1" x-show="needSectionChoice() && !aiDefaults.section" x-cloak
+                                                x-text="t('Choose a section before extracting')"></div>
+                                            <div class="small text-muted mt-1" x-show="aiSectionLocked()" x-text="t('Your account is assigned to this section')"></div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label small text-muted mb-1" x-text="t('Source of Money')"></label>
+                                            <select class="form-select form-select-sm" x-model="aiDefaults.source_of_money">
+                                                <option value="">-- Select --</option>
+                                                <option value="charity" x-text="t('Charity')"></option>
+                                                <option value="country" x-text="t('Country')"></option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label small text-muted mb-1" x-text="t('Follower')"></label>
+                                            <select class="form-select form-select-sm" x-model="aiDefaults.follower">
+                                                <option value="">-- Select --</option>
+                                                <template x-for="(label, key) in followerOptions" :key="key">
+                                                    <option :value="key" x-text="label"></option>
+                                                </template>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label small text-muted mb-1" x-text="t('Visit Date')"></label>
+                                            <input type="date" class="form-control form-control-sm" x-model="aiDefaults.visit_date">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- optional instructions -->
+                                <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 mb-2"
+                                    @click="aiShowInstructions = !aiShowInstructions">
+                                    <i class="bi" :class="aiShowInstructions ? 'bi-dash-circle' : 'bi-plus-circle'"></i>
+                                    <span x-text="t('Optional: instructions for the AI')"></span>
+                                </button>
+                                <textarea class="form-control mb-2" rows="2" x-show="aiShowInstructions" x-cloak x-model="aiInstructions"
+                                    :placeholder="t('e.g. skip rows without a national ID; the third column is the mobile number')"></textarea>
+
+                                <div class="small text-muted mb-3">
+                                    <i class="bi bi-shield-lock me-1"></i>
+                                    <span x-text="t('Patient data is sent to the AI provider for extraction.')"></span>
+                                </div>
+
+                                <!-- extract / progress -->
+                                <div class="d-flex align-items-center gap-3 flex-wrap">
+                                    <button type="button" class="btn btn-primary" @click="extractPatients()"
+                                        :disabled="!aiCanExtract() || aiExtracting">
+                                        <i class="bi bi-stars me-1"></i><span x-text="t('Extract patients')"></span>
                                     </button>
-                                    <input x-ref="aiFile" type="file" class="d-none" @change="onAiAttach($event)" multiple>
-                                    <textarea class="form-control" rows="2" x-model="aiPrompt"
-                                        @keydown.enter.prevent="sendAiRequest()"
-                                        :placeholder="t('Describe the patients to add, or attach a file with their details.')"
-                                        :disabled="aiBusy"></textarea>
-                                    <button type="button" class="btn btn-primary" @click="sendAiRequest()" :disabled="aiBusy || !aiPrompt.trim()">
-                                        <i class="bi bi-send"></i>
+                                    <div class="flex-grow-1" style="min-width:200px" x-show="aiExtracting" x-cloak>
+                                        <div class="progress" style="height:6px">
+                                            <div class="progress-bar progress-bar-striped progress-bar-animated" :style="`width: ${aiProgressPercent()}%`"></div>
+                                        </div>
+                                        <div class="small text-muted mt-1 d-flex align-items-center gap-2">
+                                            <span class="spinner-border spinner-border-sm"></span>
+                                            <span x-text="aiProgressLabel"></span>
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-outline-danger btn-sm" x-show="aiExtracting" x-cloak @click="cancelAiExtraction()">
+                                        <i class="bi bi-x-circle me-1"></i><span x-text="t('Cancel')"></span>
                                     </button>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- review + import -->
-                        <div class="card shadow border-0" x-show="aiDraftRows.length" x-cloak>
-                            <div class="card-header bg-white d-flex align-items-center justify-content-between py-3">
+                        <!-- ================= STEP 2: REVIEW ================= -->
+                        <div class="card shadow border-0" x-show="aiStep === 'review'" x-cloak>
+                            <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
                                 <h5 class="mb-0 fw-semibold">
-                                    <i class="bi bi-clipboard-check me-2 text-success"></i>
-                                    <span x-text="t('Review before saving')"></span>
-                                    <span class="badge bg-success ms-2" x-text="aiDraftRows.length"></span>
+                                    <i class="bi bi-clipboard-check me-2 text-success"></i><span x-text="t('Review')"></span>
+                                    <span class="badge bg-secondary ms-1" x-text="aiRows.length"></span>
                                 </h5>
-                                <button class="btn btn-success" @click="saveAiDraft()" :disabled="aiSaving || !acceptableAiDraftCount()">
-                                    <span x-show="aiSaving" class="spinner-border spinner-border-sm me-1" x-cloak></span>
-                                    <span x-text="aiSaving ? t('Saving...') : t('Import all valid rows')"></span>
-                                </button>
+                                <div class="btn-group">
+                                    <button class="btn btn-sm" :class="aiFilter === 'all' ? 'btn-primary' : 'btn-outline-primary'" @click="aiFilter = 'all'">
+                                        <span x-text="t('All')"></span> (<span x-text="aiRows.length"></span>)
+                                    </button>
+                                    <button class="btn btn-sm" :class="aiFilter === 'attention' ? 'btn-primary' : 'btn-outline-primary'" @click="aiFilter = 'attention'">
+                                        <span x-text="t('Needs attention')"></span> (<span x-text="attentionCount()"></span>)
+                                    </button>
+                                </div>
                             </div>
                             <div class="card-body p-0">
-                                <div class="table-responsive">
+                                <!-- toolbar -->
+                                <div class="d-flex flex-wrap gap-2 align-items-center px-3 py-2 border-bottom bg-light">
+                                    <button class="btn btn-sm btn-outline-secondary" @click="addReviewRow()">
+                                        <i class="bi bi-plus-lg me-1"></i><span x-text="t('Add row')"></span>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" @click="deleteSelectedRows()" :disabled="!selectedRowCount()">
+                                        <i class="bi bi-trash me-1"></i><span x-text="t('Delete selected')"></span>
+                                    </button>
+                                    <div class="dropdown">
+                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" :disabled="!selectedRowCount()">
+                                            <i class="bi bi-pencil me-1"></i><span x-text="t('Set value for selected rows')"></span>
+                                        </button>
+                                        <ul class="dropdown-menu p-2" style="min-width: 230px">
+                                            <li class="px-2 py-1">
+                                                <label class="small text-muted" x-text="t('Field')"></label>
+                                                <select class="form-select form-select-sm" x-model="aiBulkField">
+                                                    <option value="source_of_money" x-text="t('Source of Money')"></option>
+                                                    <option value="follower" x-text="t('Follower')"></option>
+                                                    <option value="visit_date" x-text="t('Visit Date')"></option>
+                                                    <option value="section" x-text="t('Section')"></option>
+                                                </select>
+                                            </li>
+                                            <li class="px-2 py-1">
+                                                <label class="small text-muted" x-text="t('Value')"></label>
+                                                <input class="form-control form-control-sm" type="text" x-model="aiBulkValue">
+                                            </li>
+                                            <li class="px-2"><button class="btn btn-sm btn-primary w-100 mt-1" @click="applyBulkValue()"><span x-text="t('Apply')"></span></button></li>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <!-- review table -->
+                                <div class="table-responsive" style="max-height: 55vh">
                                     <table class="table table-sm table-hover align-middle mb-0">
-                                        <thead class="table-light text-muted">
+                                        <thead class="table-light sticky-top">
                                             <tr>
-                                                <th class="ps-3" x-text="t('Name')"></th>
-                                                <th x-text="t('National ID')"></th>
-                                                <th x-text="t('Mobile')"></th>
-                                                <th x-text="t('Age')"></th>
-                                                <th x-text="t('Governorate')"></th>
-                                                <th x-text="t('Problem')"></th>
-                                                <th x-text="t('Source of Money')"></th>
+                                                <th style="width:32px"><input type="checkbox" class="form-check-input" @change="toggleSelectAll($event.target.checked)" :checked="allVisibleSelected()"></th>
                                                 <th x-text="t('Status')"></th>
-                                                <th x-text="t('Actions')"></th>
+                                                <th style="min-width:150px" x-text="t('Name')"></th>
+                                                <th style="min-width:150px" x-text="t('National ID')"></th>
+                                                <th style="min-width:120px" x-text="t('Mobile')"></th>
+                                                <th style="min-width:120px" x-text="t('Governorate')"></th>
+                                                <th style="min-width:140px" x-text="t('Problem')"></th>
+                                                <th x-text="t('Visit Date')"></th>
+                                                <th x-text="t('Price')"></th>
+                                                <th style="width:60px"></th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            <template x-for="(row, i) in aiDraftRows" :key="row.id">
-                                                <tr :class="rowErrors(row).length ? 'table-warning' : ''">
-                                                    <td class="ps-3" style="min-width: 140px"><input class="form-control form-control-sm" x-model="row.name" @input="aiDraftRows[i].touched = true"></td>
-                                                    <td style="min-width: 140px"><input class="form-control form-control-sm" x-model="row.national_id"></td>
-                                                    <td><input class="form-control form-control-sm" x-model="row.mobile"></td>
-                                                    <td style="width: 70px"><input class="form-control form-control-sm" x-model="row.age"></td>
-                                                    <td style="min-width: 130px"><input class="form-control form-control-sm" list="ai-gov-list" x-model="row.governorate"></td>
-                                                    <td style="min-width: 160px"><input class="form-control form-control-sm" x-model="row.problem"></td>
-                                                    <td style="min-width: 110px">
-                                                        <select class="form-select form-select-sm" x-model="row.source_of_money">
-                                                            <option value="">—</option>
-                                                            <template x-for="opt in activeOptions('source')" :key="'ai-src-' + opt.key">
-                                                                <option :value="opt.key" x-text="optionLabel('source', opt.key)"></option>
-                                                            </template>
-                                                        </select>
-                                                    </td>
-                                                    <td class="text-center">
-                                                        <i class="bi bi-check-circle-fill text-success" x-show="!rowErrors(row).length" x-cloak></i>
-                                                        <i class="bi bi-exclamation-triangle-fill text-warning" x-show="rowErrors(row).length" x-cloak></i>
-                                                        <div class="small text-danger" style="max-width: 160px; white-space: normal;" x-show="rowErrors(row).length" x-text="rowErrors(row).join(', ')"></div>
-                                                    </td>
-                                                    <td>
-                                                        <div class="btn-group btn-group-sm">
-                                                            <button class="btn btn-outline-secondary" @click="aiDraftRows.splice(i, 1)" :title="t('Remove row')">
-                                                                <i class="bi bi-trash"></i>
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
+                                            <template x-for="row in visibleRows()" :key="row.id">
+                                                    <tbody>
+                                                        <tr :class="{ 'table-active': row.selected }">
+                                                            <td><input type="checkbox" class="form-check-input" x-model="row.selected"></td>
+                                                            <td class="text-center" style="white-space:nowrap">
+                                                                <span class="badge bg-success" x-show="aiRowStatus(row) === 'ready'" x-text="t('Ready')"></span>
+                                                                <span class="badge bg-warning text-dark" x-show="aiRowStatus(row) === 'check'" x-text="t('Check')"></span>
+                                                                <span class="badge bg-danger" x-show="aiRowStatus(row) === 'error'" x-text="t('Error')"></span>
+                                                                <span class="badge bg-info text-dark" x-show="row.duplicate" x-text="t('Duplicate')"></span>
+                                                            </td>
+                                                            <td>
+                                                                <input class="form-control form-control-sm" :class="{ 'ai-cell-error': aiCellWarning(row, 'name') || aiRowStatus(row) === 'error' }" x-model="row.data.name">
+                                                            </td>
+                                                            <td>
+                                                                <input class="form-control form-control-sm" :class="{ 'ai-cell-error': aiCellWarning(row, 'national_id') }" x-model="row.data.national_id" inputmode="numeric">
+                                                            </td>
+                                                            <td><input class="form-control form-control-sm" :class="{ 'ai-cell-check': aiCellWarning(row, 'mobile') }" x-model="row.data.mobile" inputmode="tel"></td>
+                                                            <td>
+                                                                <select class="form-select form-select-sm" :class="{ 'ai-cell-check': aiCellWarning(row, 'governorate') }" x-model="row.data.governorate">
+                                                                    <option value="">--</option>
+                                                                    <template x-for="gov in governorates" :key="gov"><option :value="gov" x-text="gov"></option></template>
+                                                                </select>
+                                                            </td>
+                                                            <td><input class="form-control form-control-sm" x-model="row.data.problem"></td>
+                                                            <td><input type="date" class="form-control form-control-sm" :class="{ 'ai-cell-check': aiCellWarning(row, 'visit_date') }" x-model="row.data.visit_date"></td>
+                                                            <td style="width:90px"><input class="form-control form-control-sm" x-model="row.data.price" inputmode="decimal"></td>
+                                                            <td class="text-nowrap text-center">
+                                                                <button type="button" class="btn btn-sm btn-link text-secondary p-0 me-1" @click="row.expanded = !row.expanded"
+                                                                    :aria-label="t('More fields')" :title="t('More fields')">
+                                                                    <i class="bi" :class="row.expanded ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+                                                                </button>
+                                                                <button type="button" class="btn btn-sm btn-link text-secondary p-0" @click="showRowSource(row)" :title="t('Source text')" :aria-label="t('Source text')">
+                                                                    <i class="bi bi-info-circle"></i>
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                        <!-- errors / duplicate info under the row -->
+                                                        <tr x-show="aiRowStatus(row) === 'error' || row.duplicate">
+                                                            <td colspan="10" class="ps-3 pe-3" style="border-top:0">
+                                                                <div class="small">
+                                                                    <span class="text-danger" x-show="aiRowStatus(row) === 'error'"
+                                                                        x-text="aiRowErrors(row).join(' · ')"></span>
+                                                                    <template x-if="aiRowStatus(row) !== 'error' && row.duplicate">
+                                                                        <span class="text-info fw-semibold" x-text="row.duplicate?.message"></span>
+                                                                    </template>
+                                                                    <template x-if="row.duplicate?.fillable">
+                                                                        <button type="button" class="btn btn-sm btn-outline-info ms-2" @click="setDuplicateSkip(row)"
+                                                                            :class="{ active: row.duplicateMode !== 'fill' }">
+                                                                            <span x-text="t('Skip')"></span>
+                                                                        </button>
+                                                                    </template>
+                                                                    <template x-if="row.duplicate?.fillable">
+                                                                        <button type="button" class="btn btn-sm btn-outline-info ms-2" @click="setDuplicateFill(row)"
+                                                                            :class="{ active: row.duplicateMode === 'fill' }">
+                                                                            <span x-text="t('Fill empty fields on the existing patient')"></span>
+                                                                        </button>
+                                                                    </template>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                        <!-- expanded detail row -->
+                                                        <tr x-show="row.expanded">
+                                                            <td colspan="10" class="bg-light p-3">
+                                                                <div class="row g-2">
+                                                                    <div class="col-md-3"><label class="small text-muted" x-text="t('Date of Birth')"></label>
+                                                                        <input type="date" class="form-control form-control-sm" :class="{ 'ai-cell-check': aiCellWarning(row, 'date_of_birth') }" x-model="row.data.date_of_birth"></div>
+                                                                    <div class="col-md-2"><label class="small text-muted" x-text="t('Age')"></label>
+                                                                        <input class="form-control form-control-sm" x-model="row.data.age" inputmode="numeric"></div>
+                                                                    <div class="col-md-3"><label class="small text-muted" x-text="t('Marital Status')"></label>
+                                                                        <select class="form-select form-select-sm" x-model="row.data.marital_status">
+                                                                            <option value="">--</option>
+                                                                            <option value="single" x-text="t('Single')"></option>
+                                                                            <option value="married" x-text="t('Married')"></option>
+                                                                            <option value="divorced" x-text="t('Divorced')"></option>
+                                                                            <option value="widowed" x-text="t('Widowed')"></option>
+                                                                        </select></div>
+                                                                    <div class="col-md-2"><label class="small text-muted" x-text="t('Children Count')"></label>
+                                                                        <input class="form-control form-control-sm" x-model="row.data.children_count" inputmode="numeric"></div>
+                                                                    <div class="col-md-2"><label class="small text-muted" x-text="t('Section')"></label>
+                                                                        <select class="form-select form-select-sm" x-model="row.data.section">
+                                                                            <option value="">--</option>
+                                                                            <option value="agamy" x-text="t('Agamy')"></option>
+                                                                            <option value="dekhila" x-text="t('Dekhila')"></option>
+                                                                        </select></div>
+                                                                    <div class="col-md-4"><label class="small text-muted" x-text="t('Address')"></label>
+                                                                        <input class="form-control form-control-sm" x-model="row.data.address"></div>
+                                                                    <div class="col-md-4"><label class="small text-muted" x-text="t('Solution')"></label>
+                                                                        <input class="form-control form-control-sm" x-model="row.data.solution"></div>
+                                                                    <div class="col-md-3"><label class="small text-muted" x-text="t('Source of Money')"></label>
+                                                                        <select class="form-select form-select-sm" x-model="row.data.source_of_money">
+                                                                            <option value="">--</option>
+                                                                            <template x-for="opt in activeOptions('source')" :key="'ai-src-' + opt.key">
+                                                                                <option :value="opt.key" x-text="optionLabel('source', opt.key)"></option>
+                                                                            </template>
+                                                                        </select></div>
+                                                                    <div class="col-md-3"><label class="small text-muted" x-text="t('Follower')"></label>
+                                                                        <select class="form-select form-select-sm" x-model="row.data.follower">
+                                                                            <option value="">--</option>
+                                                                            <template x-for="(label, key) in followerOptions" :key="key">
+                                                                                <option :value="key" x-text="label"></option>
+                                                                            </template>
+                                                                        </select></div>
+                                                                    <div class="col-md-12"><label class="small text-muted" x-text="t('Notes')"></label>
+                                                                        <textarea class="form-control form-control-sm" rows="1" :value="aiNotesText(row.data.notes)" @input="row.data.notes = $event.target.value.split('\n')"></textarea></div>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    </tbody>
                                             </template>
+                                            <tr x-show="!visibleRows().length">
+                                                <td colspan="10" class="text-center py-4 text-muted" x-text="t('No rows match this filter.')"></td>
+                                            </tr>
                                         </tbody>
                                     </table>
+                                </div>
+                            </div>
+                            <!-- footer -->
+                            <div class="card-footer bg-white d-flex align-items-center justify-content-between flex-wrap gap-2 py-3">
+                                <div class="small text-muted">
+                                    <span x-text="t(':count patients · :attention need attention', { count: aiRows.length, attention: attentionCount() })"></span>
+                                </div>
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-outline-secondary" @click="backToAddStep()">
+                                        <i class="bi bi-arrow-left me-1"></i><span x-text="t('Back')"></span>
+                                    </button>
+                                    <button class="btn btn-success" @click="importReviewedRows()" :disabled="aiImporting || !importableCount()">
+                                        <span x-show="aiImporting" class="spinner-border spinner-border-sm me-1" x-cloak></span>
+                                        <span x-text="aiImporting ? t('Saving...') : t('Import :count patients', { count: importableCount() })"></span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
 
-                                    <!-- Full detail panel for one row: everything rare columns needed -->
-                                    <div class="p-3 border-top bg-light">
-                                        <div class="small text-muted mb-1" x-text="t('Advanced / extra fields are kept but not edited here: DOB, marital status, children, address, solution, price, visit date, notes.')"></div>
-                                        <datalist id="ai-gov-list">
-                                            <template x-for="gov in governorates" :key="gov"><option :value="gov"></option></template>
-                                        </datalist>
+                        <!-- ================= STEP 3: DONE ================= -->
+                        <div class="card shadow border-0" x-show="aiStep === 'done'" x-cloak>
+                            <div class="card-body text-center p-4">
+                                <i class="bi bi-check-circle-fill text-success fs-1"></i>
+                                <h4 class="fw-semibold mt-2">
+                                    <span x-text="t(':count patients added', { count: aiResult.added })"></span>
+                                </h4>
+                                <p class="text-muted mb-2" x-show="aiResult.skipped.length" x-cloak>
+                                    <span x-text="t(':count rows were skipped:', { count: aiResult.skipped.length })"></span>
+                                </p>
+                                <div class="list-group mx-auto mb-3 text-start" style="max-width: 640px; max-height: 40vh; overflow-y: auto" x-show="aiResult.skipped.length" x-cloak>
+                                    <template x-for="(skip, i) in aiResult.skipped" :key="i">
+                                        <div class="list-group-item py-2">
+                                            <div class="d-flex justify-content-between gap-2">
+                                                <span class="fw-semibold" x-text="skip.name || t('Name')"></span>
+                                                <span class="small text-danger text-end" x-text="skip.reason"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                                <div class="d-flex justify-content-center gap-2 flex-wrap">
+                                    <button type="button" class="btn btn-outline-secondary" x-show="aiResult.skipped.length" @click="downloadSkippedCsv()">
+                                        <i class="bi bi-filetype-csv me-1"></i><span x-text="t('Download skipped as CSV')"></span>
+                                    </button>
+                                    <button type="button" class="btn btn-outline-primary" @click="finishAndViewPatients()">
+                                        <i class="bi bi-people me-1"></i><span x-text="t('View patients')"></span>
+                                    </button>
+                                    <button type="button" class="btn btn-primary" @click="openAiImport()">
+                                        <i class="bi bi-plus-lg me-1"></i><span x-text="t('Import more')"></span>
+                                    </button>
+                                    <button type="button" class="btn btn-outline-danger" x-show="canUndoImport()" @click="undoImport()">
+                                        <i class="bi bi-arrow-counterclockwise me-1"></i><span x-text="t('Undo this import')"></span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+                        <!-- row source popup (info icon) -->
+                        <div class="position-fixed bottom-0 start-0 end-0 p-3" style="z-index:1055; pointer-events:none"
+                            x-show="aiRowSource" x-cloak>
+                            <div class="card shadow mx-auto" style="max-width:640px; pointer-events:auto"
+                                @click.away="aiRowSource = null">
+                                <div class="card-body py-2">
+                                    <div class="d-flex justify-content-between align-items-start gap-2">
+                                        <div class="small" style="white-space:pre-wrap" x-text="aiRowSource"></div>
+                                        <button type="button" class="btn-close" @click="aiRowSource = null" :aria-label="t('Close')"></button>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-            </div>
 
             <!-- PATIENT FORM PAGE -->
             <div x-show="currentPage === 'patient-form'" x-cloak>
@@ -1245,22 +1523,21 @@
                                             <div class="col-12">
                                                 <label class="form-label fw-semibold text-success">
                                                     <i class="bi bi-prescription me-1"></i><span x-text="t('Diagnosis & Treatment Plan')"></span>
-                                                </label>
-                                                <textarea rows="3" class="form-control" x-model="patientForm.solution" :placeholder="t('Medical prescriptions, lab workups, treatment plan...')"></textarea>
-                                            </div>
-                                            <div class="col-md-5">
-                                                <label class="form-label fw-semibold">
-                                                    <i class="bi bi-calendar-check-fill text-primary me-1"></i><span x-text="t('Visit Date')"></span>
-                                                </label>
-                                                <input type="date" class="form-control" x-model="patientForm.visit_date">
-                                            </div>
-                                            <div class="col-md-4">
-                                                <label class="form-label fw-semibold">
-                                                    <i class="bi bi-currency-dollar text-success me-1"></i><span x-text="t('Price (EGP)')"></span>
-                                                </label>
-                                                <input type="number" min="0" step="0.01" class="form-control" x-model="patientForm.price" placeholder="0.00">
-                                            </div>
-                                            <div class="col-md-3">
+                                                </label>                                                            <textarea rows="3" class="form-control" x-model="patientForm.solution" :placeholder="t('Medical prescriptions, lab workups, treatment plan...')"></textarea>
+                                                        </div>
+                                                        <div class="col-md-5">
+                                                            <label class="form-label fw-semibold">
+                                                                <i class="bi bi-calendar-check-fill text-primary me-1"></i><span x-text="t('Visit Date')"></span>
+                                                            </label>
+                                                            <input type="date" class="form-control" x-model="patientForm.visit_date">
+                                                        </div>
+                                                        <div class="col-md-4">
+                                                            <label class="form-label fw-semibold">
+                                                                <i class="bi bi-currency-dollar text-success me-1"></i><span x-text="t('Price (EGP)')"></span>
+                                                            </label>
+                                                            <input type="number" min="0" step="0.01" class="form-control" x-model="patientForm.price" placeholder="0.00">
+                                                        </div>
+                                                        <div class="col-md-3">
                                                 <label class="form-label fw-semibold">
                                                     <i class="bi bi-person-check-fill text-info me-1"></i><span x-text="t('Follower')"></span>
                                                 </label>
