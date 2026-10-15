@@ -41,3 +41,6 @@ jobs:
 
       - name: Deploy ai-import
         run: supabase functions deploy ai-import --project-ref "$PROJECT_REF"
+
+      - name: Deploy ai-settings
+        run: supabase functions deploy ai-settings --project-ref "$PROJECT_REF"

@@ -204,11 +204,33 @@ CREATE OR REPLACE TRIGGER update_patients_updated_at
     BEFORE UPDATE ON public.patients
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
+-- Single-row table holding the OpenRouter integration settings (issue #10).
+-- The API key is stored as AES-GCM ciphertext produced by the ai-settings
+-- Edge Function; the encryption key is derived from the service-role key, so
+-- no caller can ever read the plaintext back out of Postgres.
+CREATE TABLE IF NOT EXISTS public.ai_settings (
+    id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
+    openrouter_key_encrypted TEXT,
+    model TEXT DEFAULT 'google/gemini-2.5-flash-lite',
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_by UUID REFERENCES public.users(id) ON DELETE SET NULL
+);
+
+ALTER TABLE public.ai_settings ENABLE ROW LEVEL SECURITY;
+-- RLS with no policies denies every anon/authenticated request; the explicit
+-- REVOKE keeps the table off the PostgREST API surface entirely. Only
+-- service-role calls from Edge Functions can touch it.
+REVOKE ALL ON TABLE public.ai_settings FROM PUBLIC, anon, authenticated;
+
 -- Idempotent column migrations for databases created by an older schema.
 -- Safe to re-run: each line is a no-op when the column is already present.
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS age INTEGER;
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS mobile TEXT;
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS openrouter_api_key TEXT;
+
+-- The per-user OpenRouter key was superseded by the shared ai_settings row
+-- above; drop the legacy column wherever it exists.
+ALTER TABLE public.users DROP COLUMN IF EXISTS openrouter_api_key;
 
 -- Backfill profile rows for auth users created while the trigger was missing
 -- or broken (sign-in otherwise succeeds but the profile cannot be loaded).

@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { loadAiSettings } from '../_shared/ai-settings.ts';
 
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
@@ -100,6 +101,16 @@ Deno.serve(async (req) => {
         const { data: { user: caller }, error: authErr } = await supabase.auth.getUser(token);
         if (authErr || !caller) return json({ error: 'Unauthorized' }, 401);
 
+        const body = await req.json().catch(() => ({}));
+        const { action, contents = [], defaults = [] } = body;
+
+        // Lightweight feature flag for any signed-in user: lets the UI hide
+        // the AI Import entry point without leaking key details downwards.
+        if (action === 'status') {
+            const { enabled } = await loadAiSettings(supabase, serviceRoleKey);
+            return json({ enabled });
+        }
+
         const { data: callerProfile } = await supabase
             .from('users')
             .select('is_admin')
@@ -107,32 +118,25 @@ Deno.serve(async (req) => {
             .single();
         if (!callerProfile?.is_admin) return json({ error: 'Forbidden: admin only' }, 403);
 
-        const body = await req.json();
-        const {
-            contents = [],
-            defaults = [],
-            model = 'google/gemini-2.5-flash-lite',
-        } = body;
-
-        if (!contents.length) {
-            // Status probe from the Users page: report key configuration only.
-            const hasKey = Boolean(Deno.env.get('OPENROUTER_API_KEY'));
-            return json({ status: hasKey ? 'set' : 'missing' }, 200);
+        const settings = await loadAiSettings(supabase, serviceRoleKey);
+        if (!settings.enabled) {
+            return json({ error: 'AI Import is disabled by the administrator.' }, 403);
         }
-
-        const openRouterKey = Deno.env.get('OPENROUTER_API_KEY') ?? '';
-        if (!openRouterKey) {
+        if (!settings.apiKey) {
             return json({ error: 'OpenRouter API key is not configured.' }, 500);
+        }
+        if (!contents.length) {
+            return json({ error: 'No content provided.' }, 400);
         }
 
         const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${openRouterKey}`,
+                'Authorization': `Bearer ${settings.apiKey}`,
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                model,
+                model: settings.model,
                 temperature: 0.1,
                 max_tokens: 3600,
                 messages: [

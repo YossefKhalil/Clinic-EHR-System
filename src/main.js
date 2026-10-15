@@ -88,7 +88,12 @@ function app() {
         aiBusy: false,
         aiSaving: false,
         aiDraftRows: [],
-        aiKeyStatus: 'unknown',
+        aiImportEnabled: true,
+        aiSettings: null,
+        aiSettingsForm: { key: '', model: '', enabled: false },
+        aiSettingsSaving: false,
+        aiSettingsTesting: false,
+        aiSettingsTestResult: null,
         globalSearchFocused: false,
         globalSearchLoading: false,
         globalSearchResults: [],
@@ -184,6 +189,12 @@ function app() {
             this.user = getCurrentUser();
             this.isLoggedIn = !!this.user;
             this.isSuperAdmin = !!this.profile?.is_admin;
+
+            if (this.isLoggedIn) {
+                // Fire-and-forget: failures must never block or break auth.
+                this.refreshAiImportEnabled();
+                if (this.isSuperAdmin) this.loadAiSettings();
+            }
         },
         
         // Role = what the account is allowed to do, straight from the users
@@ -260,7 +271,10 @@ function app() {
                 if (page === 'dashboard') await this.showDashboard();
                 if (page === 'patients') await this.loadPatients();
                 if (page === 'prices') await this.showPrices();
-                if (page === 'users') await this.loadUsers();
+                if (page === 'users') {
+                    await this.loadUsers();
+                    if (this.isSuperAdmin) await this.loadAiSettings();
+                }
             } catch (error) {
                 console.error(error);
             }
@@ -451,6 +465,10 @@ function app() {
         // ---- AI bulk import ------------------------------------------------
         
         async openBulkImport() {
+            if (!this.aiImportEnabled) {
+                this.showAlert(this.t('AI Import is disabled by the administrator.'), 'warning');
+                return;
+            }
             this.aiPrompt = '';
             this.aiAttachments = [];
             this.aiDraftRows = [];
@@ -547,23 +565,93 @@ function app() {
             return this.aiDraftRows.filter((row) => !this.rowErrors(row).length).length;
         },
         
-        // Ask the (admin-checked) function whether OPENROUTER_API_KEY is set;
-        // it answers without burning any tokens.
-        async refreshAiKeyStatus() {
-            this.aiKeyStatus = 'checking';
+        // Ask the ai-import function whether admins switched the feature on;
+        // any signed-in user may ask, and a failure keeps the default (shown)
+        // so a flaky network never hides a working feature.
+        async refreshAiImportEnabled() {
             try {
                 const fnUrl = import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, '') + '/functions/v1/ai-import';
                 const token = (await supabase().auth.getSession()).data.session?.access_token;
+                if (!token) return;
                 const res = await fetch(fnUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ contents: [] }),
+                    body: JSON.stringify({ action: 'status' }),
                 });
+                if (!res.ok) return;
                 const data = await res.json().catch(() => ({}));
-                this.aiKeyStatus = (res.ok && data.status === 'set') ? 'set' : 'missing';
+                if (typeof data.enabled === 'boolean') this.aiImportEnabled = data.enabled;
             } catch (e) {
-                console.error('ai key status failed:', e);
-                this.aiKeyStatus = 'missing';
+                console.error('ai import status failed:', e);
+            }
+        },
+
+        async loadAiSettings() {
+            const { getAiSettings } = await import('./services/ai-settings.js');
+            try {
+                const settings = await getAiSettings();
+                this.aiSettings = settings;
+                this.aiSettingsForm = {
+                    key: '',
+                    model: settings.model || '',
+                    enabled: !!settings.enabled,
+                };
+            } catch (error) {
+                console.error('load ai settings failed:', error);
+            }
+        },
+
+        async saveAiSettings() {
+            if (this.aiSettingsSaving) return;
+            this.aiSettingsSaving = true;
+            this.aiSettingsTestResult = null;
+            const { saveAiSettings } = await import('./services/ai-settings.js');
+            try {
+                const settings = await saveAiSettings({
+                    key: this.aiSettingsForm.key.trim(),
+                    model: this.aiSettingsForm.model,
+                    enabled: !!this.aiSettingsForm.enabled,
+                });
+                this.aiSettings = settings;
+                this.aiImportEnabled = !!settings.enabled;
+                this.aiSettingsForm.key = '';
+                this.aiSettingsForm.enabled = !!settings.enabled;
+                this.showAlert(this.t('AI settings saved.'), 'success');
+            } catch (error) {
+                this.showAlert(error.message || 'Error saving AI settings', 'danger');
+            } finally {
+                this.aiSettingsSaving = false;
+            }
+        },
+
+        async testAiSettings() {
+            if (this.aiSettingsTesting) return;
+            this.aiSettingsTesting = true;
+            this.aiSettingsTestResult = null;
+            const { testAiSettings } = await import('./services/ai-settings.js');
+            try {
+                await testAiSettings();
+                this.aiSettingsTestResult = { ok: true, message: this.t('Connection OK — the key works.') };
+            } catch (error) {
+                this.aiSettingsTestResult = { ok: false, message: error.message || 'Connection failed' };
+            } finally {
+                this.aiSettingsTesting = false;
+            }
+        },
+
+        async clearAiSettings() {
+            if (!confirm(this.t('Remove the stored API key? AI Import will be disabled until a new key is saved.'))) return;
+            const { clearAiSettings } = await import('./services/ai-settings.js');
+            try {
+                const settings = await clearAiSettings();
+                this.aiSettings = settings;
+                this.aiImportEnabled = !!settings.enabled;
+                this.aiSettingsForm.key = '';
+                this.aiSettingsForm.model = settings.model || '';
+                this.aiSettingsForm.enabled = !!settings.enabled;
+                this.showAlert(this.t('Stored API key removed.'), 'success');
+            } catch (error) {
+                this.showAlert(error.message || 'Error removing the key', 'danger');
             }
         },
         
@@ -766,19 +854,14 @@ function app() {
         
         editUser(u) {
             this.editingUser = u;
-            this.userForm = { name: u.name, email: u.email, password: '', is_admin: !!u.is_admin, section: u.section || '', openrouter_api_key: u.openrouter_api_key || '' };
+            this.userForm = { name: u.name, email: u.email, password: '', is_admin: !!u.is_admin, section: u.section || '' };
             this.currentPage = 'user-form';
         },
         
         async submitUserForm() {
-            const { createUser, updateUser, setUserAiKey } = await import('./services/users.js');
+            const { createUser, updateUser } = await import('./services/users.js');
             try {
                 if (this.editingUser) {
-                    // Persist OpenRouter key changes without touching the password.
-                    const aiKey = (this.userForm.openrouter_api_key || '').trim();
-                    if (aiKey) {
-                        await setUserAiKey(this.editingUser.id, aiKey);
-                    }
                     await updateUser(this.editingUser.id, this.userForm);
                     this.showAlert(this.t('user updated successfully'));
                 } else {

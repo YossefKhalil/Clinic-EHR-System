@@ -63,8 +63,3 @@ export async function updateUser(id, { name, is_admin, section, password = null 
 export async function deleteUser(id) {
     return callManageUser('delete', { id });
 }
-
-export async function setUserAiKey(id, openrouter_api_key) {
-    const data = await callManageUser('setAiKey', { id, openrouter_api_key });
-    return data.user;
-}

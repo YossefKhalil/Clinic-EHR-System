@@ -355,7 +355,7 @@
                             <i class="bi bi-file-earmark-spreadsheet" x-show="!exporting"></i>
                             <span x-text="exporting ? t('Preparing...') : t('Export Excel')"></span>
                         </button>
-                        <button class="btn btn-primary shadow-sm me-2" @click="openBulkImport()">
+                        <button class="btn btn-primary shadow-sm me-2" @click="openBulkImport()" x-show="aiImportEnabled" x-cloak>
                             <i class="bi bi-stars"></i> <span x-text="t('AI Import')"></span>
                         </button>
                         <button class="btn btn-primary shadow-sm" @click="openPatientForm()">
@@ -667,23 +667,60 @@
                         <h5 class="mb-0 fw-semibold" x-text="t('AI Import Settings')"></h5>
                     </div>
                     <div class="card-body">
-                        <p class="text-muted small mb-3" x-text="t('The AI Bulk Import feature runs on OpenRouter. Create an API key at openrouter.ai/keys, then set it once on the server — the key never touches the browser.')"></p>
-                        <div class="row g-3 align-items-end">
-                            <div class="col-md-8">
-                                <label class="form-label fw-semibold mb-1" x-text="t('OpenRouter API key status')"></label>
-                                <div class="form-control bg-light" style="height: auto">
-                                    <span x-show="aiKeyStatus === 'checking'" x-text="t('Checking...')"></span>
-                                    <span x-show="aiKeyStatus === 'set'" class="text-success"><i class="bi bi-check-circle-fill"></i> <span x-text="t('Configured')"></span></span>
-                                    <span x-show="aiKeyStatus === 'missing'" class="text-danger"><i class="bi bi-x-circle-fill"></i> <span x-text="t('Not configured')"></span></span>
+                        <p class="text-muted small mb-3" x-text="t('The AI Bulk Import runs on OpenRouter. Create a key at openrouter.ai/keys and save it here — it is stored encrypted on the server and never sent to browsers.')"></p>
+
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                            <template x-if="aiSettings?.configured">
+                                <span class="badge text-bg-success"><i class="bi bi-check-circle-fill me-1"></i><span x-text="t('Configured')"></span></span>
+                            </template>
+                            <template x-if="aiSettings && !aiSettings.configured">
+                                <span class="badge text-bg-danger"><i class="bi bi-x-circle-fill me-1"></i><span x-text="t('Not configured')"></span></span>
+                            </template>
+                            <span class="text-muted small font-monospace" x-show="aiSettings?.configured" x-cloak x-text="'•••• ' + (aiSettings?.last4 || '')"></span>
+                            <span class="badge text-bg-secondary" x-show="aiSettings && !aiSettings.enabled" x-cloak x-text="t('Disabled')"></span>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label for="ai-key" class="form-label fw-semibold mb-1" x-text="t('OpenRouter API Key')"></label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light"><i class="bi bi-key"></i></span>
+                                    <input type="password" id="ai-key" class="form-control" x-model="aiSettingsForm.key"
+                                        :placeholder="aiSettings?.configured ? t('(leave blank to keep current)') : 'sk-or-v1-...'">
                                 </div>
+                                <div class="form-text text-muted" x-text="t('Saved encrypted on the server. Browsers never receive the key.')"></div>
                             </div>
-                            <div class="col-md-4 d-grid">
-                                <button class="btn btn-outline-primary" @click="refreshAiKeyStatus()" :disabled="aiKeyStatus === 'checking'">
-                                    <i class="bi bi-arrow-clockwise me-1"></i><span x-text="t('Check status')"></span>
-                                </button>
+                            <div class="col-md-6">
+                                <label for="ai-model" class="form-label fw-semibold mb-1" x-text="t('Model')"></label>
+                                <input type="text" id="ai-model" class="form-control" x-model="aiSettingsForm.model" placeholder="google/gemini-2.5-flash-lite">
+                                <div class="form-text text-muted" x-text="t('Images require a vision model, e.g. google/gemini-2.5-flash-lite.')"></div>
                             </div>
                         </div>
-                        <div class="mt-3 p-3 bg-light rounded small" style="white-space: pre-line" x-text="t('To set or update the key, run this on your machine (requires Supabase CLI login):') + '\\nsupabase secrets set OPENROUTER_API_KEY=sk-or-v1-...\\n' + t('and deploy the function:') + '\\nsupabase functions deploy ai-import\\nsupabase functions deploy manage-user'"></div>
+
+                        <div class="form-check form-switch my-3">
+                            <input class="form-check-input" type="checkbox" role="switch" id="ai-enabled" x-model="aiSettingsForm.enabled">
+                            <label class="form-check-label fw-semibold" for="ai-enabled" x-text="t('Enable AI Import')"></label>
+                            <div class="form-text text-muted" x-text="t('Hides the AI Import button everywhere when off.')"></div>
+                        </div>
+
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <button class="btn btn-primary" @click="saveAiSettings()" :disabled="aiSettingsSaving">
+                                <span x-show="aiSettingsSaving" class="spinner-border spinner-border-sm me-1" x-cloak></span>
+                                <i class="bi bi-save me-1" x-show="!aiSettingsSaving"></i>
+                                <span x-text="aiSettingsSaving ? t('Saving...') : t('Save Settings')"></span>
+                            </button>
+                            <button class="btn btn-outline-secondary" @click="testAiSettings()" :disabled="aiSettingsTesting">
+                                <span x-show="aiSettingsTesting" class="spinner-border spinner-border-sm me-1" x-cloak></span>
+                                <i class="bi bi-plug me-1" x-show="!aiSettingsTesting"></i>
+                                <span x-text="aiSettingsTesting ? t('Testing...') : t('Test connection')"></span>
+                            </button>
+                            <button class="btn btn-outline-danger" @click="clearAiSettings()" x-show="aiSettings?.configured" x-cloak>
+                                <i class="bi bi-trash me-1"></i><span x-text="t('Remove stored key')"></span>
+                            </button>
+                            <span class="small" x-show="aiSettingsTestResult" x-cloak
+                                :class="aiSettingsTestResult?.ok ? 'text-success' : 'text-danger'"
+                                x-text="aiSettingsTestResult?.message"></span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1283,24 +1320,6 @@
                                         </select>
                                         <div class="form-text text-muted" x-text="t('Leave empty if this user is a Super Admin.')"></div>
                                     </div>
-
-                                    <template x-if="editingUser?.is_admin">
-                                        <div class="mb-4">
-                                            <label for="uf-openrouter" class="form-label fw-semibold">
-                                                OpenRouter API Key
-                                                <template x-if="editingUser">
-                                                    <span class="text-muted fw-normal" x-text="t('(leave blank to keep current)')"></span>
-                                                </template>
-                                            </label>
-                                            <div class="input-group">
-                                                <span class="input-group-text bg-light"><i class="bi bi-key"></i></span>
-                                                <input type="password" id="uf-openrouter" class="form-control" x-model="userForm.openrouter_api_key" placeholder="sk-or-v1-...">
-                                            </div>
-                                            <div class="form-text text-muted">
-                                                Set this on a Super Admin account so the AI bulk import can call the OpenRouter model without exposing any key to the browser. The key is stored server-side and read only by the Edge Function.
-                                            </div>
-                                        </div>
-                                    </template>
 
                                     <hr class="text-muted opacity-25">
 
