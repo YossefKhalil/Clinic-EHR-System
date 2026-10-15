@@ -21,12 +21,10 @@
                 <span class="navbar-brand" @click="navigate('dashboard')" style="cursor:pointer" :aria-label="t('Dashboard')">
                     <i class="bi bi-heart-pulse-fill"></i>
                 </span>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
-                <div class="collapse navbar-collapse" id="navbarNav">
-                    <!-- Global patient search: one box, no options. -->
-                    <div class="global-search position-relative" @click.outside="closeGlobalSearch({ clearFocus: true })">
+                <!-- Global patient search: one box, no options. Lives outside the
+                     collapse so it stays visible in the top bar on mobile instead of
+                     hiding behind the hamburger. -->
+                <div class="global-search position-relative" @click.outside="closeGlobalSearch({ clearFocus: true })">
                         <div class="position-relative">
                             <i class="bi bi-search global-search-icon" aria-hidden="true"></i>
                             <input
@@ -70,6 +68,10 @@
                             </button>
                         </div>
                     </div>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <div class="collapse navbar-collapse" id="navbarNav">
                     <ul class="navbar-nav ms-auto align-items-center">
                         <li class="nav-item">
                             <span class="nav-link" :class="{ 'active fw-semibold': currentPage === 'dashboard' }" @click="navigate('dashboard')" style="cursor:pointer">
@@ -1350,10 +1352,6 @@
                 <i class="bi bi-people"></i>
                 <small x-text="t('Patients')"></small>
             </button>
-            <button class="bottom-bar-item" @click="openMobileSearch()">
-                <i class="bi bi-search"></i>
-                <small x-text="t('Search')"></small>
-            </button>
             <button class="bottom-bar-item" :class="{ 'active': currentPage === 'patient-form' }" @click="openPatientForm()">
                 <i class="bi bi-plus-circle-fill"></i>
                 <small x-text="t('Add')"></small>
@@ -1365,10 +1363,6 @@
             <button class="bottom-bar-item" x-show="isSuperAdmin" :class="{ 'active': currentPage === 'users' }" @click="navigate('users')">
                 <i class="bi bi-person-badge"></i>
                 <small x-text="t('Users')"></small>
-            </button>
-            <button class="bottom-bar-item" @click="logout()">
-                <i class="bi bi-box-arrow-right"></i>
-                <small x-text="t('Logout')"></small>
             </button>
         </div>
     </nav>

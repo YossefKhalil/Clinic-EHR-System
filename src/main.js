@@ -410,14 +410,6 @@ function app() {
             if (clearFocus) this.globalSearchFocused = false;
         },
         
-        // On small screens the navbar collapses away, so expose the search
-        // from the bottom bar: open the patients page and focus its search.
-        async openMobileSearch() {
-            await this.navigate('patients');
-            await this.$nextTick();
-            document.querySelector('input[x-model="patientFilters.search"]')?.focus();
-        },
-        
         async resetFilters() {
             this.patientFilters = { search: '', filter_by: 'all', section: '', source_of_money: '', follower: '', is_completed: '', date_from: '', date_to: '' };
             await this.loadPatients();
