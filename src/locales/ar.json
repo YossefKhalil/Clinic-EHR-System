@@ -220,5 +220,13 @@
     "Connection OK — the key works.": "الاتصال ناجح — المفتاح يعمل.",
     "Remove the stored API key? AI Import will be disabled until a new key is saved.": "إزالة مفتاح API المحفوظ؟ سيتم تعطيل الاستيراد بالذكاء الاصطناعي حتى حفظ مفتاح جديد.",
     "Stored API key removed.": "تمت إزالة مفتاح API المحفوظ.",
-    "AI Import is disabled by the administrator.": "الاستيراد بالذكاء الاصطناعي معطّل من قِبل المسؤول."
+    "AI Import is disabled by the administrator.": "الاستيراد بالذكاء الاصطناعي معطّل من قِبل المسؤول.",
+    "5. Attachments": "٥. المرفقات",
+    "Attach files": "إرفاق ملفات",
+    "Images and PDF files, up to 10 MB each. Files upload immediately and are saved with the patient.": "صور وملفات PDF بحجم أقصى ١٠ ميجابايت لكل ملف. يتم الرفع فوراً وتُحفظ مع بيانات المريض.",
+    "Uploading... :percent%": "جارٍ الرفع... :percent%",
+    "Attachments": "المرفقات",
+    "Upload failed": "فشل الرفع",
+    "Please wait for the uploads to finish.": "يرجى الانتظار حتى انتهاء رفع الملفات.",
+    "Remove the files that failed to upload before saving.": "احذف الملفات التي فشل رفعها قبل الحفظ."
 }

@@ -220,5 +220,13 @@
     "Connection OK — the key works.": "Connection OK — the key works.",
     "Remove the stored API key? AI Import will be disabled until a new key is saved.": "Remove the stored API key? AI Import will be disabled until a new key is saved.",
     "Stored API key removed.": "Stored API key removed.",
-    "AI Import is disabled by the administrator.": "AI Import is disabled by the administrator."
+    "AI Import is disabled by the administrator.": "AI Import is disabled by the administrator.",
+    "5. Attachments": "5. Attachments",
+    "Attach files": "Attach files",
+    "Images and PDF files, up to 10 MB each. Files upload immediately and are saved with the patient.": "Images and PDF files, up to 10 MB each. Files upload immediately and are saved with the patient.",
+    "Uploading... :percent%": "Uploading... :percent%",
+    "Attachments": "Attachments",
+    "Upload failed": "Upload failed",
+    "Please wait for the uploads to finish.": "Please wait for the uploads to finish.",
+    "Remove the files that failed to upload before saving.": "Remove the files that failed to upload before saving."
 }

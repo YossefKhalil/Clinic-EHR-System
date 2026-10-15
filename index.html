@@ -896,6 +896,31 @@
                                         </div>
                                     </div>
                                 </template>
+
+                                <template x-if="(selectedPatient?.attachments || []).length > 0">
+                                    <div>
+                                        <h6 class="text-primary fw-bold mb-2">
+                                            <i class="bi bi-paperclip me-1"></i><span x-text="t('Attachments')"></span>
+                                        </h6>
+                                        <div class="row g-2">
+                                            <template x-for="(att, idx) in (selectedPatient?.attachments || [])" :key="att.public_id || idx">
+                                                <div class="col-6 col-md-4">
+                                                    <a :href="attachmentFullUrl(att)" target="_blank" rel="noopener" class="d-block border rounded overflow-hidden text-decoration-none bg-white">
+                                                        <template x-if="attachmentIsImage(att)">
+                                                            <img :src="attachmentUrl(att, 400)" class="w-100" style="height: 110px; object-fit: cover;" :alt="att.name">
+                                                        </template>
+                                                        <template x-if="!attachmentIsImage(att)">
+                                                            <div class="d-flex flex-column align-items-center justify-content-center bg-light" style="height: 110px;">
+                                                                <i class="bi bi-file-earmark-pdf-fill text-danger fs-1"></i>
+                                                            </div>
+                                                        </template>
+                                                        <div class="small text-secondary text-truncate px-2 py-1 border-top" x-text="att.name"></div>
+                                                    </a>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </template>
                             </div>
                         </div>
                     </div>
@@ -1225,6 +1250,49 @@
                                                 </button>
                                             </div>
                                         </div>
+                                    </div>
+
+                                    <div class="mb-4">
+                                        <h6 class="text-primary border-bottom pb-2 fw-bold">
+                                            <i class="bi bi-paperclip me-2"></i><span x-text="t('5. Attachments')"></span>
+                                        </h6>
+                                        <label class="btn btn-outline-primary btn-sm">
+                                            <i class="bi bi-cloud-arrow-up me-1"></i> <span x-text="t('Attach files')"></span>
+                                            <input type="file" class="d-none" multiple accept="image/*,application/pdf" @change="onPatientAttach($event)">
+                                        </label>
+                                        <div class="form-text text-muted" x-text="t('Images and PDF files, up to 10 MB each. Files upload immediately and are saved with the patient.')"></div>
+
+                                        <template x-if="patientAttachments.length">
+                                            <div class="row g-2 mt-1">
+                                                <template x-for="(att, idx) in patientAttachments" :key="idx">
+                                                    <div class="col-12 col-md-6">
+                                                        <div class="border rounded p-2 d-flex align-items-center gap-2 bg-white">
+                                                            <template x-if="attachmentIsImage(att) && att.url">
+                                                                <img :src="attachmentUrl(att, 80)" alt="" class="rounded" style="width: 44px; height: 44px; object-fit: cover;">
+                                                            </template>
+                                                            <template x-if="!attachmentIsImage(att) || !att.url">
+                                                                <span class="d-inline-flex align-items-center justify-content-center bg-light rounded" style="width: 44px; height: 44px;">
+                                                                    <i class="bi bi-file-earmark-pdf-fill text-danger fs-4" x-show="!attachmentIsImage(att)"></i>
+                                                                    <i class="bi bi-image text-primary fs-4" x-show="attachmentIsImage(att)"></i>
+                                                                </span>
+                                                            </template>
+                                                            <div class="flex-grow-1 overflow-hidden">
+                                                                <div class="small fw-semibold text-truncate" x-text="att.name"></div>
+                                                                <div class="small text-muted">
+                                                                    <span x-text="formatFileSize(att.size)"></span>
+                                                                    <span x-show="att.uploading" x-cloak>· <span x-text="t('Uploading... :percent%', { percent: att.progress || 0 })"></span></span>
+                                                                    <span x-show="att.error" x-cloak class="text-danger">· <span x-text="att.error"></span></span>
+                                                                </div>
+                                                            </div>
+                                                            <span x-show="att.uploading" x-cloak class="spinner-border spinner-border-sm text-primary"></span>
+                                                            <button type="button" class="btn btn-sm btn-outline-danger" @click="removeAttachment(idx)" :title="t('Remove')">
+                                                                <i class="bi bi-trash"></i>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </template>
                                     </div>
 
                                     <hr class="my-4">

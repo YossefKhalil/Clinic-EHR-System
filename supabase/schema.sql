@@ -227,6 +227,9 @@ REVOKE ALL ON TABLE public.ai_settings FROM PUBLIC, anon, authenticated;
 -- Safe to re-run: each line is a no-op when the column is already present.
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS age INTEGER;
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS mobile TEXT;
+-- Medical/lab papers & images are stored on Cloudinary; the row keeps only
+-- the metadata array [{ public_id, url, name, size, mime, uploaded_at }].
+ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]'::jsonb;
 
 -- The per-user OpenRouter key was superseded by the shared ai_settings row
 -- above; drop the legacy column wherever it exists.

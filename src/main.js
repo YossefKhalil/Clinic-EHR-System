@@ -4,7 +4,7 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 import Alpine from 'alpinejs';
 import { initI18n, t, setLocale, getLocale } from './services/i18n.js';
 import { initSupabase, supabase, getCurrentUser, signIn, signOut } from './services/supabase.js';
-import { initCloudinary } from './services/cloudinary.js';
+import { initCloudinary, getImageUrl, isImageAttachment } from './services/cloudinary.js';
 import { getDashboardStats, getRecentPatients } from './services/dashboard.js';
 import { getPatients, deletePatient, togglePatientStatus, FOLLOWERS, GOVERNORATES } from './services/patients.js';
 import { patientMatchesQuery } from './services/fuzzy.js';
@@ -120,6 +120,9 @@ function app() {
         patientForm: null,
         selectedPatient: null,
         patientNotes: [''],
+        // Cloudinary attachment entries: saved DB shape plus transient
+        // uploading/progress/error state while a file is in flight.
+        patientAttachments: [],
         
         // User form
         editingUser: null,
@@ -757,6 +760,7 @@ function app() {
             this.patientForm = this.newPatientForm();
             this.refreshAge();
             this.patientNotes = [''];
+            this.patientAttachments = [];
             this.currentPage = 'patient-form';
         },
         
@@ -782,6 +786,9 @@ function app() {
             };
             this.refreshAge();
             this.patientNotes = (patient.notes && patient.notes.length) ? [...patient.notes] : [''];
+            this.patientAttachments = Array.isArray(patient.attachments)
+                ? patient.attachments.map((att) => ({ ...att, uploading: false, progress: 100, error: null }))
+                : [];
             this.currentPage = 'patient-form';
         },
         
@@ -797,9 +804,94 @@ function app() {
             this.patientNotes.splice(index, 1);
         },
         
+        // ---- Attachments (Cloudinary) --------------------------------------
+        
+        // One folder per patient so assets stay grouped: the patient row id
+        // when editing an existing patient, otherwise the typed national id,
+        // with a fallback for files attached before the form is filled in.
+        attachmentFolder() {
+            const key = this.editingPatient?.id || (this.patientForm?.national_id || '').trim() || 'unassigned';
+            return `clinic-ehr/patients/${key}`;
+        },
+        
+        async onPatientAttach(event) {
+            const { isSupportedAttachment, uploadAttachment } = await import('./services/cloudinary.js');
+            const files = Array.from(event.target.files ?? []);
+            event.target.value = '';
+            
+            for (const file of files) {
+                if (!isSupportedAttachment(file)) {
+                    this.showAlert(this.t('Unsupported file type: :name', { name: file.name }), 'warning');
+                    continue;
+                }
+                
+                const entry = {
+                    public_id: null,
+                    url: null,
+                    name: file.name,
+                    size: file.size,
+                    mime: file.type || '',
+                    uploaded_at: null,
+                    uploading: true,
+                    progress: 0,
+                    error: null,
+                };
+                this.patientAttachments.push(entry);
+                
+                try {
+                    const uploaded = await uploadAttachment(file, {
+                        folder: this.attachmentFolder(),
+                        onProgress: (percent) => { entry.progress = percent; },
+                    });
+                    Object.assign(entry, uploaded, { uploading: false, progress: 100 });
+                } catch (error) {
+                    entry.uploading = false;
+                    entry.error = error.message || this.t('Upload failed');
+                }
+            }
+        },
+        
+        removeAttachment(index) {
+            // Known limitation: unsigned uploads cannot delete from Cloudinary,
+            // so the asset is orphaned if it was already uploaded.
+            this.patientAttachments.splice(index, 1);
+        },
+        
+        attachmentIsImage(attachment) {
+            return isImageAttachment(attachment);
+        },
+        
+        attachmentUrl(attachment, width = 320) {
+            if (!attachment) return '';
+            if (!this.attachmentIsImage(attachment) || !attachment.public_id) return attachment.url || '';
+            return getImageUrl(attachment.public_id, { width, quality: 80 });
+        },
+        
+        attachmentFullUrl(attachment) {
+            if (!attachment) return '';
+            if (!this.attachmentIsImage(attachment) || !attachment.public_id) return attachment.url || '';
+            return getImageUrl(attachment.public_id, { width: 1600, quality: 90 });
+        },
+        
+        formatFileSize(bytes) {
+            if (bytes === null || bytes === undefined) return '';
+            if (bytes < 1024) return `${bytes} B`;
+            if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+            return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+        },
+        
         async submitPatientForm() {
             const blocked = this.validatePatientForm();
             if (blocked) { this.showAlert(blocked, 'danger'); return; }
+            
+            if (this.patientAttachments.some((att) => att.uploading)) {
+                this.showAlert(this.t('Please wait for the uploads to finish.'), 'warning');
+                return;
+            }
+            if (this.patientAttachments.some((att) => att.error)) {
+                this.showAlert(this.t('Remove the files that failed to upload before saving.'), 'danger');
+                return;
+            }
 
             const { createPatient, updatePatient } = await import('./services/patients.js');
             // Enum columns have CHECK constraints listing their allowed
@@ -818,6 +910,9 @@ function app() {
                 visit_date: this.patientForm.visit_date ? String(this.patientForm.visit_date).slice(0, 10) : null,
                 notes: this.patientNotes.map(n => n.trim()).filter(Boolean),
                 is_completed: this.editingPatient?.is_completed ?? false,
+                attachments: this.patientAttachments.map(({ public_id, url, name, size, mime, uploaded_at }) => ({
+                    public_id, url, name, size, mime, uploaded_at,
+                })),
             };
             if (!this.editingPatient) {
                 payload.user_id = this.user.id;
