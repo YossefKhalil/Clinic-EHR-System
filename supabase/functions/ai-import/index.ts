@@ -124,8 +124,11 @@ async function callProvider(settings, model, messages) {
     } else {
         url = 'https://openrouter.ai/api/v1/chat/completions';
         headers.Authorization = `Bearer ${settings.apiKey}`;
-        // OpenRouter account-level opt-out of training/data collection.
-        body.provider = { data_collection: 'deny' };
+        // Deliberately NO request-level `provider.data_collection` override:
+        // 'deny' here outranks the account's privacy toggles and makes every
+        // data-collecting endpoint (i.e. all free models) ineligible, which
+        // shows up as a 404 "No endpoints found matching your data policy".
+        // Routing is left to the OpenRouter account settings instead.
     }
 
     const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
