@@ -82,8 +82,8 @@
                             </span>
                         </li>
                         <li class="nav-item" x-show="isSuperAdmin">
-                            <span class="nav-link" :class="{ 'active fw-semibold': currentPage === 'settings' }" @click="navigate('settings')" style="cursor:pointer">
-                                <i class="bi bi-gear me-1"></i><span x-text="t('Settings')"></span>
+                            <span class="nav-link px-2" :class="{ 'active fw-semibold': currentPage === 'settings' }" @click="navigate('settings')" style="cursor:pointer" role="button" :title="t('Settings')" :aria-label="t('Settings')">
+                                <i class="bi bi-gear fs-5"></i>
                             </span>
                         </li>
                         <li class="nav-item" x-show="isSuperAdmin">
@@ -96,12 +96,14 @@
                                 <i class="bi bi-people me-1"></i><span x-text="t('Patients')"></span>
                             </span>
                         </li>
-                        <li class="nav-item ms-3 dropdown">
-                            <a class="nav-link dropdown-toggle d-flex align-items-center gap-2" href="#" role="button" data-bs-toggle="dropdown">
+                        <li class="nav-item ms-2 dropdown">
+                            <a class="nav-link px-2 dropdown-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" :title="profile?.name || user?.email || 'User'" :aria-label="profile?.name || user?.email || 'User'">
                                 <i class="bi bi-person-circle fs-5"></i>
-                                <span x-text="profile?.name || user?.email || 'User'"></span>
                             </a>
                             <ul class="dropdown-menu dropdown-menu-end">
+                                <li>
+                                    <span class="dropdown-item-text fw-semibold small" x-text="profile?.name || user?.email || 'User'"></span>
+                                </li>
                                 <li>
                                     <span class="dropdown-item-text text-muted small" x-text="user?.email"></span>
                                 </li>

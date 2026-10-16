@@ -1,7 +1,7 @@
 import './styles/main.css';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
-import 'bootstrap/dist/js/bootstrap.bundle.min.js';
+import bootstrapBundle from 'bootstrap/dist/js/bootstrap.bundle.min.js';
 import Alpine from 'alpinejs';
 import { initI18n, t, setLocale, getLocale } from './services/i18n.js';
 import { initSupabase, supabase, getCurrentUser, signIn, signOut } from './services/supabase.js';
@@ -326,12 +326,21 @@ function app() {
             this.isSuperAdmin = false;
         },
         
+        // Mobile menu: close the collapsed panel after a navigation click so
+        // the page underneath is not left covered by an open menu.
+        closeMobileNav() {
+            const nav = document.getElementById('navbarNav');
+            if (!nav || !nav.classList.contains('show')) return;
+            bootstrapBundle?.Collapse?.getOrCreateInstance(nav).hide();
+        },
+
         async navigate(page) {
             // Settings is super-admin-only: no nav entry is rendered for other
             // roles and this guard keeps a stale page value from reaching it.
             if (page === 'settings' && !this.isSuperAdmin) return;
             if (page !== 'patients') this.closeGlobalSearch();
             this.currentPage = page;
+            this.closeMobileNav();
             try {
                 if (page === 'dashboard') await this.showDashboard();
                 if (page === 'patients') await this.loadPatients();

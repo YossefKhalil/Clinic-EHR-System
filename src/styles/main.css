@@ -234,6 +234,93 @@ i.bi {
     .page-container {
         padding-bottom: 70px;
     }
+
+    /* Mobile top bar: brand + search + hamburger all on one row. Without
+       nowrap the search's flex-basis: 100% pushed the hamburger onto a second
+       line with a dead gap beside it. */
+    .navbar .container {
+        flex-wrap: nowrap;
+    }
+
+    .navbar-brand {
+        flex-shrink: 0;
+        margin-inline-end: 0;
+    }
+
+    .global-search {
+        flex: 1 1 auto;
+        width: auto;
+        max-width: none;
+        min-width: 0;
+        margin-inline: 0.65rem;
+    }
+
+    .navbar-toggler {
+        flex-shrink: 0;
+    }
+
+    /* The collapsed menu floats as a white rounded panel under the bar
+       instead of expanding the blue bar itself. */
+    .navbar-collapse {
+        position: absolute;
+        top: calc(100% + 0.5rem);
+        inset-inline: 0.9rem;
+        z-index: 1045;
+        padding: 0.5rem;
+        background: #fff;
+        border-radius: 0.75rem;
+        box-shadow: 0 0.85rem 2rem rgba(0, 0, 0, 0.28);
+    }
+
+    .navbar-collapse .navbar-nav {
+        align-items: stretch !important;
+    }
+
+    .navbar-collapse .navbar-nav > .nav-item {
+        margin-inline-start: 0 !important;
+        margin-top: 0.35rem;
+    }
+
+    .navbar-collapse .navbar-nav > .nav-item:first-child {
+        margin-top: 0;
+    }
+
+    .navbar-collapse .navbar-nav .nav-link {
+        display: flex;
+        align-items: center;
+        color: #212529;
+        border-radius: 0.5rem;
+        padding: 0.6rem 0.7rem;
+    }
+
+    .navbar-collapse .navbar-nav .nav-link:hover {
+        background: rgba(13, 110, 253, 0.08);
+    }
+
+    .navbar-collapse .navbar-nav .nav-link.active {
+        background: rgba(13, 110, 253, 0.12);
+        color: #0d6efd;
+    }
+
+    /* The locale switch and the profile dropdown live inside the white panel
+       now, so they need dark-on-light variants. */
+    .navbar-collapse .nav-item > .btn {
+        width: 100%;
+    }
+
+    .navbar-collapse .btn-outline-light {
+        color: #0d6efd;
+        border-color: currentColor;
+    }
+
+    .navbar-collapse .dropdown-menu {
+        position: static !important;
+        transform: none !important;
+        width: 100%;
+        border: 0;
+        box-shadow: none;
+        padding-inline: 0.35rem;
+    }
 }
 
 /* ===== AI import (3 steps) ===== */
