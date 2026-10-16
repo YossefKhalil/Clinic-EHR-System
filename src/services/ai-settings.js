@@ -1,8 +1,8 @@
 import { supabase } from './supabase.js';
 
 // Admin-only operations are implemented as a Supabase Edge Function
-// (supabase/functions/ai-settings) so the OpenRouter key never reaches the
-// browser and the service-role key stays server-side.
+// (supabase/functions/ai-settings) so AI provider credentials never reach
+// the browser and the service-role key stays server-side.
 const FN_URL = import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, '') + '/functions/v1/ai-settings';
 
 async function callAiSettings(action, payload = {}) {
@@ -42,8 +42,11 @@ export async function getAiSettings() {
     return callAiSettings('status');
 }
 
-export async function saveAiSettings({ key, model, enabled }) {
-    return callAiSettings('save', { key, model, enabled });
+export async function saveAiSettings({ provider, model, enabled, openrouterKey, cloudflareAccountId, cloudflareToken, openaiBaseUrl, openaiKey }) {
+    return callAiSettings('save', {
+        provider, model, enabled,
+        openrouterKey, cloudflareAccountId, cloudflareToken, openaiBaseUrl, openaiKey,
+    });
 }
 
 export async function testAiSettings() {

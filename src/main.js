@@ -107,8 +107,17 @@ function app() {
         exporting: false,
         
         aiImportEnabled: true,
-        aiSettings: null,
-        aiSettingsForm: { key: '', model: '', enabled: false },
+            aiSettings: null,
+            aiSettingsForm: {
+                provider: 'openrouter',
+                model: '',
+                enabled: false,
+                openrouterKey: '',
+                cloudflareAccountId: '',
+                cloudflareToken: '',
+                openaiBaseUrl: '',
+                openaiKey: '',
+            },
         aiSettingsSaving: false,
         aiSettingsTesting: false,
         aiSettingsTestResult: null,
@@ -1172,9 +1181,14 @@ function app() {
                 const settings = await getAiSettings();
                 this.aiSettings = settings;
                 this.aiSettingsForm = {
-                    key: '',
+                    provider: settings.provider || 'openrouter',
                     model: settings.model || '',
                     enabled: !!settings.enabled,
+                    openrouterKey: '',
+                    cloudflareAccountId: settings.providers?.cloudflare?.accountId || '',
+                    cloudflareToken: '',
+                    openaiBaseUrl: settings.providers?.openai?.baseUrl || '',
+                    openaiKey: '',
                 };
             } catch (error) {
                 console.error('load ai settings failed:', error);
@@ -1188,13 +1202,22 @@ function app() {
             const { saveAiSettings } = await import('./services/ai-settings.js');
             try {
                 const settings = await saveAiSettings({
-                    key: this.aiSettingsForm.key.trim(),
+                    provider: this.aiSettingsForm.provider,
                     model: this.aiSettingsForm.model,
                     enabled: !!this.aiSettingsForm.enabled,
+                    openrouterKey: this.aiSettingsForm.openrouterKey.trim(),
+                    cloudflareAccountId: this.aiSettingsForm.cloudflareAccountId.trim(),
+                    cloudflareToken: this.aiSettingsForm.cloudflareToken.trim(),
+                    openaiBaseUrl: this.aiSettingsForm.openaiBaseUrl.trim(),
+                    openaiKey: this.aiSettingsForm.openaiKey.trim(),
                 });
                 this.aiSettings = settings;
                 this.aiImportEnabled = !!settings.enabled;
-                this.aiSettingsForm.key = '';
+                this.aiSettingsForm.openrouterKey = '';
+                this.aiSettingsForm.cloudflareToken = '';
+                this.aiSettingsForm.openaiKey = '';
+                this.aiSettingsForm.cloudflareAccountId = settings.providers?.cloudflare?.accountId || '';
+                this.aiSettingsForm.openaiBaseUrl = settings.providers?.openai?.baseUrl || '';
                 this.aiSettingsForm.enabled = !!settings.enabled;
                 this.showAlert(this.t('AI settings saved.'), 'success');
             } catch (error) {
@@ -1211,7 +1234,7 @@ function app() {
             const { testAiSettings } = await import('./services/ai-settings.js');
             try {
                 await testAiSettings();
-                this.aiSettingsTestResult = { ok: true, message: this.t('Connection OK — the key works.') };
+                this.aiSettingsTestResult = { ok: true, message: this.t('Connection OK — the provider answered.') };
             } catch (error) {
                 this.aiSettingsTestResult = { ok: false, message: error.message || 'Connection failed' };
             } finally {
@@ -1220,19 +1243,51 @@ function app() {
         },
 
         async clearAiSettings() {
-            if (!confirm(this.t('Remove the stored API key? AI Import will be disabled until a new key is saved.'))) return;
+            if (!confirm(this.t('Remove the stored credentials? AI Import will be disabled until new ones are saved.'))) return;
             const { clearAiSettings } = await import('./services/ai-settings.js');
             try {
                 const settings = await clearAiSettings();
                 this.aiSettings = settings;
                 this.aiImportEnabled = !!settings.enabled;
-                this.aiSettingsForm.key = '';
+                this.aiSettingsForm.provider = settings.provider || 'openrouter';
                 this.aiSettingsForm.model = settings.model || '';
                 this.aiSettingsForm.enabled = !!settings.enabled;
-                this.showAlert(this.t('Stored API key removed.'), 'success');
+                this.aiSettingsForm.openrouterKey = '';
+                this.aiSettingsForm.cloudflareAccountId = '';
+                this.aiSettingsForm.cloudflareToken = '';
+                this.aiSettingsForm.openaiBaseUrl = '';
+                this.aiSettingsForm.openaiKey = '';
+                this.showAlert(this.t('Stored credentials removed.'), 'success');
             } catch (error) {
-                this.showAlert(error.message || 'Error removing the key', 'danger');
+                this.showAlert(error.message || 'Error removing the credentials', 'danger');
             }
+        },
+
+        // Keep the model field sensible when the provider selection changes:
+        // swap in the provider's default when the current value belongs to a
+        // different provider family (or is empty). Takes the event value so
+        // it cannot race x-model's own update.
+        onAiProviderChange(selected) {
+            const provider = selected || this.aiSettingsForm.provider;
+            const defaults = {
+                openrouter: 'google/gemini-2.5-flash-lite',
+                cloudflare: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+                openai: '',
+            };
+            const current = (this.aiSettingsForm.model || '').trim();
+            const looksForeign = (provider === 'cloudflare' && current && !current.startsWith('@cf/'))
+                || (provider === 'openai' && (current.startsWith('@cf/') || current.startsWith('google/')))
+                || (provider === 'openrouter' && current.startsWith('@cf/'));
+            if (!current || looksForeign) this.aiSettingsForm.model = defaults[provider] || '';
+        },
+
+        get aiProviderLabel() {
+            const provider = this.aiSettings?.provider || 'openrouter';
+            return {
+                openrouter: 'OpenRouter',
+                cloudflare: 'Cloudflare Workers AI',
+                openai: 'OpenAI-compatible',
+            }[provider] || provider;
         },
         
         formatMoney(value) {

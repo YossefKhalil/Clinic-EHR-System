@@ -737,7 +737,7 @@
                         <h5 class="mb-0 fw-semibold" x-text="t('AI Import Settings')"></h5>
                     </div>
                     <div class="card-body">
-                        <p class="text-muted small mb-3" x-text="t('The AI Bulk Import runs on OpenRouter. Create a key at openrouter.ai/keys and save it here — it is stored encrypted on the server and never sent to browsers.')"></p>
+                        <p class="text-muted small mb-3" x-text="t('AI Bulk Import can run on OpenRouter, Cloudflare Workers AI, or any OpenAI-compatible endpoint. Credentials are stored encrypted on the server and never sent to browsers.')"></p>
 
                         <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
                             <template x-if="aiSettings?.configured">
@@ -746,24 +746,74 @@
                             <template x-if="aiSettings && !aiSettings.configured">
                                 <span class="badge text-bg-danger"><i class="bi bi-x-circle-fill me-1"></i><span x-text="t('Not configured')"></span></span>
                             </template>
+                            <span class="badge text-bg-light border" x-show="aiSettings" x-cloak x-text="aiProviderLabel"></span>
                             <span class="text-muted small font-monospace" x-show="aiSettings?.configured" x-cloak x-text="'•••• ' + (aiSettings?.last4 || '')"></span>
                             <span class="badge text-bg-secondary" x-show="aiSettings && !aiSettings.enabled" x-cloak x-text="t('Disabled')"></span>
                         </div>
 
                         <div class="row g-3">
+                            <div class="col-md-4">
+                                <label for="ai-provider" class="form-label fw-semibold mb-1" x-text="t('AI Provider')"></label>
+                                <select id="ai-provider" class="form-select" x-model="aiSettingsForm.provider" @change="onAiProviderChange($event.target.value)">
+                                    <option value="openrouter" x-text="t('OpenRouter')"></option>
+                                    <option value="cloudflare" x-text="t('Cloudflare Workers AI')"></option>
+                                    <option value="openai" x-text="t('OpenAI-compatible')"></option>
+                                </select>
+                            </div>
+                            <div class="col-md-8">
+                                <label for="ai-model" class="form-label fw-semibold mb-1" x-text="t('Model')"></label>
+                                <input type="text" id="ai-model" class="form-control" x-model="aiSettingsForm.model"
+                                    :placeholder="aiSettingsForm.provider === 'cloudflare' ? '@cf/meta/llama-3.3-70b-instruct-fp8-fast' : (aiSettingsForm.provider === 'openai' ? 'gpt-4o-mini' : 'google/gemini-2.5-flash-lite')">
+                                <div class="form-text text-muted" x-text="t('Images and PDFs need a vision-capable model.')"></div>
+                            </div>
+                        </div>
+
+                        <!-- OpenRouter credentials -->
+                        <div class="row g-3 mt-0" x-show="aiSettingsForm.provider === 'openrouter'" x-cloak>
                             <div class="col-md-6">
                                 <label for="ai-key" class="form-label fw-semibold mb-1" x-text="t('OpenRouter API Key')"></label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="bi bi-key"></i></span>
-                                    <input type="password" id="ai-key" class="form-control" x-model="aiSettingsForm.key"
-                                        :placeholder="aiSettings?.configured ? t('(leave blank to keep current)') : 'sk-or-v1-...'">
+                                    <input type="password" id="ai-key" class="form-control" x-model="aiSettingsForm.openrouterKey"
+                                        :placeholder="aiSettings?.providers?.openrouter?.configured ? t('(leave blank to keep current)') : 'sk-or-v1-...'">
                                 </div>
                                 <div class="form-text text-muted" x-text="t('Saved encrypted on the server. Browsers never receive the key.')"></div>
                             </div>
+                        </div>
+
+                        <!-- Cloudflare Workers AI credentials -->
+                        <div class="row g-3 mt-0" x-show="aiSettingsForm.provider === 'cloudflare'" x-cloak>
                             <div class="col-md-6">
-                                <label for="ai-model" class="form-label fw-semibold mb-1" x-text="t('Model')"></label>
-                                <input type="text" id="ai-model" class="form-control" x-model="aiSettingsForm.model" placeholder="google/gemini-2.5-flash-lite">
-                                <div class="form-text text-muted" x-text="t('Images require a vision model, e.g. google/gemini-2.5-flash-lite.')"></div>
+                                <label for="ai-account-id" class="form-label fw-semibold mb-1" x-text="t('Account ID')"></label>
+                                <input type="text" id="ai-account-id" class="form-control" x-model="aiSettingsForm.cloudflareAccountId" placeholder="a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4">
+                                <div class="form-text text-muted" x-text="t('Found in the Cloudflare dashboard under Workers AI, Use REST API.')"></div>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="ai-cf-token" class="form-label fw-semibold mb-1" x-text="t('API Token')"></label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light"><i class="bi bi-key"></i></span>
+                                    <input type="password" id="ai-cf-token" class="form-control" x-model="aiSettingsForm.cloudflareToken"
+                                        :placeholder="aiSettings?.providers?.cloudflare?.configured ? t('(leave blank to keep current)') : ''">
+                                </div>
+                                <div class="form-text text-muted" x-text="t('Saved encrypted on the server. Needs Workers AI access.')"></div>
+                            </div>
+                        </div>
+
+                        <!-- OpenAI-compatible credentials -->
+                        <div class="row g-3 mt-0" x-show="aiSettingsForm.provider === 'openai'" x-cloak>
+                            <div class="col-md-6">
+                                <label for="ai-base-url" class="form-label fw-semibold mb-1" x-text="t('Base URL')"></label>
+                                <input type="text" id="ai-base-url" class="form-control" x-model="aiSettingsForm.openaiBaseUrl" placeholder="https://api.openai.com/v1">
+                                <div class="form-text text-muted" x-text="t('Any /chat/completions endpoint: OpenAI, Groq, Together, Ollama, LM Studio...')"></div>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="ai-openai-key" class="form-label fw-semibold mb-1" x-text="t('API key (optional)')"></label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light"><i class="bi bi-key"></i></span>
+                                    <input type="password" id="ai-openai-key" class="form-control" x-model="aiSettingsForm.openaiKey"
+                                        :placeholder="aiSettings?.providers?.openai?.configured ? t('(leave blank to keep current)') : ''">
+                                </div>
+                                <div class="form-text text-muted" x-text="t('Leave blank for local endpoints that do not check keys.')"></div>
                             </div>
                         </div>
 
@@ -784,8 +834,8 @@
                                 <i class="bi bi-plug me-1" x-show="!aiSettingsTesting"></i>
                                 <span x-text="aiSettingsTesting ? t('Testing...') : t('Test connection')"></span>
                             </button>
-                            <button class="btn btn-outline-danger" @click="clearAiSettings()" x-show="aiSettings?.configured" x-cloak>
-                                <i class="bi bi-trash me-1"></i><span x-text="t('Remove stored key')"></span>
+                            <button class="btn btn-outline-danger" @click="clearAiSettings()" x-show="aiSettings?.storedCredentials" x-cloak>
+                                <i class="bi bi-trash me-1"></i><span x-text="t('Remove stored credentials')"></span>
                             </button>
                             <span class="small" x-show="aiSettingsTestResult" x-cloak
                                 :class="aiSettingsTestResult?.ok ? 'text-success' : 'text-danger'"

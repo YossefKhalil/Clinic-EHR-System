@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { loadAiSettings } from '../_shared/ai-settings.ts';
+import { loadAiSettings, missingProviderConfig } from '../_shared/ai-settings.ts';
 import yaml from 'https://esm.sh/js-yaml@4.1.0';
 
 const CORS_HEADERS = {
@@ -103,6 +103,53 @@ function extractPatientsDocument(text) {
 }
 
 /**
+ * One OpenAI-shaped chat-completions call, routed to the active provider.
+ * OpenRouter and the Cloudflare Workers AI OpenAI-compatible endpoint speak
+ * the same protocol, and the "openai" provider is exactly that protocol on
+ * an admin-supplied base URL — so request building and response parsing stay
+ * single-path.
+ */
+async function callProvider(settings, model, messages) {
+    const body: Record<string, unknown> = { model, temperature: 0, max_tokens: 8000, messages };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    let url;
+
+    if (settings.provider === 'cloudflare') {
+        url = `https://api.cloudflare.com/client/v4/accounts/${settings.cloudflareAccountId}/ai/v1/chat/completions`;
+        headers.Authorization = `Bearer ${settings.apiKey}`;
+    } else if (settings.provider === 'openai') {
+        url = `${settings.openaiBaseUrl}/chat/completions`;
+        // Local endpoints (Ollama, LM Studio) usually ignore the key entirely.
+        if (settings.apiKey) headers.Authorization = `Bearer ${settings.apiKey}`;
+    } else {
+        url = 'https://openrouter.ai/api/v1/chat/completions';
+        headers.Authorization = `Bearer ${settings.apiKey}`;
+        // OpenRouter account-level opt-out of training/data collection.
+        body.provider = { data_collection: 'deny' };
+    }
+
+    const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+    const raw = await response.text();
+    if (!response.ok) {
+        console.error(`${settings.provider} provider error:`, response.status, raw.slice(0, 400));
+        return { error: `AI provider error (${response.status}): ${raw.slice(0, 200)}` };
+    }
+
+    let payload;
+    try {
+        payload = JSON.parse(raw);
+    } catch {
+        return { error: 'The AI provider returned invalid JSON.' };
+    }
+
+    const choice = payload?.choices?.[0];
+    return {
+        yaml: typeof choice?.message?.content === 'string' ? choice.message.content : '',
+        truncated: choice?.finish_reason === 'length',
+    };
+}
+
+/**
  * Cut a possibly-truncated response to whole patients. If the output was cut
  * by the token limit, the final list item may be syntactically valid YAML but
  * fabricated by the parser... which is much worse than losing it. Dropping
@@ -162,13 +209,16 @@ Deno.serve(async (req) => {
         }
 
         // One key mechanism (issue #10): the encrypted ai_settings row is the
-        // source of truth; the env var is only a zero-config fallback.
+        // source of truth; the OpenRouter env var is only a zero-config
+        // fallback. The active provider may be OpenRouter, Cloudflare
+        // Workers AI, or any OpenAI-compatible endpoint.
         const settings = await loadAiSettings(supabase, serviceRoleKey);
         if (!settings.enabled) {
             return json({ error: 'AI Import is disabled by the administrator.' }, 403);
         }
-        if (!settings.apiKey) {
-            return json({ error: 'OpenRouter API key is not configured.' }, 500);
+        const missing = missingProviderConfig(settings);
+        if (missing) {
+            return json({ error: `AI provider is not configured (${missing} missing).` }, 500);
         }
         if (!contents.length) {
             return json({ error: 'No content provided.' }, 400);
@@ -190,46 +240,24 @@ Deno.serve(async (req) => {
             userContent.unshift({ type: 'text', text: userLines.join('\n') });
         }
 
-        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${settings.apiKey}`,
-                'Content-Type': 'application/json',
+        const result = await callProvider(settings, model ?? settings.model, [
+            {
+                role: 'system',
+                content: systemPrompt({
+                    followers: Array.isArray(followers) && followers.length ? followers : [],
+                    governorates: Array.isArray(governorates) && governorates.length ? governorates : [],
+                }),
             },
-            body: JSON.stringify({
-                model: model ?? settings.model ?? 'google/gemini-2.5-flash-lite',
-                temperature: 0,
-                max_tokens: 8000,
-                provider: { data_collection: 'deny' },
-                messages: [
-                    {
-                        role: 'system',
-                        content: systemPrompt({
-                            followers: Array.isArray(followers) && followers.length ? followers : [],
-                            governorates: Array.isArray(governorates) && governorates.length ? governorates : [],
-                        }),
-                    },
-                    { role: 'user', content: userContent },
-                ],
-            }),
-        });
-
-        const raw = await response.text();
-        if (!response.ok) {
-            console.error('OpenRouter error:', response.status, raw.slice(0, 400));
-            return json({ error: `AI provider error (${response.status}): ${raw.slice(0, 200)}` }, 502);
-        }
-
-        const payload = JSON.parse(raw);
-        const choice = payload?.choices?.[0];
-        let outYaml = choice?.message?.content ?? '';
+            { role: 'user', content: userContent },
+        ]);
+        if (result.error) return json({ error: result.error }, 502);
 
         // Truncation guard: max_tokens ran out mid-document, so the final
         // patient may be incomplete. Drop it and tell the client so it can
         // warn the user and, if it wants, re-request a retry of that chunk.
-        let truncated = false;
-        if (choice?.finish_reason === 'length') {
-            truncated = true;
+        let outYaml = result.yaml;
+        const truncated = result.truncated;
+        if (truncated) {
             const repaired = dropLastPatient(outYaml);
             if (repaired) outYaml = repaired;
         }

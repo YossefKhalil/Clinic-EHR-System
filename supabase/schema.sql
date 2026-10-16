@@ -293,13 +293,19 @@ CREATE OR REPLACE TRIGGER update_app_options_updated_at
     BEFORE UPDATE ON public.app_options
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
--- Single-row table holding the OpenRouter integration settings (issue #10).
--- The API key is stored as AES-GCM ciphertext produced by the ai-settings
--- Edge Function; the encryption key is derived from the service-role key, so
--- no caller can ever read the plaintext back out of Postgres.
+-- Single-row table holding the AI integration settings (issue #10, extended
+-- to multiple providers). Credentials (keys, tokens) are stored as AES-GCM
+-- ciphertext produced by the ai-settings Edge Function; the encryption key is
+-- derived from the service-role key, so no caller can ever read the
+-- plaintext back out of Postgres.
 CREATE TABLE IF NOT EXISTS public.ai_settings (
     id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
+    provider TEXT NOT NULL DEFAULT 'openrouter',
     openrouter_key_encrypted TEXT,
+    cloudflare_account_id TEXT,
+    cloudflare_token_encrypted TEXT,
+    openai_base_url TEXT,
+    openai_key_encrypted TEXT,
     model TEXT DEFAULT 'google/gemini-2.5-flash-lite',
     enabled BOOLEAN NOT NULL DEFAULT FALSE,
     updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -311,6 +317,14 @@ ALTER TABLE public.ai_settings ENABLE ROW LEVEL SECURITY;
 -- REVOKE keeps the table off the PostgREST API surface entirely. Only
 -- service-role calls from Edge Functions can touch it.
 REVOKE ALL ON TABLE public.ai_settings FROM PUBLIC, anon, authenticated;
+
+-- Idempotent column migrations for databases created before multi-provider
+-- support: no-ops when the columns already exist.
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'openrouter';
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS cloudflare_account_id TEXT;
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS cloudflare_token_encrypted TEXT;
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS openai_base_url TEXT;
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS openai_key_encrypted TEXT;
 
 -- Idempotent column migrations for databases created by an older schema.
 -- Safe to re-run: each line is a no-op when the column is already present.

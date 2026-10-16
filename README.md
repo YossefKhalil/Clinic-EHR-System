@@ -10,7 +10,7 @@ It is rebuilt from [BelalAhmed2214/health](https://github.com/BelalAhmed2214/hea
 
 - **Patient Registry** — create, read, update, delete patient records with visit history, symptoms, diagnosis, and internal notes
 - **Attachments** — medical/lab papers and images attached to each patient file via Cloudinary (unsigned uploads)
-- **AI Import** — 3-step import (Add data → Review → Done): drop Excel/CSV files, photos, Word/PDF documents or pasted text; an AI extraction pass proposes patient rows, a review grid flags problems, and the whole batch can be undone with one click
+- **AI Import** — 3-step import (Add data → Review → Done): drop Excel/CSV files, photos, Word/PDF documents or pasted text; an AI extraction pass proposes patient rows, a review grid flags problems, and the whole batch can be undone with one click. The extraction can run on OpenRouter, Cloudflare Workers AI, or any OpenAI-compatible endpoint — switchable from Settings
 - **Price Tracking** — section and source breakdowns for clinic revenue
 - **Editable Option Lists** — super-admin Settings page manages followers, sections and sources (EN/AR labels, activate/deactivate) across the whole app
 - **User Management** — admin/staff roles with section-based access via Supabase Edge Functions
@@ -26,7 +26,7 @@ It is rebuilt from [BelalAhmed2214/health](https://github.com/BelalAhmed2214/hea
 | Database | Supabase (PostgreSQL) |
 | Auth | Supabase Auth |
 | Files | Cloudinary (unsigned upload) |
-| AI extraction | OpenRouter (server-side key, via Supabase Edge Function) |
+| AI extraction | OpenRouter / Cloudflare Workers AI / OpenAI-compatible (server-side credentials, via Supabase Edge Function) |
 | Hosting | Cloudflare Pages |
 | Spreadsheet/docs | SheetJS (xlsx), js-yaml, mammoth |
 
@@ -106,13 +106,13 @@ missing a `public.users` profile row.
 
 ### 4. Deploy Edge Functions
 
-Three Edge Functions back the app: `manage-user` (admin user CRUD), `ai-import` (OpenRouter proxy for the import flow) and `ai-settings` (encrypted storage of the OpenRouter key). Pushing changes under `supabase/functions/**` deploys them automatically via `.github/workflows/deploy-functions.yml`; to deploy manually:
+Three Edge Functions back the app: `manage-user` (admin user CRUD), `ai-import` (provider proxy for the import flow) and `ai-settings` (encrypted storage of the AI provider credentials — OpenRouter key, Cloudflare account ID + token, or OpenAI-compatible base URL + key). Pushing changes under `supabase/functions/**` deploys them automatically via `.github/workflows/deploy-functions.yml`; to deploy manually:
 
 ```bash
 supabase functions deploy manage-user ai-import ai-settings
 ```
 
-Set the `SUPABASE_SERVICE_ROLE_KEY` secret in the Supabase project. `ai-settings` encrypts the OpenRouter key with material derived from that secret — after rotating the service role key, re-save the OpenRouter key from the Settings page.
+Set the `SUPABASE_SERVICE_ROLE_KEY` secret in the Supabase project. `ai-settings` encrypts the stored credentials with material derived from that secret — after rotating the service role key, re-save the provider credentials from the Settings page. The only environment fallback is a legacy `OPENROUTER_API_KEY` secret, used when no OpenRouter key is stored in the database.
 
 ### 5. Development
 
@@ -167,8 +167,8 @@ Since Cloudflare Pages only serves the static `dist/`, the build step does not d
 │   ├── seed.sql                # Seed notes
 │   └── functions/
 │       ├── manage-user/        # Admin user CRUD
-│       ├── ai-import/          # OpenRouter proxy + extraction prompt
-│       ├── ai-settings/        # Encrypted OpenRouter key store
+│       ├── ai-import/          # Provider proxy + extraction prompt
+│       ├── ai-settings/        # Encrypted AI provider credential store
 │       └── _shared/            # Shared Edge Function helpers
 ├── eslint.config.js
 ├── package.json

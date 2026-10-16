@@ -1,13 +1,33 @@
-// Server-side AI settings (OpenRouter key, model, enabled flag) shared by the
-// ai-import and ai-settings Edge Functions.
+// Server-side AI provider settings (provider choice, credentials, model,
+// enabled flag) shared by the ai-import and ai-settings Edge Functions.
 //
-// The key is stored in public.ai_settings as AES-GCM ciphertext. The
-// encryption key is derived (HKDF-SHA256) from SUPABASE_SERVICE_ROLE_KEY, so
-// no extra secret has to be provisioned. Consequence: rotating the
-// service-role key makes the stored ciphertext undecryptable — re-save the
-// API key after such a rotation.
+// Credentials for every provider are stored in public.ai_settings as AES-GCM
+// ciphertext. The encryption key is derived (HKDF-SHA256) from
+// SUPABASE_SERVICE_ROLE_KEY, so no extra secret has to be provisioned.
+// Consequence: rotating the service-role key makes the stored ciphertext
+// undecryptable — re-save the credentials after such a rotation.
+//
+// The HKDF info string below is historical (from the OpenRouter-only era);
+// changing it would strand every already-encrypted value, so it stays.
 
+export const DEFAULT_PROVIDER = 'openrouter';
 export const DEFAULT_MODEL = 'google/gemini-2.5-flash-lite';
+export const DEFAULT_CLOUDFLARE_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+
+export type AiProvider = 'openrouter' | 'cloudflare' | 'openai';
+
+export const AI_PROVIDERS: AiProvider[] = ['openrouter', 'cloudflare', 'openai'];
+
+export function isAiProvider(value: unknown): value is AiProvider {
+    return typeof value === 'string' && (AI_PROVIDERS as string[]).includes(value);
+}
+
+// Sensible starting model per provider; '' means the admin must type one.
+export function providerDefaultModel(provider: AiProvider): string {
+    if (provider === 'cloudflare') return DEFAULT_CLOUDFLARE_MODEL;
+    if (provider === 'openai') return '';
+    return DEFAULT_MODEL;
+}
 
 const HKDF_SALT = 'clinic-ehr-ai-settings-v1';
 const HKDF_INFO = 'openrouter-api-key';
@@ -85,11 +105,41 @@ export function keyLast4(apiKey: string): string {
 }
 
 export interface AiSettings {
+    provider: AiProvider;
+    // Secret used for the ACTIVE provider ('' when absent). OpenRouter may
+    // fall back to the OPENROUTER_API_KEY environment secret.
     apiKey: string;
     model: string;
     enabled: boolean;
     last4: string;
+    // All decrypted credentials, so status responses can report per-provider
+    // readiness without extra database round-trips.
+    openrouterKey: string;
+    openrouterStored: boolean;
+    cloudflareAccountId: string;
+    cloudflareToken: string;
+    openaiBaseUrl: string;
+    openaiKey: string;
 }
+
+// Friendly description of what is still missing before the active provider
+// can run, or null when it is ready to go. The OpenAI-compatible key is
+// optional because local endpoints (Ollama, LM Studio) usually ignore it.
+export function missingProviderConfig(settings: AiSettings): string | null {
+    if (settings.provider === 'cloudflare') {
+        if (!settings.cloudflareAccountId) return 'Cloudflare account ID';
+        if (!settings.cloudflareToken) return 'Cloudflare API token';
+        return null;
+    }
+    if (settings.provider === 'openai') {
+        if (!settings.openaiBaseUrl) return 'base URL';
+        if (!settings.model) return 'model name';
+        return null;
+    }
+    return settings.openrouterKey ? null : 'OpenRouter API key';
+}
+
+const SETTINGS_COLUMNS = 'provider, openrouter_key_encrypted, cloudflare_account_id, cloudflare_token_encrypted, openai_base_url, openai_key_encrypted, model, enabled';
 
 // Resolves the effective settings. When no saved row exists the function
 // falls back to the OPENROUTER_API_KEY environment secret (the pre-#10
@@ -98,11 +148,11 @@ export interface AiSettings {
 export async function loadAiSettings(supabase: { from: (table: string) => any }, serviceRoleKey: string): Promise<AiSettings> {
     const envKey = (Deno.env.get('OPENROUTER_API_KEY') || '').trim();
 
-    let row: { openrouter_key_encrypted: string | null; model: string | null; enabled: boolean } | null = null;
+    let row: any = null;
     try {
         const { data } = await supabase
             .from('ai_settings')
-            .select('openrouter_key_encrypted, model, enabled')
+            .select(SETTINGS_COLUMNS)
             .eq('id', true)
             .maybeSingle();
         row = data ?? null;
@@ -111,15 +161,38 @@ export async function loadAiSettings(supabase: { from: (table: string) => any },
         row = null;
     }
 
-    let apiKey = envKey;
-    if (row?.openrouter_key_encrypted) {
-        apiKey = await decryptApiKey(row.openrouter_key_encrypted, serviceRoleKey) || envKey;
-    }
+    const provider: AiProvider = isAiProvider(row?.provider) ? row.provider : DEFAULT_PROVIDER;
+
+    const storedOpenrouter = row?.openrouter_key_encrypted
+        ? await decryptApiKey(row.openrouter_key_encrypted, serviceRoleKey)
+        : '';
+    const openrouterKey = storedOpenrouter || envKey;
+    const cloudflareAccountId = String(row?.cloudflare_account_id || '').trim();
+    const cloudflareToken = row?.cloudflare_token_encrypted
+        ? await decryptApiKey(row.cloudflare_token_encrypted, serviceRoleKey)
+        : '';
+    const openaiBaseUrl = String(row?.openai_base_url || '').trim();
+    const openaiKey = row?.openai_key_encrypted
+        ? await decryptApiKey(row.openai_key_encrypted, serviceRoleKey)
+        : '';
+
+    const apiKey = provider === 'cloudflare'
+        ? cloudflareToken
+        : provider === 'openai'
+            ? openaiKey
+            : openrouterKey;
 
     return {
+        provider,
         apiKey,
-        model: (row?.model || '').trim() || DEFAULT_MODEL,
+        model: String(row?.model || '').trim() || providerDefaultModel(provider),
         enabled: row ? Boolean(row.enabled) : Boolean(envKey),
         last4: keyLast4(apiKey),
+        openrouterKey,
+        openrouterStored: Boolean(storedOpenrouter),
+        cloudflareAccountId,
+        cloudflareToken,
+        openaiBaseUrl,
+        openaiKey,
     };
 }
