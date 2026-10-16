@@ -347,15 +347,37 @@
                         </h2>
                     </div>
                     <div class="col-md-6 text-end">
-                        <button class="btn btn-success shadow-sm me-2" @click="exportPatients()" :disabled="exporting">
-                            <span x-show="exporting" class="spinner-border spinner-border-sm me-1" x-cloak></span>
-                            <i class="bi bi-file-earmark-spreadsheet" x-show="!exporting"></i>
-                            <span x-text="exporting ? t('Preparing...') : t('Export Excel')"></span>
-                        </button>
-                        <!-- Add New Patient as the primary action; AI import lives
-                             in its dropdown instead of competing for space. The
-                             split's right half disappears when AI import is
+                        <!-- Excel group: the main half exports in one click;
+                             the side arrow offers Export (again) and the AI
+                             Import entry, which is hidden when the feature is
                              disabled via the ai_settings toggle (issue #10). -->
+                        <div class="btn-group shadow-sm me-2">
+                            <button class="btn btn-success" @click="exportPatients()" :disabled="exporting">
+                                <span x-show="exporting" class="spinner-border spinner-border-sm me-1" x-cloak></span>
+                                <i class="bi bi-file-earmark-spreadsheet me-1" x-show="!exporting"></i>
+                                <span x-text="exporting ? t('Preparing...') : t('Excel')"></span>
+                            </button>
+                            <button type="button" class="btn btn-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false" :aria-label="t('Excel')">
+                                <span class="visually-hidden" x-text="t('Excel')"></span>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li>
+                                    <button class="dropdown-item" type="button" @click="exportPatients()" :disabled="exporting">
+                                        <i class="bi bi-download me-2"></i><span x-text="t('Export')"></span>
+                                    </button>
+                                </li>
+                                <li x-show="aiImportEnabled">
+                                    <button class="dropdown-item" type="button" @click="openAiImport()">
+                                        <i class="bi bi-stars me-2"></i><span x-text="t('Import')"></span>
+                                    </button>
+                                </li>
+                            </ul>
+                        </div>
+                        <!-- Add New Patient as the primary action; AI import also
+                             lives in its dropdown instead of competing for
+                             space. The split's right half disappears when AI
+                             import is disabled via the ai_settings toggle
+                             (issue #10). -->
                         <div class="btn-group shadow-sm me-2">
                             <button class="btn btn-primary" @click="openPatientForm()">
                                 <i class="bi bi-person-plus-fill me-1"></i> <span x-text="t('Add New Patient')"></span>
