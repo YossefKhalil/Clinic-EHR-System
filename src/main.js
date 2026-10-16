@@ -13,6 +13,19 @@ import { getPriceStats } from './services/prices.js';
 import { loadOptions as fetchOptions, allOptions, createOption, updateOption, optionLabel as lookupOptionLabel } from './services/options.js';
 import { evaluateRow, postProcessPatient } from './services/ai-import.js';
 
+// A tab left open across a deploy still points at the previous build's
+// hashed chunks, so the next dynamic import 404s ("error loading dynamically
+// imported module"). Reload once to pull the fresh index.html; the
+// sessionStorage guard keeps a genuinely broken deploy from looping.
+window.addEventListener('vite:preloadError', (event) => {
+    event.preventDefault();
+    const lastReload = Number(sessionStorage.getItem('clinic-chunk-reload') || 0);
+    if (Date.now() - lastReload > 10000) {
+        sessionStorage.setItem('clinic-chunk-reload', String(Date.now()));
+        window.location.reload();
+    }
+});
+
 window.Alpine = Alpine;
 window.t = t;
 
@@ -780,7 +793,7 @@ function app() {
         },
         
         // Section staff with an assigned section are locked into it; admins
-        // and users without a section must choose before extracting.
+        // and users without a section must choose one before saving.
         aiSectionLocked() {
             return !this.isSuperAdmin && Boolean(this.profile?.section);
         },
@@ -790,10 +803,29 @@ function app() {
         },
         
         aiCanExtract() {
-            if (this.aiSectionLocked() || this.aiDefaults.section) {
-                return Boolean(this.aiFiles.length || this.aiText.trim());
-            }
-            return false;
+            // Extraction no longer waits on the section choice: the defaults
+            // panel lives in the review step, and saving is what needs it.
+            return Boolean(this.aiFiles.length || this.aiText.trim());
+        },
+
+        // The section is required when saving, not when extracting.
+        aiSaveReady() {
+            return Boolean(this.aiDefaults.section || this.profile?.section);
+        },
+
+        // Fill every row's blank fields from the review-step defaults panel.
+        // Anything the AI or the user already put in a cell is kept.
+        applyAiDefaultsToRows() {
+            const fields = ['section', 'source_of_money', 'follower', 'visit_date'];
+            this.aiRows.forEach((row) => {
+                if (!row?.data) return;
+                fields.forEach((field) => {
+                    const fallback = this.aiDefaults[field];
+                    if (fallback && !String(row.data[field] ?? '').trim()) {
+                        row.data[field] = fallback;
+                    }
+                });
+            });
         },
         
         aiProgressPercent() {
@@ -1075,6 +1107,10 @@ function app() {
         // Everything on the review table is still just a draft: this is the
         // only place that touches the database.
         async importReviewedRows() {
+            if (!this.aiSaveReady()) {
+                this.showAlert(this.t('Choose a section before saving'), 'warning');
+                return;
+            }
             const targets = this.aiRows.filter((row) => this.aiImportable(row));
             if (!targets.length || this.aiImporting) return;
             

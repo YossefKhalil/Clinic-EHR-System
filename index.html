@@ -82,11 +82,6 @@
                             </span>
                         </li>
                         <li class="nav-item" x-show="isSuperAdmin">
-                            <span class="nav-link px-2" :class="{ 'active fw-semibold': currentPage === 'settings' }" @click="navigate('settings')" style="cursor:pointer" role="button" :title="t('Settings')" :aria-label="t('Settings')">
-                                <i class="bi bi-gear fs-5"></i>
-                            </span>
-                        </li>
-                        <li class="nav-item" x-show="isSuperAdmin">
                             <span class="nav-link" :class="{ 'active fw-semibold': currentPage === 'prices' }" @click="navigate('prices')" style="cursor:pointer">
                                 <i class="bi bi-currency-dollar me-1"></i><span x-text="t('Prices')"></span>
                             </span>
@@ -106,6 +101,12 @@
                                 </li>
                                 <li>
                                     <span class="dropdown-item-text text-muted small" x-text="user?.email"></span>
+                                </li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li x-show="isSuperAdmin">
+                                    <button type="button" class="dropdown-item" :class="{ active: currentPage === 'settings' }" @click="navigate('settings')">
+                                        <i class="bi bi-gear me-2"></i><span x-text="t('Settings')"></span>
+                                    </button>
                                 </li>
                                 <li><hr class="dropdown-divider"></li>
                                 <li>
@@ -1118,47 +1119,6 @@
                                 </button>
                                 <input x-ref="aiCameraInput" type="file" accept="image/*" capture="environment" class="d-none" @change="onAiFilesPicked($event)">
 
-                                <!-- defaults applied only to fields the AI leaves blank -->
-                                <div class="border rounded-3 p-3 mb-3 bg-light">
-                                    <div class="fw-semibold mb-2"><i class="bi bi-sliders me-1"></i><span x-text="t('Apply to every patient')"></span>
-                                        <span class="small text-muted fw-normal" x-text="t('(only fill blank fields)')"></span>
-                                    </div>
-                                    <div class="row g-2">
-                                        <div class="col-md-3">
-                                            <label class="form-label small text-muted mb-1" x-text="t('Section')"></label>
-                                            <select class="form-select form-select-sm" x-model="aiDefaults.section" :disabled="aiSectionLocked()">
-                                                <option value="">-- Select --</option>
-                                                <option value="agamy" x-text="t('Agamy')"></option>
-                                                <option value="dekhila" x-text="t('Dekhila')"></option>
-                                            </select>
-                                            <div class="small text-danger mt-1" x-show="needSectionChoice() && !aiDefaults.section" x-cloak
-                                                x-text="t('Choose a section before extracting')"></div>
-                                            <div class="small text-muted mt-1" x-show="aiSectionLocked()" x-text="t('Your account is assigned to this section')"></div>
-                                        </div>
-                                        <div class="col-md-3">
-                                            <label class="form-label small text-muted mb-1" x-text="t('Source of Money')"></label>
-                                            <select class="form-select form-select-sm" x-model="aiDefaults.source_of_money">
-                                                <option value="">-- Select --</option>
-                                                <option value="charity" x-text="t('Charity')"></option>
-                                                <option value="country" x-text="t('Country')"></option>
-                                            </select>
-                                        </div>
-                                        <div class="col-md-3">
-                                            <label class="form-label small text-muted mb-1" x-text="t('Follower')"></label>
-                                            <select class="form-select form-select-sm" x-model="aiDefaults.follower">
-                                                <option value="">-- Select --</option>
-                                                <template x-for="(label, key) in followerOptions" :key="key">
-                                                    <option :value="key" x-text="label"></option>
-                                                </template>
-                                            </select>
-                                        </div>
-                                        <div class="col-md-3">
-                                            <label class="form-label small text-muted mb-1" x-text="t('Visit Date')"></label>
-                                            <input type="date" class="form-control form-control-sm" x-model="aiDefaults.visit_date">
-                                        </div>
-                                    </div>
-                                </div>
-
                                 <!-- optional instructions -->
                                 <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 mb-2"
                                     @click="aiShowInstructions = !aiShowInstructions">
@@ -1212,6 +1172,50 @@
                                 </div>
                             </div>
                             <div class="card-body p-0">
+                                <!-- defaults: applied to every row below, but only to blank fields -->
+                                <div class="px-3 pt-3">
+                                    <div class="border rounded-3 p-3 bg-light">
+                                        <div class="fw-semibold mb-2"><i class="bi bi-sliders me-1"></i><span x-text="t('Apply to every patient')"></span>
+                                            <span class="small text-muted fw-normal" x-text="t('(only fill blank fields)')"></span>
+                                        </div>
+                                        <div class="row g-2">
+                                            <div class="col-md-3">
+                                                <label class="form-label small text-muted mb-1" x-text="t('Section')"></label>
+                                                <select class="form-select form-select-sm" x-model="aiDefaults.section" :disabled="aiSectionLocked()" @change="applyAiDefaultsToRows()">
+                                                    <option value="">-- Select --</option>
+                                                    <option value="agamy" x-text="t('Agamy')"></option>
+                                                    <option value="dekhila" x-text="t('Dekhila')"></option>
+                                                </select>
+                                                <div class="small text-danger mt-1" x-show="needSectionChoice() && !aiDefaults.section" x-cloak
+                                                    x-text="t('Choose a section before saving')"></div>
+                                                <div class="small text-muted mt-1" x-show="aiSectionLocked()" x-text="t('Your account is assigned to this section')"></div>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label small text-muted mb-1" x-text="t('Source of Money')"></label>
+                                                <select class="form-select form-select-sm" x-model="aiDefaults.source_of_money" @change="applyAiDefaultsToRows()">
+                                                    <option value="">-- Select --</option>
+                                                    <template x-for="opt in activeOptions('source')" :key="'ai-default-src-' + opt.key">
+                                                        <option :value="opt.key" x-text="optionLabel('source', opt.key)"></option>
+                                                    </template>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label small text-muted mb-1" x-text="t('Follower')"></label>
+                                                <select class="form-select form-select-sm" x-model="aiDefaults.follower" @change="applyAiDefaultsToRows()">
+                                                    <option value="">-- Select --</option>
+                                                    <template x-for="(label, key) in followerOptions" :key="key">
+                                                        <option :value="key" x-text="label"></option>
+                                                    </template>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label small text-muted mb-1" x-text="t('Visit Date')"></label>
+                                                <input type="date" class="form-control form-control-sm" x-model="aiDefaults.visit_date" @change="applyAiDefaultsToRows()">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <!-- toolbar -->
                                 <div class="d-flex flex-wrap gap-2 align-items-center px-3 py-2 border-bottom bg-light">
                                     <button class="btn btn-sm btn-outline-secondary" @click="addReviewRow()">
@@ -1386,7 +1390,7 @@
                                     <button class="btn btn-outline-secondary" @click="backToAddStep()">
                                         <i class="bi bi-arrow-left me-1"></i><span x-text="t('Back')"></span>
                                     </button>
-                                    <button class="btn btn-success" @click="importReviewedRows()" :disabled="aiImporting || !importableCount()">
+                                    <button class="btn btn-success" @click="importReviewedRows()" :disabled="aiImporting || !importableCount() || !aiSaveReady()">
                                         <span x-show="aiImporting" class="spinner-border spinner-border-sm me-1" x-cloak></span>
                                         <span x-text="aiImporting ? t('Saving...') : t('Import :count patients', { count: importableCount() })"></span>
                                     </button>
