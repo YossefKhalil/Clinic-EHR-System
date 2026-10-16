@@ -95,9 +95,13 @@ function digitsOnly(value) {
     return toWesternDigits(value).replace(/\D+/g, '');
 }
 
-/** Egyptian national ID: digits only, exactly 14. */
+/**
+ * Egyptian national ID: digits only. Length is validated downstream — a
+ * too-long value stays visible and flagged, never silently trimmed into a
+ * valid-looking different ID (issue #11 1b).
+ */
 export function normalizeNationalId(value) {
-    return digitsOnly(value).slice(0, 14);
+    return digitsOnly(value);
 }
 
 /**
@@ -131,7 +135,9 @@ export function dobFromNationalId(nationalId) {
     const month = Number(mm), day = Number(dd);
     if (month < 1 || month > 12 || day < 1 || day > 31) return null;
     const date = new Date(`${year}-${mm}-${dd}T00:00:00Z`);
-    if (Number.isNaN(date.getTime()) || date.getUTCFullYear() !== Number(year)) return null;
+    // Round-trip check: Date() rolls impossible days over (Feb 31 → Mar 3),
+    // so a same-year rollover would otherwise pass the year check.
+    if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== `${year}-${mm}-${dd}`) return null;
     return `${year}-${mm}-${dd}`;
 }
 
@@ -195,13 +201,10 @@ function normalizeDate(field, value) {
         if (a.length === 4) {
             text = `${a}-${b.padStart(2, '0')}-${c.padStart(2, '0')}`;
         } else if (Number(c) > 1900) {
-            // dd/mm/yyyy (Egyptian norm) — but tolerate mm/dd/yyyy order as
-            // long as one of them can only be a day.
-            if (Number(a) <= 12 && Number(b) <= 12) {
-                text = `${c}-${b.padStart(2, '0')}-${a.padStart(2, '0')}`;
-            } else {
-                text = `${c}-${b.padStart(2, '0')}-${a.padStart(2, '0')}`;
-            }
+            // dd/mm/yyyy (the clinic's norm). An mm/dd/yyyy value whose first
+            // part exceeds 12 (e.g. 12/31/2025) lands on an impossible date
+            // and is surfaced as a warning instead of being guessed at.
+            text = `${c}-${b.padStart(2, '0')}-${a.padStart(2, '0')}`;
         }
     } else if (/^[12]\d{7}$/.test(text)) {
         // bare digits like 19750204
@@ -212,7 +215,9 @@ function normalizeDate(field, value) {
         return { value: null, warning: { field, key: '":value" is not a recognized date.', params: { value: String(value) } } };
     }
     const date = new Date(`${text}T00:00:00Z`);
-    if (Number.isNaN(date.getTime())) {
+    // Date() rolls impossible days over (Feb 31 → Mar 3), so compare the
+    // round-trip: only a real calendar date may be stored (issue #11).
+    if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== text) {
         return { value: null, warning: { field, key: '":value" is not a recognized date.', params: { value: String(value) } } };
     }
     return { value: text };
@@ -483,6 +488,31 @@ function mkFailed(row, error) {
     };
 }
 
+// Fields a fill-update may touch. `name`/`national_id` identify the patient
+// and are never overwritten; `section` is not part of the merge.
+const FILL_FIELDS = ['mobile', 'date_of_birth', 'age', 'marital_status', 'children_count', 'governorate', 'address', 'problem', 'solution', 'price', 'visit_date', 'source_of_money', 'follower', 'notes'];
+
+const isEmptyValue = (value) => value === null || value === undefined || value === ''
+    || (Array.isArray(value) && value.length === 0);
+
+/**
+ * Merge rule for "Fill": only values the import row actually has, and only
+ * into fields that are empty on the existing patient — nulls are never sent,
+ * so a fill can neither overwrite nor erase existing data (issue #11 1a/1c).
+ */
+export function fillEmptyPayload(data = {}, existing = {}) {
+    const payload = {};
+    for (const field of FILL_FIELDS) {
+        const value = field === 'notes'
+            ? (Array.isArray(data.notes) && data.notes.length ? data.notes.filter(Boolean) : null)
+            : (data[field] ?? null);
+        if (isEmptyValue(value)) continue;
+        if (!isEmptyValue(existing?.[field])) continue;
+        payload[field] = value;
+    }
+    return payload;
+}
+
 /**
  * One Import click = one batch id (import_batch_id) stamped on every inserted
  * row together with user_id and section. Rows go in chunks of 50; a failed
@@ -495,6 +525,27 @@ export async function importBatch(rows, { userId, section, batchSize = 50 } = {}
     const batchId = crypto.randomUUID();
     const saved = [];
     const failed = [];
+    let insertedCount = 0;
+
+    // One fetch of every patient targeted by a fill row: the merge must run
+    // against CURRENT data, and RLS may differ from the review step. Requests
+    // are chunked so the id list can never blow the URL length limit.
+    const fillIds = [...new Set(rows
+        .filter((row) => row.duplicateMode === 'fill' && row.duplicate?.existingId)
+        .map((row) => row.duplicate.existingId))];
+    const existingById = new Map();
+    for (let i = 0; i < fillIds.length; i += 150) {
+        try {
+            const { data, error } = await supabase()
+                .from('patients')
+                .select(`id, ${FILL_FIELDS.join(', ')}`)
+                .in('id', fillIds.slice(i, i + 150));
+            if (!error) (data ?? []).forEach((p) => existingById.set(p.id, p));
+        } catch (e) {
+            // Left missing: those fill rows report the patient as unavailable.
+            console.warn('fill lookup failed:', e);
+        }
+    }
 
     const insertPayloadFor = (row) => {
         const data = row.data;
@@ -524,26 +575,6 @@ export async function importBatch(rows, { userId, section, batchSize = 50 } = {}
         };
     };
 
-    /** Only null/empty fields are filled; existing values are never overwritten. */
-    const fillPayloadFor = (data) => {
-        const valueOrNull = (value) => (value === null || value === undefined || value === '') ? null : value;
-        return {
-            mobile: valueOrNull(data.mobile),
-            date_of_birth: valueOrNull(data.date_of_birth),
-            age: valueOrNull(data.age),
-            marital_status: valueOrNull(data.marital_status),
-            governorate: valueOrNull(data.governorate),
-            address: valueOrNull(data.address),
-            problem: valueOrNull(data.problem),
-            solution: valueOrNull(data.solution),
-            price: valueOrNull(data.price),
-            visit_date: valueOrNull(data.visit_date),
-            source_of_money: valueOrNull(data.source_of_money),
-            follower: valueOrNull(data.follower),
-            notes: Array.isArray(data.notes) && data.notes.length ? data.notes : null,
-        };
-    };
-
     for (let i = 0; i < rows.length; i += batchSize) {
         const chunk = rows.slice(i, i + batchSize);
         const inserts = chunk.filter((row) => row.duplicateMode !== 'fill');
@@ -558,6 +589,7 @@ export async function importBatch(rows, { userId, section, batchSize = 50 } = {}
                     .select();
                 if (error) throw error;
                 saved.push(...data);
+                insertedCount += data.length;
                 bulkOk = true;
             } catch {
                 bulkOk = false;
@@ -572,6 +604,7 @@ export async function importBatch(rows, { userId, section, batchSize = 50 } = {}
                             .single();
                         if (error) throw error;
                         saved.push(data);
+                        insertedCount += 1;
                     } catch (e) {
                         failed.push(mkFailed(row, e));
                     }
@@ -580,11 +613,22 @@ export async function importBatch(rows, { userId, section, batchSize = 50 } = {}
         }
 
         for (const row of fills) {
+            const existing = existingById.get(row.duplicate?.existingId);
+            if (!existing) {
+                failed.push(mkFailed(row, { message: 'The existing patient is no longer available — it may have moved to another section.' }));
+                continue;
+            }
+            const payload = fillEmptyPayload(row.data, existing);
+            if (!Object.keys(payload).length) {
+                // Nothing left to fill: the row is done, it just has no work.
+                saved.push(existing);
+                continue;
+            }
             try {
                 const { data, error } = await supabase()
                     .from('patients')
-                    .update(fillPayloadFor(row.data))
-                    .eq('id', row.duplicate.existingId)
+                    .update(payload)
+                    .eq('id', existing.id)
                     .select()
                     .single();
                 if (error) throw error;
@@ -595,7 +639,9 @@ export async function importBatch(rows, { userId, section, batchSize = 50 } = {}
         }
     }
 
-    return { batchId, saved, failed };
+    // `insertedCount` (not saved.length) drives Undo: fills are UPDATEs and
+    // must not be counted as deletable patients (issue #11 4a).
+    return { batchId, saved, failed, insertedCount };
 }
 
 /**

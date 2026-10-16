@@ -50,6 +50,9 @@ function systemPrompt(ctx = {}) {
         ? ctx.followers.join(', ')
         : 'hassan_hamam, abdel_rahman_ahmed, ahmed_saad, mohamed_ali, mohamed_ahmed, hazem, mohamed_rabie';
     const governorateList = ctx.governorates?.length ? ctx.governorates.join(', ') : GOVERNORATES.join(', ');
+    // The source-of-money list is editable (issue #1), so the client sends the
+    // admin's current keys; the seed pair is only the fallback.
+    const sourceList = ctx.sources?.length ? 'exactly one of: ' + ctx.sources.join(', ') : 'charity or country';
     return [
         'You are an extraction engine for an Egyptian clinic patient registry.',
         'You receive content from a staff member — spreadsheet lines, document text, a photo, or a PDF — and you transcribe every patient explicitly described in it.',
@@ -76,7 +79,7 @@ function systemPrompt(ctx = {}) {
         '- age / price / children_count: plain numbers, no currency symbols or units.',
         '- marital_status: exactly one of single, married, divorced, widowed, or null. Arabic variants (أعزب, متزوج, مطلق, أرمل) map to these values.',
         '- governorate: exactly one of: ' + governorateList + '. Map Arabic governorate names (القاهرة → Cairo, الجيزة → Giza, الإسكندرية → Alexandria, etc.). If not one of these, null and add uncertain.',
-        '- source_of_money: charity or country, or null. Arabic "عين" ─ keep null; Arabic "شخص" or "أهل" may mean charity only when explicit.',
+        '- source_of_money: ' + sourceList + ', or null. Arabic "عين" ─ keep null; Arabic "شخص" or "أهل" may mean charity only when explicit.',
         '- follower: exactly one of: ' + followerList + ', or null. Arabic follower names (e.g. حسن حمام → hassan_hamam) map when recognizable; otherwise null plus uncertain.',
         '- problem / solution / address: free transcriptions from the content.',
         '',
@@ -109,8 +112,18 @@ function extractPatientsDocument(text) {
  * an admin-supplied base URL — so request building and response parsing stay
  * single-path.
  */
+// Provider trouble the client should back off and retry (rate limit, provider
+// timeout, capacity 5xx). Everything else (bad key, bad model) is terminal.
+const RETRYABLE_PROVIDER_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+
 async function callProvider(settings, model, messages) {
-    const body: Record<string, unknown> = { model, temperature: 0, max_tokens: 8000, messages };
+    // Reasoning models (OpenAI o-series / GPT-5) reject temperature and the
+    // legacy max_tokens parameter; plain chat models keep the deterministic
+    // temperature-0 shape.
+    const isReasoningModel = settings.provider === 'openai' && /^(o\d|gpt-5)/i.test(model);
+    const body: Record<string, unknown> = isReasoningModel
+        ? { model, max_completion_tokens: 8000, messages }
+        : { model, temperature: 0, max_tokens: 8000, messages };
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     let url;
 
@@ -135,14 +148,19 @@ async function callProvider(settings, model, messages) {
     const raw = await response.text();
     if (!response.ok) {
         console.error(`${settings.provider} provider error:`, response.status, raw.slice(0, 400));
-        return { error: `AI provider error (${response.status}): ${raw.slice(0, 200)}` };
+        return {
+            error: `AI provider error (${response.status}): ${raw.slice(0, 200)}`,
+            // Keep the provider status when it is retryable so the client can
+            // back off and re-request this part instead of failing it outright.
+            status: RETRYABLE_PROVIDER_STATUSES.has(response.status) ? response.status : 502,
+        };
     }
 
     let payload;
     try {
         payload = JSON.parse(raw);
     } catch {
-        return { error: 'The AI provider returned invalid JSON.' };
+        return { error: 'The AI provider returned invalid JSON.', status: 502 };
     }
 
     const choice = payload?.choices?.[0];
@@ -182,11 +200,11 @@ Deno.serve(async (req) => {
         const {
             action,
             contents = [],
-            defaults = [],
             model,
             instructions = '',
             governorates = [],
             followers = [],
+            sources = [],
             // Retry context: when the client fails to parse the previous YAML
             // it re-sends the chunk with the parser's complaint attached.
             parse_error = '',
@@ -249,11 +267,12 @@ Deno.serve(async (req) => {
                 content: systemPrompt({
                     followers: Array.isArray(followers) && followers.length ? followers : [],
                     governorates: Array.isArray(governorates) && governorates.length ? governorates : [],
+                    sources: Array.isArray(sources) && sources.length ? sources : [],
                 }),
             },
             { role: 'user', content: userContent },
         ]);
-        if (result.error) return json({ error: result.error }, 502);
+        if (result.error) return json({ error: result.error }, result.status ?? 502);
 
         // Truncation guard: max_tokens ran out mid-document, so the final
         // patient may be incomplete. Drop it and tell the client so it can

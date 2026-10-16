@@ -1194,6 +1194,27 @@
                                 </div>
                             </div>
                             <div class="card-body p-0">
+                                <!-- Parts whose extraction failed: never silent (issue #11).
+                                     Lists each part + its error and retries just those parts. -->
+                                <div class="px-3 pt-3" x-show="aiPartFailures.length" x-cloak>
+                                    <div class="alert alert-warning d-flex align-items-start gap-2 mb-0">
+                                        <i class="bi bi-exclamation-triangle-fill mt-1"></i>
+                                        <div class="flex-grow-1">
+                                            <div class="fw-semibold" x-text="t(':count extraction part(s) failed — patients from those parts were not extracted.', { count: aiPartFailures.length })"></div>
+                                            <ul class="small mb-2 mt-1 ps-3" style="max-height: 120px; overflow: auto">
+                                                <template x-for="(fail, i) in aiPartFailures" :key="'ai-fail-' + i">
+                                                    <li><span class="fw-semibold" x-text="fail.label"></span> — <span x-text="fail.error"></span></li>
+                                                </template>
+                                            </ul>
+                                            <button type="button" class="btn btn-sm btn-warning" @click="retryFailedParts()" :disabled="aiRetrying">
+                                                <span x-show="aiRetrying" class="spinner-border spinner-border-sm me-1"></span>
+                                                <i class="bi bi-arrow-clockwise me-1" x-show="!aiRetrying"></i>
+                                                <span x-text="t('Retry failed parts')"></span>
+                                            </button>
+                                        </div>
+                                        <button type="button" class="btn-close" :aria-label="t('Close')" @click="aiPartFailures = []"></button>
+                                    </div>
+                                </div>
                                 <!-- defaults: applied to every row below, but only to blank fields -->
                                 <div class="px-3 pt-3">
                                     <div class="border rounded-3 p-3 bg-light">
@@ -1205,8 +1226,9 @@
                                                 <label class="form-label small text-muted mb-1" x-text="t('Section')"></label>
                                                 <select class="form-select form-select-sm" x-model="aiDefaults.section" :disabled="aiSectionLocked()" @change="applyAiDefaultsToRows()">
                                                     <option value="">-- Select --</option>
-                                                    <option value="agamy" x-text="t('Agamy')"></option>
-                                                    <option value="dekhila" x-text="t('Dekhila')"></option>
+                                                    <template x-for="opt in activeOptions('section')" :key="'ai-default-sec-' + opt.key">
+                                                        <option :value="opt.key" x-text="optionLabel('section', opt.key)"></option>
+                                                    </template>
                                                 </select>
                                                 <div class="small text-danger mt-1" x-show="needSectionChoice() && !aiDefaults.section" x-cloak
                                                     x-text="t('Choose a section before saving')"></div>
@@ -1257,12 +1279,33 @@
                                                     <option value="source_of_money" x-text="t('Source of Money')"></option>
                                                     <option value="follower" x-text="t('Follower')"></option>
                                                     <option value="visit_date" x-text="t('Visit Date')"></option>
-                                                    <option value="section" x-text="t('Section')"></option>
+                                                    <option value="section" x-text="t('Section')" x-show="isSuperAdmin"></option>
                                                 </select>
                                             </li>
                                             <li class="px-2 py-1">
                                                 <label class="small text-muted" x-text="t('Value')"></label>
-                                                <input class="form-control form-control-sm" type="text" x-model="aiBulkValue">
+                                                <!-- The value widget follows the chosen field: canonical
+                                                     keys for section/source/follower, ISO date for the
+                                                     visit date — a bulk set can never write junk. -->
+                                                <select class="form-select form-select-sm" x-show="aiBulkField === 'section'" x-cloak x-model="aiBulkValue">
+                                                    <option value="">--</option>
+                                                    <template x-for="opt in activeOptions('section')" :key="'ai-bulk-sec-' + opt.key">
+                                                        <option :value="opt.key" x-text="optionLabel('section', opt.key)"></option>
+                                                    </template>
+                                                </select>
+                                                <select class="form-select form-select-sm" x-show="aiBulkField === 'source_of_money'" x-cloak x-model="aiBulkValue">
+                                                    <option value="">--</option>
+                                                    <template x-for="opt in activeOptions('source')" :key="'ai-bulk-src-' + opt.key">
+                                                        <option :value="opt.key" x-text="optionLabel('source', opt.key)"></option>
+                                                    </template>
+                                                </select>
+                                                <select class="form-select form-select-sm" x-show="aiBulkField === 'follower'" x-cloak x-model="aiBulkValue">
+                                                    <option value="">--</option>
+                                                    <template x-for="(label, key) in followerOptions" :key="'ai-bulk-fl-' + key">
+                                                        <option :value="key" x-text="label"></option>
+                                                    </template>
+                                                </select>
+                                                <input type="date" class="form-control form-control-sm" x-show="aiBulkField === 'visit_date'" x-cloak x-model="aiBulkValue">
                                             </li>
                                             <li class="px-2"><button class="btn btn-sm btn-primary w-100 mt-1" @click="applyBulkValue()"><span x-text="t('Apply')"></span></button></li>
                                         </ul>
@@ -1286,8 +1329,13 @@
                                                 <th style="width:60px"></th>
                                             </tr>
                                         </thead>
-                                        <tbody>
-                                            <template x-for="row in visibleRows()" :key="row.id">
+                                        <!-- Each patient's rows are their own tbody element: x-for
+                                             needs a single root element, and a tbody is valid as a
+                                             direct child of the table. The previous NESTED tbody was
+                                             invalid DOM — browsers split those rows into separate
+                                             anonymous tables, so columns no longer lined up with the
+                                             header. -->
+                                        <template x-for="row in visibleRows()" :key="row.id">
                                                     <tbody>
                                                         <tr :class="{ 'table-active': row.selected }">
                                                             <td><input type="checkbox" class="form-check-input" x-model="row.selected"></td>
@@ -1365,11 +1413,12 @@
                                                                         </select></div>
                                                                     <div class="col-md-2"><label class="small text-muted" x-text="t('Children Count')"></label>
                                                                         <input class="form-control form-control-sm" x-model="row.data.children_count" inputmode="numeric"></div>
-                                                                    <div class="col-md-2"><label class="small text-muted" x-text="t('Section')"></label>
+                                                                    <div class="col-md-2" x-show="isSuperAdmin" x-cloak><label class="small text-muted" x-text="t('Section')"></label>
                                                                         <select class="form-select form-select-sm" x-model="row.data.section">
                                                                             <option value="">--</option>
-                                                                            <option value="agamy" x-text="t('Agamy')"></option>
-                                                                            <option value="dekhila" x-text="t('Dekhila')"></option>
+                                                                            <template x-for="opt in activeOptions('section')" :key="'ai-row-sec-' + opt.key">
+                                                                                <option :value="opt.key" x-text="optionLabel('section', opt.key)"></option>
+                                                                            </template>
                                                                         </select></div>
                                                                     <div class="col-md-4"><label class="small text-muted" x-text="t('Address')"></label>
                                                                         <input class="form-control form-control-sm" x-model="row.data.address"></div>
@@ -1395,11 +1444,10 @@
                                                             </td>
                                                         </tr>
                                                     </tbody>
-                                            </template>
-                                            <tr x-show="!visibleRows().length">
-                                                <td colspan="10" class="text-center py-4 text-muted" x-text="t('No rows match this filter.')"></td>
-                                            </tr>
-                                        </tbody>
+                                        </template>
+                                        <tr x-show="!visibleRows().length">
+                                            <td colspan="10" class="text-center py-4 text-muted" x-text="t('No rows match this filter.')"></td>
+                                        </tr>
                                     </table>
                                 </div>
                             </div>

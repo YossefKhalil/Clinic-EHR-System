@@ -237,6 +237,10 @@ export async function buildExtractionRequests(files, pastedText, { onNote = () =
                 const parts = Math.ceil((display.length - 1) / SHEET_ROWS_PER_CHUNK);
                 requests.push({
                     label: `${file.name} · part ${part}/${parts}`,
+                    // Data rows sent in this part: lets the caller compare
+                    // "sent 15 / extracted 13" for a part that silently lost
+                    // rows (issue #11).
+                    rowCount: slice.length,
                     contents: [{ type: 'text', text: `Spreadsheet "${file.name}" (pipe-separated, header repeated):\n\n${text}` }],
                 });
             }
@@ -282,9 +286,18 @@ export async function buildExtractionRequests(files, pastedText, { onNote = () =
 /**
  * Run every extraction request, up to PARALLEL_REQUESTS at a time, reporting
  * progress ("Running part 2 of 7") and honoring an AbortController signal.
- * Returns [{ label, yaml, truncated, error }] in submission order.
+ * The optional instructions/followers/governorates/sources ride along on every
+ * request so the model maps values to the admin's current lists.
+ * Returns [{ label, rowCount, yaml, truncated, error }] in submission order.
  */
-export async function runExtractionRequests(requests, { signal = null, onProgress = () => {} } = {}) {
+export async function runExtractionRequests(requests, {
+    signal = null,
+    onProgress = () => {},
+    instructions = '',
+    followers = [],
+    governorates = [],
+    sources = [],
+} = {}) {
     const results = new Array(requests.length).fill(null);
     let done = 0;
 
@@ -293,7 +306,9 @@ export async function runExtractionRequests(requests, { signal = null, onProgres
             if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
             const index = queue.shift();
             try {
-                results[index] = await extractChunk(requests[index].contents);
+                results[index] = await extractChunk(requests[index].contents, {
+                    signal, instructions, followers, governorates, sources,
+                });
             } catch (error) {
                 results[index] = { error: error?.name === 'AbortError' ? 'cancelled' : (error.message ?? 'Request failed') };
             }
@@ -314,38 +329,71 @@ export async function runExtractionRequests(requests, { signal = null, onProgres
     if (requests.length) onProgress({ done: 0, total: requests.length, label: requests[0].label });
     const workers = Array.from({ length: Math.min(PARALLEL_REQUESTS, requests.length) }, () => worker(queue));
     await Promise.all(workers);
-    return results.map((result, i) => ({ label: requests[i].label, ...result }));
+    return results.map((result, i) => ({ label: requests[i].label, rowCount: requests[i].rowCount ?? null, ...result }));
 }
 
-async function callAiImport(contents, extra = {}) {
+// Transient provider/edge trouble worth another try after a short backoff.
+const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const MAX_ATTEMPTS = 3;
+
+// Abortable sleep: cancel must interrupt a backoff wait immediately.
+function sleep(ms, signal) {
+    return new Promise((resolve, reject) => {
+        if (signal?.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
+        const onAbort = () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')); };
+        const timer = setTimeout(() => {
+            signal?.removeEventListener('abort', onAbort);
+            resolve();
+        }, ms);
+        signal?.addEventListener('abort', onAbort, { once: true });
+    });
+}
+
+async function callAiImport(contents, extra = {}, signal = null) {
     const fnUrl = import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, '') + '/functions/v1/ai-import';
     const token = (await import('./supabase.js')).supabase()
         ? (await (await import('./supabase.js')).supabase().auth.getSession()).data.session?.access_token
         : null;
 
-    let res;
-    try {
-        res = await fetch(fnUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ contents, ...extra }),
-        });
-    } catch (e) {
-        console.error('ai-import request failed:', e);
-        throw new Error('Could not reach the AI service. Check your connection and try again.');
-    }
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
-    if (!res.ok) {
-        let msg = `HTTP ${res.status}`;
-        try { msg = (await res.json()).error || msg; } catch {}
-        if (res.status === 401) msg = 'Your session was rejected. Please sign in again.';
-        if (res.status === 403) msg = 'Only staff with an assigned section or administrators can import with AI.';
-        throw new Error(msg);
-    }
+        let res;
+        try {
+            res = await fetch(fnUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ contents, ...extra }),
+                signal,
+            });
+        } catch (e) {
+            // A cancelled fetch must stay cancelled; a network blip may retry.
+            if (e?.name === 'AbortError') throw e;
+            console.error('ai-import request failed:', e);
+            if (attempt < MAX_ATTEMPTS) { await sleep(attempt * 2000, signal); continue; }
+            throw new Error('Could not reach the AI service. Check your connection and try again.');
+        }
 
-    const data = await res.json();
-    if (!data.yaml) throw new Error('The AI returned nothing usable.');
-    return { yaml: data.yaml, truncated: !!data.truncated };
+        if (!res.ok) {
+            let msg = `HTTP ${res.status}`;
+            try { msg = (await res.json()).error || msg; } catch {}
+            if (res.status === 401) msg = 'Your session was rejected. Please sign in again.';
+            if (res.status === 403) msg = 'Only staff with an assigned section or administrators can import with AI.';
+            // Rate limits, provider timeouts, 5xx: back off and try again
+            // before failing just this part (issue #11).
+            if (RETRYABLE_STATUSES.has(res.status) && attempt < MAX_ATTEMPTS) {
+                await sleep(attempt * 2000, signal);
+                continue;
+            }
+            throw new Error(msg);
+        }
+
+        const data = await res.json();
+        if (!data.yaml) throw new Error('The AI returned nothing usable.');
+        return { yaml: data.yaml, truncated: !!data.truncated };
+    }
+    // Unreachable: every path above returns or throws on the last attempt.
+    throw new Error('The AI service did not answer.');
 }
 
 /**
@@ -353,11 +401,21 @@ async function callAiImport(contents, extra = {}) {
  * fails, re-send the chunk with the parser's error attached so the model can
  * repair its own output. A second failure fails only this chunk.
  */
-export async function extractChunk(contents) {
-    let result = await callAiImport(contents);
+export async function extractChunk(contents, {
+    signal = null, instructions = '', followers = [], governorates = [], sources = [],
+} = {}) {
+    // Only send the non-default context: an empty array/string means "use the
+    // engine's fallback list", keeping the request body small.
+    const context = {};
+    if (instructions) context.instructions = String(instructions).slice(0, 2000);
+    if (followers.length) context.followers = followers;
+    if (governorates.length) context.governorates = governorates;
+    if (sources.length) context.sources = sources;
+
+    let result = await callAiImport(contents, context, signal);
     let parsed = parseModelYaml(result.yaml);
     if (!parsed.ok) {
-        result = await callAiImport(contents, { parse_error: parsed.error, previous_output: result.yaml });
+        result = await callAiImport(contents, { ...context, parse_error: parsed.error, previous_output: result.yaml }, signal);
         parsed = parseModelYaml(result.yaml);
         if (!parsed.ok) throw new Error('Could not parse the AI response for this part: ' + parsed.error);
     }

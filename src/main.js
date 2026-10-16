@@ -149,6 +149,9 @@ function app() {
         aiProgressDone: 0,
         aiProgressTotal: 0,
         aiRows: [],                           // review rows (see ai-import.js)
+        aiPartFailures: [],                   // extraction parts that failed {label, error}
+        aiFailedRequests: [],                 // the same parts as retryable requests
+        aiRetrying: false,
         aiFilter: 'all',
         aiBulkField: 'source_of_money',
         aiBulkValue: '',
@@ -713,6 +716,9 @@ function app() {
             this.aiProgressDone = 0;
             this.aiProgressTotal = 0;
             this.aiRows = [];
+            this.aiPartFailures = [];
+            this.aiFailedRequests = [];
+            this.aiRetrying = false;
             this.aiFilter = 'all';
             this.aiBulkField = 'source_of_money';
             this.aiBulkValue = '';
@@ -870,6 +876,7 @@ function app() {
                 
                 const results = await runExtractionRequests(requests, {
                     signal: this.aiAbortController.signal,
+                    ...this.aiPromptContext(),
                     onProgress: ({ done, total, label }) => {
                         this.aiProgressDone = done;
                         this.aiProgressTotal = total;
@@ -886,17 +893,30 @@ function app() {
                 // Parse each chunk's YAML, normalize each patient, and carry
                 // the chunk label as the row's source (for the info icon).
                 const truncatedChunks = [];
-                const parseFailureMessages = [];
+                const partFailures = [];
+                const failedRequests = [];
+                const partStats = [];
                 
-                for (const result of results) {
-                    if (result.error) { parseFailureMessages.push(`${result.label}: ${result.error}`); continue; }
+                for (const [index, result] of results.entries()) {
+                    if (result.error) {
+                        partFailures.push({ label: result.label, error: result.error });
+                        failedRequests.push(requests[index]);
+                        continue;
+                    }
                     const { rows } = parsePatientYaml(result.yaml);
                     if (result.truncated) truncatedChunks.push(result.label);
+                    partStats.push({ part: result.label, sent: result.rowCount, extracted: rows.length });
                     for (const raw of rows) {
                         const row = postProcessPatient(raw, this.aiDefaults, result.label);
                         this.aiRows.push(row);
                     }
                 }
+                
+                // Per-part counts make row loss inside a "successful" part
+                // (e.g. 15 rows sent, 13 extracted) observable (issue #11),
+                // and failed parts are logged even when other parts succeeded.
+                if (partStats.length) console.info('ai-import part results:', partStats);
+                if (partFailures.length) console.error('ai-import chunk errors:', partFailures);
                 
                 // In-batch duplicates: first row with an ID keeps "Ready", the
                 // later ones get a blue Duplicate badge.
@@ -906,11 +926,27 @@ function app() {
                 
                 if (!this.aiRows.length) {
                     this.aiProgressLabel = '';
-                    const detail = parseFailureMessages.length ? '\n' + parseFailureMessages.slice(0, 3).join('\n') : '';
+                    const detail = partFailures.length ? '\n' + partFailures.slice(0, 3).map((f) => `${f.label}: ${f.error}`).join('\n') : '';
                     this.showAlert(this.t('No patients could be extracted from that input.') + detail, 'warning');
-                    if (parseFailureMessages.length) console.error('ai-import chunk errors:', parseFailureMessages);
                     return;
                 }
+                
+                // Failed parts must never be silent (issue #11): the review
+                // step shows a banner listing them and can retry just them.
+                // Merged with earlier runs in this session (one row per part
+                // label): a label that now succeeded drops off, one that
+                // failed again updates its error.
+                const succeeded = new Set(results.filter((r) => !r.error).map((r) => r.label));
+                const failByLabel = new Map(this.aiPartFailures
+                    .filter((f) => !succeeded.has(f.label))
+                    .map((f) => [f.label, f]));
+                partFailures.forEach((f) => failByLabel.set(f.label, f));
+                this.aiPartFailures = [...failByLabel.values()];
+                const reqByLabel = new Map(this.aiFailedRequests
+                    .filter((r) => !succeeded.has(r.label))
+                    .map((r) => [r.label, r]));
+                failedRequests.forEach((r) => reqByLabel.set(r.label, r));
+                this.aiFailedRequests = [...reqByLabel.values()];
                 
                 if (truncatedChunks.length) {
                     this.showAlert(this.t('Some parts were cut off by the AI model (token limit) — the last patient in each affected part may be missing. Consider smaller files.'), 'warning');
@@ -926,6 +962,78 @@ function app() {
                 }
             } finally {
                 this.aiExtracting = false;
+                this.aiAbortController = null;
+            }
+        },
+        
+        // The option lists the extraction engine should map to: the admin's
+        // current followers/sources/governorates instead of the seed lists
+        // (issue #11 2b). Labels ride along so Arabic names map to keys.
+        aiPromptContext() {
+            const pair = (key, label) => (label && label !== key ? `${key} (${label})` : key);
+            return {
+                instructions: this.aiInstructions.trim(),
+                followers: Object.entries(this.followerOptions).map(([key, label]) => pair(key, label)),
+                governorates: [...this.governorates],
+                sources: this.activeOptions('source').map((opt) => pair(opt.key, this.optionLabel('source', opt.key))),
+            };
+        },
+        
+        // Re-run only the parts that failed (issue #11): recovered rows are
+        // appended to the review table, still-failing parts stay listed with
+        // their errors in the banner.
+        async retryFailedParts() {
+            if (!this.aiFailedRequests.length || this.aiRetrying) return;
+            this.aiRetrying = true;
+            try {
+                const [{ runExtractionRequests }, { parsePatientYaml, postProcessPatient }] = await Promise.all([
+                    import('./services/ai-import-client.js'),
+                    import('./services/ai-import.js'),
+                ]);
+                
+                this.aiAbortController = new AbortController();
+                const pending = this.aiFailedRequests;
+                const results = await runExtractionRequests(pending, {
+                    signal: this.aiAbortController.signal,
+                    ...this.aiPromptContext(),
+                });
+                
+                const stillFailed = [];
+                const recovered = [];
+                for (const result of results) {
+                    if (result.error) {
+                        stillFailed.push({ label: result.label, error: result.error });
+                        continue;
+                    }
+                    const { rows } = parsePatientYaml(result.yaml);
+                    for (const raw of rows) {
+                        this.aiRows.push(postProcessPatient(raw, this.aiDefaults, result.label));
+                    }
+                    recovered.push(result.label);
+                }
+                
+                this.aiPartFailures = stillFailed;
+                this.aiFailedRequests = pending.filter((_, i) => results[i]?.error);
+                if (stillFailed.length) console.error('ai-import retry still failing:', stillFailed);
+                else if (recovered.length) console.info('ai-import recovered parts:', recovered);
+                
+                // Re-run both duplicate checks over the whole table so the new
+                // rows are classified the same way as the originals.
+                this.markInBatchDuplicates();
+                await this.markCrossSectionDuplicates();
+                
+                if (!stillFailed.length && recovered.length) {
+                    this.showAlert(this.t('All previously failed parts were recovered.'), 'success');
+                }
+            } catch (error) {
+                if (error?.name === 'AbortError') {
+                    this.showAlert(this.t('Extraction cancelled.'), 'warning');
+                } else {
+                    console.error(error);
+                    this.showAlert(error?.message || this.t('Something went wrong.'), 'danger');
+                }
+            } finally {
+                this.aiRetrying = false;
                 this.aiAbortController = null;
             }
         },
@@ -982,20 +1090,26 @@ function app() {
                 if (!nid || !existingIds.has(nid)) continue;
                 const seen = visible.get(nid);
                 if (seen) {
+                    // Keep the user's Skip/Fill choice when a re-run (e.g. after
+                    // Retry failed parts) produces the same duplicate mark;
+                    // reset it only when the duplicate itself changed.
+                    const keepMode = row.duplicate?.kind === 'existing' && row.duplicate?.existingId === seen.id;
                     row.duplicate = {
                         kind: 'existing',
                         existingId: seen.id,
                         message: this.t('A patient with this National ID already exists (":name").', { name: seen.name || nid }),
                         fillable: true,
                     };
+                    if (!keepMode) row.duplicateMode = 'skip';
                 } else {
+                    const keepMode = row.duplicate?.kind === 'other_section';
                     row.duplicate = {
                         kind: 'other_section',
                         message: this.t('National ID already exists in another section — you cannot view or edit it here.'),
                         fillable: false,
                     };
+                    if (!keepMode) row.duplicateMode = 'skip'; // default for duplicates is Skip
                 }
-                row.duplicateMode = 'skip'; // default for duplicates is Skip
             }
         },
         
@@ -1087,13 +1201,13 @@ function app() {
         
         applyBulkValue() {
             const field = this.aiBulkField;
-            const value = this.aiBulkValue.trim();
-            if (!field) return;
+            // Values arrive from the field-specific widget: canonical keys for
+            // section/source/follower, an ISO date for the visit date.
+            const value = String(this.aiBulkValue ?? '').trim();
+            if (!field || !value) return;
             this.aiRows
                 .filter((row) => row.selected)
-                .forEach((row) => {
-                    row.data[field] = field === 'visit_date' ? value : value;
-                });
+                .forEach((row) => { row.data[field] = value; });
             this.aiBulkValue = '';
         },
         
@@ -1121,24 +1235,31 @@ function app() {
             this.aiImporting = true;
             try {
                 const { importBatch } = await import('./services/ai-import.js');
-                const { batchId, saved, failed } = await importBatch(targets, {
+                const { batchId, saved, failed, insertedCount } = await importBatch(targets, {
                     userId: this.user.id,
                     section: this.aiDefaults.section || this.profile?.section || null,
                 });
                 
                 // Rows saved (and their fill-updates) leave the table; failed
-                // rows stay for another look. Skips become the Done report.
+                // rows stay for another look. Skips become the Done report —
+                // a row that failed to SAVE reports the real save error, not a
+                // generic "not ready" reason (issue #11 4b).
                 this.aiRows = this.aiRows.filter((row) => !this.aiImportable(row)
                     || failed.some((f) => f.row === row));
+                const failedReasons = new Map(failed.map((f) => [f.row, this.t(f.reason.key, f.reason.params ?? {})]));
                 const skipped = this.aiRows.map((row) => ({
                     name: row.data.name,
                     national_id: row.data.national_id,
-                    reason: row.duplicate
-                        ? row.duplicate.message
-                        : (this.aiRowErrors(row)[0] ?? this.t('Row was not ready for import.')),
+                    reason: failedReasons.get(row)
+                        ?? (row.duplicate
+                            ? row.duplicate.message
+                            : (this.aiRowErrors(row)[0] ?? this.t('Row was not ready for import.'))),
                 }));
                 
-                this.lastImport = { batchId, count: saved.length };
+                // Undo deletes only the rows this import INSERTED; fills are
+                // updates to existing patients and must not be counted
+                // (issue #11 4a).
+                this.lastImport = { batchId, count: insertedCount };
                 this.aiResult = { added: saved.length, skipped };
                 
                 if (failed.length) {
