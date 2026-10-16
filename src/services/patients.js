@@ -31,8 +31,11 @@ export async function getPatients(filters = {}, isSuperAdmin = false, userSectio
         query = query.eq('is_completed', filters.is_completed);
     }
     
-    if (filters.date_from) query = query.gte('created_at', `${filters.date_from}T00:00:00`);
-    if (filters.date_to) query = query.lte('created_at', `${filters.date_to}T23:59:59.999`);
+    // Date inputs are calendar days in the viewer's timezone; convert the
+    // local day boundaries to UTC instants before comparing with timestamptz,
+    // otherwise the filter is off by the timezone offset at the edges.
+    if (filters.date_from) query = query.gte('created_at', new Date(`${filters.date_from}T00:00:00`).toISOString());
+    if (filters.date_to) query = query.lte('created_at', new Date(`${filters.date_to}T23:59:59.999`).toISOString());
     
     const { data, error } = await query;
     if (error) throw error;
@@ -93,16 +96,6 @@ export async function togglePatientStatus(id, isCompleted) {
     if (error) throw error;
     return data;
 }
-
-export const FOLLOWERS = {
-    hassan_hamam: 'حسن حمام',
-    abdel_rahman_ahmed: 'عبد الرحمن أحمد',
-    ahmed_saad: 'احمد سعد',
-    mohamed_ali: 'محمد علي',
-    mohamed_ahmed: 'محمد أحمد',
-    hazem: 'حازم',
-    mohamed_rabie: 'محمد ربيع',
-};
 
 export const GOVERNORATES = [
     'Cairo', 'Giza', 'Alexandria', 'Dakahlia', 'Red Sea', 'Beheira', 'Faiyum',

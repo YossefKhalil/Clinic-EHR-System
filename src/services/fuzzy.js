@@ -23,18 +23,6 @@ export function normalizeText(value) {
         .trim();
 }
 
-// Every token from `needle` (case-insensitive, diacritic-stripped) must appear
-// somewhere in `haystack`. One-character tokens are dropped so a stray space
-// does not narrow the match to nothing.
-export function fuzzyMatches(haystack, needle) {
-    const target = normalizeText(haystack);
-    if (!target) return false;
-    return normalizeText(needle)
-        .split(/\s+/)
-        .filter((tok) => tok.length > 1)
-        .every((tok) => target.includes(tok));
-}
-
 /**
  * Check one patient record against a raw search query across every documented
  * patient field (plus a handful of friendly aliases like the follower's Arabic

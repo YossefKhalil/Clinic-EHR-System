@@ -361,3 +361,27 @@ SELECT
 FROM auth.users u
 LEFT JOIN public.users p ON p.id = u.id
 WHERE p.id IS NULL;
+-- Registrar name denormalization (#7): section staff cannot read other users'
+-- rows through RLS, so the users join-based "Registered by" lookup returned
+-- Unknown for them. Store the registrar name on the patient row at write time.
+ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS registered_by_name TEXT;
+
+UPDATE public.patients p
+SET registered_by_name = u.name
+FROM public.users u
+WHERE p.user_id = u.id AND p.registered_by_name IS NULL;
+
+CREATE OR REPLACE FUNCTION public.set_registered_by_name()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.registered_by_name IS NULL AND NEW.user_id IS NOT NULL THEN
+        SELECT name INTO NEW.registered_by_name FROM public.users WHERE id = NEW.user_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+DROP TRIGGER IF EXISTS patients_set_registered_by_name ON public.patients;
+CREATE TRIGGER patients_set_registered_by_name
+    BEFORE INSERT ON public.patients
+    FOR EACH ROW EXECUTE FUNCTION public.set_registered_by_name();

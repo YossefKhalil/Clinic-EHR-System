@@ -94,7 +94,7 @@ function app() {
         currentDate: new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }),
         
         // Dashboard
-        stats: { total: 0, completed: 0, pending: 0, sections: {}, sources: {}, totalRevenue: 0 },
+            stats: { total: 0, completed: 0, pending: 0, sections: {}, sources: {} },
         recentPatients: [],
         
         // Patients
@@ -343,8 +343,8 @@ function app() {
         async showDashboard() {
             if (!this.isLoggedIn) return;
             const section = this.profile?.section || null;
-            this.stats = await getDashboardStats(this.user.id, this.isSuperAdmin, section);
-            this.recentPatients = await getRecentPatients(this.user.id, this.isSuperAdmin, section);
+            this.stats = await getDashboardStats(this.isSuperAdmin, section);
+            this.recentPatients = await getRecentPatients(this.isSuperAdmin, section);
         },
         
         async showPrices() {
@@ -831,20 +831,16 @@ function app() {
                 
                 // Parse each chunk's YAML, normalize each patient, and carry
                 // the chunk label as the row's source (for the info icon).
-                let added = 0;
                 const truncatedChunks = [];
-                let parseFailures = 0;
                 const parseFailureMessages = [];
                 
                 for (const result of results) {
-                    if (result.error) { parseFailures += 1; parseFailureMessages.push(`${result.label}: ${result.error}`); continue; }
-                    const { rows, errors } = parsePatientYaml(result.yaml);
-                    if (errors.length) parseFailures += 1;
+                    if (result.error) { parseFailureMessages.push(`${result.label}: ${result.error}`); continue; }
+                    const { rows } = parsePatientYaml(result.yaml);
                     if (result.truncated) truncatedChunks.push(result.label);
                     for (const raw of rows) {
                         const row = postProcessPatient(raw, this.aiDefaults, result.label);
                         this.aiRows.push(row);
-                        added += 1;
                     }
                 }
                 
@@ -1074,7 +1070,6 @@ function app() {
                 
                 // Rows saved (and their fill-updates) leave the table; failed
                 // rows stay for another look. Skips become the Done report.
-                const savedDataIds = new Set(saved.map((p) => p.id));
                 this.aiRows = this.aiRows.filter((row) => !this.aiImportable(row)
                     || failed.some((f) => f.row === row));
                 const skipped = this.aiRows.map((row) => ({
@@ -1346,7 +1341,10 @@ function app() {
         },
         
         async showPatient(patient) {
-            this.selectedPatient = patient;
+            this.selectedPatient = {
+                ...patient,
+                user_name: patient.registered_by_name || patient.user_name || 'Unknown',
+            };
             this.currentPage = 'patient-profile';
         },
         

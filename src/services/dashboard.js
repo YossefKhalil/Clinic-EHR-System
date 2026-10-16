@@ -1,6 +1,6 @@
 import { supabase } from './supabase.js';
 
-export async function getDashboardStats(userId, isSuperAdmin, userSection = null) {
+export async function getDashboardStats(isSuperAdmin, userSection = null) {
     let query = supabase().from('patients').select('*');
     
     if (!isSuperAdmin && userSection) {
@@ -21,15 +21,13 @@ export async function getDashboardStats(userId, isSuperAdmin, userSection = null
         if (p.section) sections[p.section] = (sections[p.section] || 0) + 1;
         if (p.source_of_money) sources[p.source_of_money] = (sources[p.source_of_money] || 0) + 1;
     });
-    const totalRevenue = patients.reduce((sum, p) => sum + (parseFloat(p.price) || 0), 0);
-    
-    return { total, completed, pending, sections, sources, totalRevenue };
+    return { total, completed, pending, sections, sources };
 }
 
-export async function getRecentPatients(userId, isSuperAdmin, userSection = null, limit = 5) {
+export async function getRecentPatients(isSuperAdmin, userSection = null, limit = 5) {
     let query = supabase()
         .from('patients')
-        .select('*, users:user_id(name)')
+        .select('*')
         .order('created_at', { ascending: false })
         .limit(limit);
     
@@ -40,8 +38,10 @@ export async function getRecentPatients(userId, isSuperAdmin, userSection = null
     const { data, error } = await query;
     if (error) throw error;
     
+    // registered_by_name is denormalized onto the patient row (schema.sql) so
+    // section staff can see a registrar even though RLS hides other users.
     return data.map(p => ({
         ...p,
-        user_name: p.users?.name || 'Unknown'
+        user_name: p.registered_by_name || 'Unknown'
     }));
 }

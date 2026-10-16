@@ -27,13 +27,6 @@ export async function setLocale(locale) {
     document.documentElement.lang = next;
     document.documentElement.dir = translations.direction || (next === 'ar' ? 'rtl' : 'ltr');
 
-    document.querySelectorAll('[data-i18n]').forEach((el) => {
-        const key = el.getAttribute('data-i18n');
-        if (translations[key]) {
-            el.textContent = translations[key];
-        }
-    });
-
     window.localeChanged?.();
 }
 

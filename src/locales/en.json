@@ -8,8 +8,6 @@
     "Invalid email or password": "Invalid email or password",
     "Login failed. Please try again.": "Login failed. Please try again.",
     "You are signed in, but your profile could not be loaded.": "You are signed in, but your profile could not be loaded.",
-    "Remember me": "Remember me",
-    "Forgot your password?": "Forgot your password?",
     "Total Patients": "Total Patients",
     "Completed": "Completed",
     "Pending": "Pending",
@@ -307,5 +305,8 @@
     "Option added.": "Option added.",
     "Option saved.": "Option saved.",
     "Enter a label in at least one language.": "Enter a label in at least one language.",
-    "Could not save the option.": "Could not save the option."
+    "Could not save the option.": "Could not save the option.",
+    "-- Select Follower --": "-- Select Follower --",
+    "-- Select Section --": "-- Select Section --",
+    "-- Select Source --": "-- Select Source --"
 }

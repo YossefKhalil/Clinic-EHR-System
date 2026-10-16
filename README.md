@@ -104,15 +104,15 @@ missing a `public.users` profile row.
 > they must be set in the Pages project's build environment variables, not in the
 > Worker's runtime variables.
 
-### 4. Deploy Edge Function
+### 4. Deploy Edge Functions
 
-The user management endpoints (create/update/delete) use a Supabase Edge Function with the service role key:
+Three Edge Functions back the app: `manage-user` (admin user CRUD), `ai-import` (OpenRouter proxy for the import flow) and `ai-settings` (encrypted storage of the OpenRouter key). Pushing changes under `supabase/functions/**` deploys them automatically via `.github/workflows/deploy-functions.yml`; to deploy manually:
 
 ```bash
-supabase functions deploy manage-user
+supabase functions deploy manage-user ai-import ai-settings
 ```
 
-Set the `SUPABASE_SERVICE_ROLE_KEY` secret in your Supabase project.
+Set the `SUPABASE_SERVICE_ROLE_KEY` secret in the Supabase project. `ai-settings` encrypts the OpenRouter key with material derived from that secret — after rotating the service role key, re-save the OpenRouter key from the Settings page.
 
 ### 5. Development
 
@@ -121,6 +121,8 @@ npm run dev
 ```
 
 A local dev server is still the fastest way to iterate — Supabase is still the real backend. Cloudflare Pages is only for hosting the built artifact.
+
+`npm run lint` runs ESLint (flat config) over `src/` with `no-undef` and `no-unused-vars` enabled. CI runs lint + build on every push (`.github/workflows/ci.yml`).
 
 ### 6. Build & Deploy
 
@@ -144,12 +146,17 @@ Since Cloudflare Pages only serves the static `dist/`, the build step does not d
 │   ├── services/
 │   │   ├── i18n.js             # Locale system (en/ar)
 │   │   ├── supabase.js         # Auth & client init
-│   │   ├── cloudinary.js       # Image uploads
+│   │   ├── cloudinary.js       # Attachment uploads
 │   │   ├── patients.js         # Patient CRUD
 │   │   ├── prices.js           # Price statistics
 │   │   ├── users.js            # User management (Edge Function)
 │   │   ├── dashboard.js        # Dashboard stats
-│   │   └── excel.js            # Excel import
+│   │   ├── options.js          # Editable option lists
+│   │   ├── fuzzy.js            # Arabic-aware fuzzy search
+│   │   ├── ai-import.js        # AI extraction parsing/validation
+│   │   ├── ai-import-client.js # File reading + chunked extraction calls
+│   │   ├── ai-settings.js      # OpenRouter key management client
+│   │   └── export.js           # Excel export
 │   ├── locales/
 │   │   ├── en.json             # English translations
 │   │   └── ar.json             # Arabic translations
@@ -159,8 +166,11 @@ Since Cloudflare Pages only serves the static `dist/`, the build step does not d
 │   ├── schema.sql              # Full DB schema + RLS
 │   ├── seed.sql                # Seed notes
 │   └── functions/
-│       └── manage-user/
-│           └── index.ts        # Edge Function for admin user CRUD
+│       ├── manage-user/        # Admin user CRUD
+│       ├── ai-import/          # OpenRouter proxy + extraction prompt
+│       ├── ai-settings/        # Encrypted OpenRouter key store
+│       └── _shared/            # Shared Edge Function helpers
+├── eslint.config.js
 ├── package.json
 ├── vite.config.js
 └── .env.example

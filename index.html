@@ -155,14 +155,7 @@
                                 <label class="form-label" x-text="t('Password')"></label>
                                 <input id="password" type="password" class="form-control" x-model="loginForm.password" required autocomplete="current-password">
                             </div>
-                            <div class="mb-4">
-                                <label class="form-check form-check-inline">
-                                    <input type="checkbox" class="form-check-input" name="remember">
-                                    <span class="ms-2 small text-muted" x-text="t('Remember me')"></span>
-                                </label>
-                            </div>
-                            <div class="d-flex align-items-center justify-content-between mt-4">
-                                <a href="#" class="text-decoration-none small text-muted" x-text="t('Forgot your password?')"></a>
+                            <div class="d-flex justify-content-end mt-4">
                                 <button type="submit" class="btn btn-primary" :disabled="loginLoading">
                                     <span x-show="loginLoading" class="spinner-border spinner-border-sm me-1"></span>
                                     <span x-text="t('Log in')"></span>
@@ -1540,7 +1533,7 @@
                                                     <i class="bi bi-person-check-fill text-info me-1"></i><span x-text="t('Follower')"></span>
                                                 </label>
                                                 <select class="form-select" x-model="patientForm.follower" dir="rtl">
-                                                    <option value="">-- اختر المتابع --</option>
+                                                    <option value="" x-text="t('-- Select Follower --')"></option>
                                                     <template x-if="patientForm.follower && !activeOptions('follower').some(o => o.key === patientForm.follower)">
                                                         <option :value="patientForm.follower" x-text="optionLabel('follower', patientForm.follower)"></option>
                                                     </template>
@@ -1558,7 +1551,7 @@
                                                 </template>
                                                 <template x-if="isSuperAdmin || !profile?.section">
                                                     <select class="form-select" x-model="patientForm.section" dir="rtl">
-                                                        <option value="">-- اختر المنطقة --</option>
+                                                        <option value="" x-text="t('-- Select Section --')"></option>
                                                         <template x-if="patientForm.section && !activeOptions('section').some(o => o.key === patientForm.section)">
                                                             <option :value="patientForm.section" x-text="optionLabel('section', patientForm.section)"></option>
                                                         </template>
@@ -1573,7 +1566,7 @@
                                                     <i class="bi bi-cash-coin me-1"></i><span x-text="t('Source of Money')"></span>
                                                 </label>
                                                 <select class="form-select" x-model="patientForm.source_of_money" dir="rtl">
-                                                    <option value="">-- اختر المصدر --</option>
+                                                    <option value="" x-text="t('-- Select Source --')"></option>
                                                     <template x-if="patientForm.source_of_money && !activeOptions('source').some(o => o.key === patientForm.source_of_money)">
                                                         <option :value="patientForm.source_of_money" x-text="optionLabel('source', patientForm.source_of_money)"></option>
                                                     </template>

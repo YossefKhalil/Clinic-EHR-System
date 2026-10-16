@@ -8,8 +8,6 @@
     "Invalid email or password": "البريد الإلكتروني أو كلمة المرور غير صحيحة",
     "Login failed. Please try again.": "تعذر تسجيل الدخول. حاول مرة أخرى.",
     "You are signed in, but your profile could not be loaded.": "تم تسجيل دخولك، لكن تعذر تحميل ملفك الشخصي.",
-    "Remember me": "تذكرني",
-    "Forgot your password?": "نسيت كلمة المرور؟",
     "Total Patients": "إجمالي المرضى",
     "Completed": "مكتمل",
     "Pending": "قيد الانتظار",
@@ -307,5 +305,8 @@
     "Option added.": "تمت إضافة الخيار.",
     "Option saved.": "تم حفظ الخيار.",
     "Enter a label in at least one language.": "أدخل تسمية بلغة واحدة على الأقل.",
-    "Could not save the option.": "تعذر حفظ الخيار."
+    "Could not save the option.": "تعذر حفظ الخيار.",
+    "-- Select Follower --": "-- اختر المتابع --",
+    "-- Select Section --": "-- اختر المنطقة --",
+    "-- Select Source --": "-- اختر المصدر --"
 }

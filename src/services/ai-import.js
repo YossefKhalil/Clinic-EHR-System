@@ -12,7 +12,7 @@
 // locale. RTL/LTR safe by construction.
 
 import yaml from 'js-yaml';
-import { FOLLOWERS_AR } from './patients.js';
+import { FOLLOWERS_AR, GOVERNORATES as GOVERNORATE_LIST } from './patients.js';
 import { supabase } from './supabase.js';
 
 // Canonical field order for the extraction contract / review grid.
@@ -22,12 +22,7 @@ export const AI_PATIENT_FIELDS = [
     'price', 'visit_date', 'source_of_money', 'follower', 'notes', 'uncertain', 'source',
 ];
 
-const GOVERNORATES = new Set([
-    'Cairo', 'Giza', 'Alexandria', 'Dakahlia', 'Red Sea', 'Beheira', 'Faiyum',
-    'Gharbia', 'Ismailia', 'Monufia', 'Minya', 'Qalyubia', 'New Valley', 'Suez',
-    'Aswan', 'Asyut', 'Beni Suef', 'Port Said', 'Damietta', 'South Sinai',
-    'North Sinai', 'Sharqia', 'Kafr El Sheikh', 'Qena', 'Luxor', 'Sohag', 'Matrouh',
-]);
+const GOVERNORATES = new Set(GOVERNORATE_LIST);
 
 const MARITAL = new Set(['single', 'married', 'divorced', 'widowed']);
 const MONEY = new Set(['charity', 'country']);

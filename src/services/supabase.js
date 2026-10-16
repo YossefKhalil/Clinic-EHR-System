@@ -35,10 +35,6 @@ export function supabase() {
     return supabaseClient;
 }
 
-export function isAuthenticated() {
-    return !!currentUser;
-}
-
 export function getCurrentUser() {
     return currentUser;
 }
@@ -48,17 +44,6 @@ export async function signIn(email, password) {
     const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
     if (error) throw error;
     currentUser = data.user;
-    return data;
-}
-
-export async function signUp(email, password, name) {
-    if (!supabaseClient) throw new Error('Supabase not initialized');
-    const { data, error } = await supabaseClient.auth.signUp({ 
-        email, 
-        password,
-        options: { data: { name } }
-    });
-    if (error) throw error;
     return data;
 }
 
