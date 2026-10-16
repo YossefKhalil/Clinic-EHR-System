@@ -234,6 +234,7 @@
     "\":name\" is larger than 8 MB.": "\":name\" is larger than 8 MB.",
     "Preparing files…": "Preparing files…",
     "Extracting from :label (part :done of :total)…": "Extracting from :label (part :done of :total)…",
+    "Contacting the AI for :label…": "Contacting the AI for :label…",
     "Extraction finished.": "Extraction finished.",
     "No patients could be extracted from that input.": "No patients could be extracted from that input.",
     "Some parts were cut off by the AI model (token limit) — the last patient in each affected part may be missing. Consider smaller files.": "Some parts were cut off by the AI model (token limit) — the last patient in each affected part may be missing. Consider smaller files.",

@@ -873,9 +873,13 @@ function app() {
                     onProgress: ({ done, total, label }) => {
                         this.aiProgressDone = done;
                         this.aiProgressTotal = total;
-                        this.aiProgressLabel = label
-                            ? this.t('Extracting from :label (part :done of :total)…', { label, done, total })
-                            : this.t('Extraction finished.');
+                        if (!label) {
+                            this.aiProgressLabel = this.t('Extraction finished.');
+                        } else if (!done) {
+                            this.aiProgressLabel = this.t('Contacting the AI for :label…', { label });
+                        } else {
+                            this.aiProgressLabel = this.t('Extracting from :label (part :done of :total)…', { label, done, total });
+                        }
                     },
                 });
                 

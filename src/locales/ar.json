@@ -234,6 +234,7 @@
     "\":name\" is larger than 8 MB.": "\"‏:name\" أكبر من 8 ميجابايت.",
     "Preparing files…": "تحضير الملفات…",
     "Extracting from :label (part :done of :total)…": "جارٍ الاستخراج من :label (جزء :done من :total)…",
+    "Contacting the AI for :label…": "جارٍ إرسال :label إلى الذكاء الاصطناعي…",
     "Extraction finished.": "انتهى الاستخراج.",
     "No patients could be extracted from that input.": "لم يتم استخراج أي مرضى من هذه المدخلات.",
     "Some parts were cut off by the AI model (token limit) — the last patient in each affected part may be missing. Consider smaller files.": "قطع النموذج بعض الأجزاء (حد الأحرف الممكنة للإجابة) — قد ينقص آخر مريض في كل جزء متأثر. جرّب ملفات أصغر.",

@@ -308,6 +308,10 @@ export async function runExtractionRequests(requests, { signal = null, onProgres
     }
 
     const queue = requests.map((_, i) => i);
+    // Announce the first request immediately: without this the UI keeps
+    // showing "Preparing files…" until the FIRST part finishes, which looks
+    // frozen for minutes on slow providers.
+    if (requests.length) onProgress({ done: 0, total: requests.length, label: requests[0].label });
     const workers = Array.from({ length: Math.min(PARALLEL_REQUESTS, requests.length) }, () => worker(queue));
     await Promise.all(workers);
     return results.map((result, i) => ({ label: requests[i].label, ...result }));
