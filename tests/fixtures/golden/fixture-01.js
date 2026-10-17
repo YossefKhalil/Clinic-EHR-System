@@ -19,6 +19,10 @@
 export const FIXTURE_ID = 'golden-01';
 export const FIXTURE_TITLE = 'Appendix E — synthetic mixed Arabic/English typed list';
 
+// Fixed reference date for the M1 run: ages, date ranges and "today" are
+// never read from the clock, so the golden expectations are time-independent.
+export const FIXTURE_TODAY = '2026-10-17';
+
 export const SOURCE = {
     id: 'S1',
     kind: 'text',
@@ -112,6 +116,7 @@ export const EXPECTED_ROWS = [
         national_id: '29805151201234',
         mobile: '01012345678',
         date_of_birth: '1998-05-15',
+        age: '28',
         marital_status: 'married',
         governorate: 'Dakahlia',
         visit_date: '2026-10-12',
@@ -119,13 +124,15 @@ export const EXPECTED_ROWS = [
     }, [
         { code: 'DATE_AMBIGUOUS', field: 'visit_date', severity: 'warn' },
         { code: 'DOB_DERIVED_FROM_NID', field: 'date_of_birth', severity: 'info' },
-    ], 'review', { derived: ['date_of_birth'] }),
+        { code: 'AGE_DERIVED', field: 'age', severity: 'info' },
+    ], 'review', { derived: ['date_of_birth', 'age'] }),
 
     // 2 — no ID (error); +20 number; ambiguous day-first DOB; "14 Oct." has no year.
     expectRow(2, ['L002', 'L003'], {
         name: 'Mona Hassan Ali',
         mobile: '01112345678',
         date_of_birth: '1985-04-03',
+        age: '41',
         marital_status: 'single',
         price: '250',
         notes: ['follow up'],
@@ -134,7 +141,8 @@ export const EXPECTED_ROWS = [
         { code: 'DOB_AMBIGUOUS', field: 'date_of_birth', severity: 'warn' },
         { code: 'DATE_NO_YEAR', field: 'visit_date', severity: 'info' },
         { code: 'ENUM_UNMATCHED', field: 'follower', severity: 'warn' },
-    ], 'error'),
+        { code: 'AGE_DERIVED', field: 'age', severity: 'info' },
+    ], 'error', { derived: ['age'] }),
 
     // 3 — multi-line Arabic block; Arabic-Indic digits canonicalized; DOB derived.
     expectRow(3, ['L004', 'L005', 'L006', 'L007', 'L008'], {
@@ -142,12 +150,14 @@ export const EXPECTED_ROWS = [
         national_id: '29903220201567',
         mobile: '01223344556',
         date_of_birth: '1999-03-22',
+        age: '27',
         marital_status: 'divorced',
         governorate: 'Alexandria',
         notes: ['حساسية من البنسلين'],
     }, [
         { code: 'DOB_DERIVED_FROM_NID', field: 'date_of_birth', severity: 'info' },
-    ], 'ready', { derived: ['date_of_birth'] }),
+        { code: 'AGE_DERIVED', field: 'age', severity: 'info' },
+    ], 'ready', { derived: ['date_of_birth', 'age'] }),
 
     // 4 — 13-digit ID stays as written (never completed); mobile without leading zero.
     expectRow(4, ['L009'], {
@@ -157,6 +167,7 @@ export const EXPECTED_ROWS = [
         governorate: 'Giza',
     }, [
         { code: 'NID_LENGTH', field: 'national_id', severity: 'error' },
+        { code: 'ENUM_UNMATCHED', field: 'source_of_money', severity: 'warn' },
     ], 'error'),
 
     // 5 — "O" in the number is read as 0 (015…); no ID → error.
@@ -164,12 +175,14 @@ export const EXPECTED_ROWS = [
         name: 'محمد علي حسن',
         mobile: '01512345670',
         date_of_birth: '1975-11-30',
+        age: '50',
         marital_status: 'widowed',
         governorate: 'Cairo',
         notes: ['سكر + ضغط .. متابعة كل شهر'],
     }, [
         { code: 'NID_REQUIRED', field: 'national_id', severity: 'error' },
-    ], 'error'),
+        { code: 'AGE_DERIVED', field: 'age', severity: 'info' },
+    ], 'error', { derived: ['age'] }),
 
     // 6 — same ID as row 1 (duplicate in batch).
     expectRow(6, ['L013'], {
@@ -177,36 +190,44 @@ export const EXPECTED_ROWS = [
         national_id: '29805151201234',
         mobile: '01012345678',
         date_of_birth: '1998-05-15',
+        age: '28',
         marital_status: 'married',
         notes: ['تاني زيارة'],
     }, [
         { code: 'DUP_IN_BATCH', field: null, severity: 'error' },
         { code: 'DOB_DERIVED_FROM_NID', field: 'date_of_birth', severity: 'info' },
-    ], 'error', { derived: ['date_of_birth'] }),
+        { code: 'AGE_DERIVED', field: 'age', severity: 'info' },
+    ], 'error', { derived: ['date_of_birth', 'age'] }),
 
-    // 7 — DOB matches the ID exactly (no derive, no mismatch); "??" → model-uncertain note.
+    // 7 — DOB matches the ID exactly (no derive, no mismatch); "??" → model-uncertain
+    // note; the two-digit year "85" carries an informational flag.
     expectRow(7, ['L014', 'L015', 'L016'], {
         name: 'Nour El-Din',
         national_id: '28512230101234',
         date_of_birth: '1985-12-23',
+        age: '40',
         governorate: 'Cairo',
         price: '400',
         notes: ['allergic to aspirin ??'],
     }, [
         { code: 'MODEL_UNCERTAIN', field: 'notes', severity: 'warn' },
-    ], 'review'),
+        { code: 'DOB_TWO_DIGIT_YEAR', field: 'date_of_birth', severity: 'info' },
+        { code: 'AGE_DERIVED', field: 'age', severity: 'info' },
+    ], 'review', { derived: ['age'] }),
 
     // 8 — city in the governorate slot stays out of governorate; 12-digit mobile as written.
     expectRow(8, ['L017'], {
         name: 'ياسمين فتحي',
         mobile: '010987654321',
         date_of_birth: '2002-03-15',
+        age: '24',
         marital_status: 'single',
         address: 'طنطا',
     }, [
         { code: 'NID_REQUIRED', field: 'national_id', severity: 'error' },
         { code: 'MOBILE_FORMAT', field: 'mobile', severity: 'warn' },
-    ], 'error'),
+        { code: 'AGE_DERIVED', field: 'age', severity: 'info' },
+    ], 'error', { derived: ['age'] }),
 
     // 9 — ID derived DOB; "01234 56789" merges to 10 digits (still not 11 → warn).
     expectRow(9, ['L018', 'L019'], {
@@ -214,15 +235,18 @@ export const EXPECTED_ROWS = [
         national_id: '30106150301987',
         mobile: '0123456789',
         date_of_birth: '2001-06-15',
+        age: '25',
         governorate: 'Port Said',
         notes: ['follow-up'],
     }, [
         { code: 'MOBILE_FORMAT', field: 'mobile', severity: 'warn' },
         { code: 'ENUM_UNMATCHED', field: 'follower', severity: 'warn' },
         { code: 'DOB_DERIVED_FROM_NID', field: 'date_of_birth', severity: 'info' },
-    ], 'review', { derived: ['date_of_birth'] }),
+        { code: 'AGE_DERIVED', field: 'age', severity: 'info' },
+    ], 'review', { derived: ['date_of_birth', 'age'] }),
 
-    // 10 — single-token name; relative visit date stays empty.
+    // 10 — single-token name; relative visit date stays empty; the source itself
+    // says the name is incomplete, so the info hint fires from the cited lines.
     expectRow(10, ['L020', 'L021'], {
         name: 'ام كريم',
         mobile: '01112223344',
@@ -231,12 +255,14 @@ export const EXPECTED_ROWS = [
         { code: 'NID_REQUIRED', field: 'national_id', severity: 'error' },
         { code: 'DATE_RELATIVE', field: 'visit_date', severity: 'info' },
         { code: 'ENUM_UNMATCHED', field: 'follower', severity: 'warn' },
+        { code: 'NAME_PARTIAL_HINT', field: 'name', severity: 'info' },
     ], 'error'),
 ];
 
 // Raw enum texts the model saw, kept for hint display assertions (§8.3 step 4).
 export const RAW_ENUM_HINTS = {
     2: { follower: 'dr amr' },
+    4: { source_of_money: 'insurance' },
     9: { follower: 'Dr. Hala' },
     10: { follower: 'د. هالة' },
 };

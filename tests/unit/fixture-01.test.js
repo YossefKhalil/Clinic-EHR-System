@@ -73,13 +73,18 @@ describe('golden fixture 01', () => {
         expect(JOB_ASSERTIONS.duplicateOf).toEqual({ 6: 1 });
     });
 
-    it('records raw enum hints for the unmatched followers', () => {
+    it('records raw enum hints for the unmatched enum cells', () => {
         for (const [index, hints] of Object.entries(RAW_ENUM_HINTS)) {
             const row = EXPECTED_ROWS.find((r) => r.index === Number(index));
             expect(row, `row ${index}`).toBeTruthy();
-            expect(row.cells.follower, `row ${index} follower`).toBe('');
-            expect(row.issues.some((i) => i.code === 'ENUM_UNMATCHED' && i.field === 'follower')).toBe(true);
-            expect(hints.follower).toBeTruthy();
+            for (const [field, raw] of Object.entries(hints)) {
+                expect(raw, `row ${index} ${field}`).toBeTruthy();
+                expect(row.cells[field], `row ${index} ${field}`).toBe('');
+                expect(
+                    row.issues.some((i) => i.code === 'ENUM_UNMATCHED' && i.field === field),
+                    `row ${index} ${field}`,
+                ).toBe(true);
+            }
         }
     });
 

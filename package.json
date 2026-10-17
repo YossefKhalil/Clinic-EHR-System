@@ -10,6 +10,7 @@
     "lint": "eslint src",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "check:registry": "node scripts/check-registry.mjs"
   },
   "dependencies": {
@@ -20,7 +21,9 @@
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.9",
     "eslint": "^10.12.0",
+    "fast-check": "^4.10.2",
     "globals": "^17.13.0",
     "vite": "^5.4.0",
     "vitest": "^2.1.9"
