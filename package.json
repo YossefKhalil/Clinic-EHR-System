@@ -19,6 +19,8 @@
     "alpinejs": "^3.14.0",
     "bootstrap": "^5.3.3",
     "bootstrap-icons": "^1.11.3",
+    "mammoth": "^1.13.0",
+    "pdfjs-dist": "^6.4.299",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
