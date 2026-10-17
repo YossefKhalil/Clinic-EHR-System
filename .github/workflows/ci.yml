@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   lint-build:
@@ -21,6 +22,12 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Registry/schema check
+        run: npm run check:registry
+
+      - name: Test
+        run: npm test
 
       - name: Build
         run: npm run build
