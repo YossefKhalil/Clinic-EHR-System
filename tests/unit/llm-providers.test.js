@@ -1,0 +1,290 @@
+// M4: the LLM layer (spec §7.1) — retry policy, request/response mapping and
+// error classification for the three adapters, all with a fake fetch.
+import { describe, expect, it } from 'vitest';
+import { LlmError, parseRetryAfter, withRetries } from '../../supabase/functions/_shared/llm/provider.ts';
+import {
+    buildOpenAiBody, createOpenAiCompatibleProvider, mapOpenAiResult, openAiErrorFor,
+} from '../../supabase/functions/_shared/llm/openai-compatible.ts';
+import { createOpenRouterProvider, modelList, OPENROUTER_PROVIDER_PREFS } from '../../supabase/functions/_shared/llm/openrouter.ts';
+import { buildCloudflareBody, createCloudflareProvider, mapCloudflareResult } from '../../supabase/functions/_shared/llm/cloudflare.ts';
+
+const REQUEST = { system: 'sys', user: [{ type: 'text', text: 'hi' }], maxTokens: 100, temperature: 0 };
+
+const okResponse = (body) => new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+});
+
+const errorResponse = (status, text = '{}', headers = {}) => new Response(text, { status, headers });
+
+describe('parseRetryAfter', () => {
+    it('accepts seconds and HTTP dates', () => {
+        expect(parseRetryAfter('2')).toBe(2000);
+        expect(parseRetryAfter('0')).toBe(0);
+        expect(parseRetryAfter(null)).toBeNull();
+        expect(parseRetryAfter('soon')).toBeNull();
+        const now = 1_700_000_000_000;
+        const date = new Date(now + 5000).toUTCString();
+        expect(parseRetryAfter(date, now)).toBe(5000);
+    });
+});
+
+describe('withRetries (spec §7.1)', () => {
+    const retryable = (retryAfterMs = null) => new LlmError('PROVIDER_ERROR', 'boom', { retryable: true, retryAfterMs });
+
+    it('retries with exponential backoff plus jitter', async () => {
+        const sleeps = [];
+        let calls = 0;
+        const result = await withRetries(async () => {
+            calls += 1;
+            if (calls < 3) throw retryable();
+            return 'done';
+        }, {
+            maxAttempts: 3,
+            baseDelayMs: 500,
+            sleep: async (ms) => { sleeps.push(ms); },
+            random: () => 1,
+        });
+        expect(result).toBe('done');
+        expect(calls).toBe(3);
+        expect(sleeps).toEqual([500, 1000]);
+    });
+
+    it('honours Retry-After over the computed delay', async () => {
+        const sleeps = [];
+        let calls = 0;
+        await withRetries(async () => {
+            calls += 1;
+            if (calls === 1) throw retryable(5000);
+            return 'done';
+        }, {
+            maxAttempts: 3,
+            baseDelayMs: 500,
+            sleep: async (ms) => { sleeps.push(ms); },
+            random: () => 1,
+        });
+        expect(sleeps).toEqual([5000]);
+    });
+
+    it('gives up after the attempt budget', async () => {
+        let calls = 0;
+        const promise = withRetries(async () => {
+            calls += 1;
+            throw retryable();
+        }, { maxAttempts: 3, sleep: async () => {} });
+        await expect(promise).rejects.toMatchObject({ code: 'PROVIDER_ERROR' });
+        expect(calls).toBe(3);
+    });
+
+    it('never retries non-retryable failures', async () => {
+        let calls = 0;
+        const promise = withRetries(async () => {
+            calls += 1;
+            throw new LlmError('PROVIDER_AUTH', 'nope');
+        }, { maxAttempts: 3, sleep: async () => {} });
+        await expect(promise).rejects.toMatchObject({ code: 'PROVIDER_AUTH' });
+        expect(calls).toBe(1);
+    });
+
+    it('stops immediately when the signal is aborted', async () => {
+        let calls = 0;
+        const promise = withRetries(async () => {
+            calls += 1;
+            throw retryable();
+        }, { maxAttempts: 3, signal: AbortSignal.abort(), sleep: async () => {} });
+        await expect(promise).rejects.toMatchObject({ code: 'PROVIDER_ERROR' });
+        expect(calls).toBe(1);
+    });
+});
+
+describe('openai-compatible adapter', () => {
+    it('builds the chat-completions body with text and image parts', () => {
+        const body = buildOpenAiBody('m1', {
+            ...REQUEST,
+            user: [{ type: 'text', text: 'hello' }, { type: 'image', dataUrl: 'data:image/png;base64,AAAA' }],
+        });
+        expect(body.model).toBe('m1');
+        expect(body.temperature).toBe(0);
+        expect(body.max_tokens).toBe(100);
+        expect(body.messages[0]).toEqual({ role: 'system', content: 'sys' });
+        expect(body.messages[1].content).toEqual([
+            { type: 'text', text: 'hello' },
+            { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+        ]);
+    });
+
+    it('maps results: content, join of parts, finish reason, usage, model, cost', () => {
+        expect(mapOpenAiResult({
+            model: 'm9',
+            choices: [{ message: { content: 'hi' }, finish_reason: 'length' }],
+            usage: { prompt_tokens: 1, completion_tokens: 2, cost: 0.03 },
+        }, 'fallback')).toEqual({
+            text: 'hi', finishReason: 'length', usage: { in: 1, out: 2 }, model: 'm9', cost: 0.03,
+        });
+        const joined = mapOpenAiResult({
+            choices: [{ message: { content: [{ text: 'a' }, { text: 'b' }] }, finish_reason: 'stop' }],
+        }, 'fallback');
+        expect(joined.text).toBe('ab');
+        expect(joined.model).toBe('fallback');
+        expect(joined.cost).toBeNull();
+        expect(() => mapOpenAiResult({ choices: [] }, 'm')).toThrowError(/no message content/);
+    });
+
+    it('classifies HTTP errors: 429/5xx retryable, 401 not, Retry-After honoured', () => {
+        const rate = openAiErrorFor(429, 'slow down', '3');
+        expect(rate.retryable).toBe(true);
+        expect(rate.retryAfterMs).toBe(3000);
+        expect(openAiErrorFor(503, 'down', null).retryable).toBe(true);
+        expect(openAiErrorFor(401, 'bad key', null)).toMatchObject({ code: 'PROVIDER_AUTH', retryable: false });
+        expect(openAiErrorFor(400, 'bad request', null)).toMatchObject({ code: 'PROVIDER_REJECTED', retryable: false });
+    });
+
+    it('retries a 429 and completes, sending bearer auth and the endpoint URL', async () => {
+        const responses = [
+            errorResponse(429, '{"error":"rate"}', { 'retry-after': '1' }),
+            okResponse({
+                model: 'm1',
+                choices: [{ message: { content: 'hello' }, finish_reason: 'stop' }],
+                usage: { prompt_tokens: 5, completion_tokens: 7 },
+            }),
+        ];
+        const calls = [];
+        const sleeps = [];
+        const provider = createOpenAiCompatibleProvider({
+            baseUrl: 'https://api.example.com/v1/',
+            apiKey: 'k',
+            model: 'm1',
+            fetchImpl: async (url, init) => { calls.push({ url, init }); return responses.shift(); },
+            maxAttempts: 3,
+            timeoutMs: 1000,
+            sleep: async (ms) => { sleeps.push(ms); },
+            random: () => 1,
+        });
+        const result = await provider.complete(REQUEST);
+        expect(result.text).toBe('hello');
+        expect(result.usage).toEqual({ in: 5, out: 7 });
+        expect(calls).toHaveLength(2);
+        expect(calls[0].url).toBe('https://api.example.com/v1/chat/completions');
+        expect(calls[0].init.headers.authorization).toBe('Bearer k');
+        expect(sleeps).toEqual([1000]);
+    });
+
+    it('does not retry a 401 and wraps network failures as retryable timeouts', async () => {
+        let calls = 0;
+        const unauthorized = createOpenAiCompatibleProvider({
+            baseUrl: 'https://api.example.com/v1',
+            apiKey: 'k',
+            model: 'm1',
+            fetchImpl: async () => { calls += 1; return errorResponse(401, 'no'); },
+            maxAttempts: 3,
+            sleep: async () => {},
+        });
+        await expect(unauthorized.complete(REQUEST)).rejects.toMatchObject({ code: 'PROVIDER_AUTH' });
+        expect(calls).toBe(1);
+
+        const down = createOpenAiCompatibleProvider({
+            baseUrl: 'https://api.example.com/v1',
+            model: 'm1',
+            fetchImpl: async () => { throw new TypeError('fetch failed'); },
+            maxAttempts: 1,
+        });
+        await expect(down.complete(REQUEST)).rejects.toMatchObject({ code: 'PROVIDER_TIMEOUT', retryable: true });
+    });
+});
+
+describe('openrouter adapter (spec §7.1)', () => {
+    it('parses the ordered model list', () => {
+        expect(modelList('a, b c')).toEqual(['a', 'b', 'c']);
+        expect(modelList(['a', 'b'])).toEqual(['a', 'b']);
+        expect(() => modelList('  ')).toThrowError(/no model/i);
+    });
+
+    it('denies data collection and only falls back after repeated transient failure', async () => {
+        const calls = [];
+        const responses = [
+            errorResponse(500, '{"error":"down"}'),
+            errorResponse(500, '{"error":"down"}'),
+            okResponse({ model: 'm2', choices: [{ message: { content: 'ok' } }] }),
+        ];
+        const provider = createOpenRouterProvider({
+            apiKey: 'k',
+            model: 'm1, m2',
+            appUrl: 'https://app.example.com',
+            appTitle: 'Clinic EHR',
+            fetchImpl: async (url, init) => { calls.push({ url, init }); return responses.shift(); },
+            maxAttempts: 2,
+            sleep: async () => {},
+        });
+        const result = await provider.complete(REQUEST);
+        expect(result.text).toBe('ok');
+        expect(calls).toHaveLength(3);
+
+        const bodies = calls.map((call) => JSON.parse(call.init.body));
+        expect(bodies.map((body) => body.model)).toEqual(['m1', 'm1', 'm2']);
+        expect(bodies[0].provider).toEqual(OPENROUTER_PROVIDER_PREFS);
+        expect(bodies[0].provider.data_collection).toBe('deny');
+        expect(calls[0].init.headers['HTTP-Referer']).toBe('https://app.example.com');
+        expect(calls[0].init.headers['X-Title']).toBe('Clinic EHR');
+    });
+
+    it('fails immediately on auth errors without trying the fallback model', async () => {
+        const calls = [];
+        const provider = createOpenRouterProvider({
+            apiKey: 'bad',
+            model: 'm1, m2',
+            fetchImpl: async (url, init) => { calls.push({ url, init }); return errorResponse(401, 'no'); },
+            maxAttempts: 3,
+            sleep: async () => {},
+        });
+        await expect(provider.complete(REQUEST)).rejects.toMatchObject({ code: 'PROVIDER_AUTH' });
+        expect(calls).toHaveLength(1);
+    });
+});
+
+describe('cloudflare adapter (spec §7.1)', () => {
+    it('rejects image requests before any network call', () => {
+        expect(() => buildCloudflareBody({
+            ...REQUEST,
+            user: [{ type: 'image', dataUrl: 'data:image/png;base64,AAAA' }],
+        })).toThrowError(/text-only/);
+    });
+
+    it('maps the Workers AI envelope and its failure shape', () => {
+        const result = mapCloudflareResult({
+            success: true,
+            result: { response: 'ok', finish_reason: 'length', usage: { prompt_tokens: 3, completion_tokens: 4 } },
+        }, '@cf/model');
+        expect(result).toMatchObject({
+            text: 'ok', finishReason: 'length', usage: { in: 3, out: 4 }, model: '@cf/model',
+        });
+        expect(() => mapCloudflareResult({ success: false, errors: [{ message: 'nope' }] }, 'm'))
+            .toThrowError(/nope/);
+    });
+
+    it('calls the account endpoint with the model path and maps the result', async () => {
+        const calls = [];
+        const provider = createCloudflareProvider({
+            accountId: 'acc1',
+            apiKey: 'tok',
+            model: '@cf/meta/llama-3.1-8b-instruct',
+            fetchImpl: async (url, init) => {
+                calls.push({ url, init });
+                return okResponse({
+                    success: true,
+                    result: { response: 'hello', usage: { prompt_tokens: 1, completion_tokens: 2 } },
+                });
+            },
+            maxAttempts: 1,
+            timeoutMs: 1000,
+        });
+        const result = await provider.complete(REQUEST);
+        expect(result.text).toBe('hello');
+        expect(calls[0].url).toBe('https://api.cloudflare.com/client/v4/accounts/acc1/ai/run/@cf/meta/llama-3.1-8b-instruct');
+        expect(calls[0].init.headers.authorization).toBe('Bearer tok');
+        expect(JSON.parse(calls[0].init.body)).toMatchObject({
+            messages: [{ role: 'system', content: 'sys' }, { role: 'user', content: 'hi' }],
+            max_tokens: 100,
+            temperature: 0,
+        });
+    });
+});

@@ -42,7 +42,7 @@ export const LIMITS = {
     MAX_TOKENS_FLOOR: 1_000,
     MAX_TOKENS_CEILING: 16_000,
     PROVIDER_TIMEOUT_MS: 120_000,
-    PROVIDER_MAX_RETRIES: 3,
+    PROVIDER_MAX_ATTEMPTS: 3, // total attempts per call (spec §7.1: max 3)
 
     // ---- Verification and normalization (spec §8, Appendix B) ----
     SNAP_DISTANCE_ID: 2,
@@ -74,6 +74,9 @@ export const LIMITS = {
 
     // ---- Rate limits (spec §13.5) ----
     MAX_CONCURRENT_JOBS: 2,
+    JOBS_PER_USER_DAY: 20,
+    JOB_TOKEN_CAP: 500_000, // stops extraction, keeps what it has (spec §5.1)
+    USER_DAILY_TOKEN_CAP: 2_000_000,
 
     // ---- Storage formats (decisions D19, §8.3) ----
     PHONE_STORAGE_FORMAT: 'local', // 'local' = 01xxxxxxxxx

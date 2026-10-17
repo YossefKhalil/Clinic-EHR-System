@@ -768,6 +768,29 @@ $$;
 REVOKE ALL ON FUNCTION public.import_claim_chunks(UUID, INTEGER, INTEGER, INTEGER) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.import_claim_chunks(UUID, INTEGER, INTEGER, INTEGER) TO service_role;
 
+-- Token accounting (spec §13.5): the pump adds each call's usage to the job
+-- row atomically, so parallel chunks and concurrent pump calls cannot lose an
+-- increment. Called only by the import-job function (service role).
+CREATE OR REPLACE FUNCTION public.import_bump_tokens(
+    p_job_id UUID,
+    p_in INTEGER,
+    p_out INTEGER
+)
+RETURNS VOID
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    UPDATE public.import_jobs
+       SET tokens_in = tokens_in + GREATEST(COALESCE(p_in, 0), 0),
+           tokens_out = tokens_out + GREATEST(COALESCE(p_out, 0), 0),
+           updated_at = NOW()
+     WHERE id = p_job_id;
+$$;
+
+REVOKE ALL ON FUNCTION public.import_bump_tokens(UUID, INTEGER, INTEGER) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.import_bump_tokens(UUID, INTEGER, INTEGER) TO service_role;
+
 -- ----------------------------------------------------------------------------
 -- Retention (spec §9.7). The SQL half (rows, batch payloads) runs from cron
 -- without the Storage API; the import-cleanup Edge Function adds the storage

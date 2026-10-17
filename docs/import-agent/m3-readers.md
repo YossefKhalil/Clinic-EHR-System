@@ -15,7 +15,7 @@ from `@import-core/limits.js`, so the same code runs in the browser and (later) 
 |---|---|
 | `intake.js` | `validateIntake` (empty / size / deep checks), `analyzeFile` (+ SHA-256, size), `sha256Hex`, `hashWarning`, `formatBytes` |
 | `preview.js` | `buildPreview` — per-source counts, columns, the privacy line, duplicate-hash warnings |
-| `chunker.js` | `poolSources` (S-ids, composed lines, canonical copy), `splitRecords`, `chunkPool`, `prepareSources` |
+| `chunker.js` | `poolSources` (S-ids, composed lines, canonical copy), `splitRecords`, `chunkPool`, `prepareSources` — since M4 the implementation lives in `import-core/chunker.js`; this path re-exports it |
 | `readers/index.js` | content sniffing (`sniffKind`, `readZipIndex`, `isZipBomb`, `isTextLike`) and `readFile` / `readPastedText` dispatch |
 | `readers/table.js` | shared rows-source logic: raw cell text, header detection, merges, repeated headers, column selection |
 | `readers/spreadsheet.js` | xlsx/xlsm/xls via SheetJS (lazy) — one source per visible sheet |
