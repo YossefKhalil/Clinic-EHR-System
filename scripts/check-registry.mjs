@@ -25,6 +25,7 @@ const APP_MANAGED_COLUMNS = [
     'updated_at',
     'attachments', // Cloudinary metadata array
     'registered_by_name', // denormalized registrar name
+    'import_batch_id', // stamped by the import commit (M2); undo uses it
 ];
 
 function patientsColumns(sql) {

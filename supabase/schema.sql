@@ -337,3 +337,559 @@ DROP TRIGGER IF EXISTS patients_set_registered_by_name ON public.patients;
 CREATE TRIGGER patients_set_registered_by_name
     BEFORE INSERT ON public.patients
     FOR EACH ROW EXECUTE FUNCTION public.set_registered_by_name();
+
+-- ============================================================================
+-- AI Import Agent — persistence (design spec §9, milestone M2)
+--
+-- Additive and idempotent like the rest of this file. State ownership: the
+-- browser reads jobs, sources, chunks, rows, rejects and batches under RLS,
+-- and edits nothing except its own rows' review fields; every state change
+-- goes through the import-* Edge Functions with the service role. Staged
+-- uploads live in the private `import-staging` bucket created below.
+-- ============================================================================
+
+-- Feature settings for the import agent (spec §14.4). Single row, like
+-- ai_settings: `limits` carries deployment overrides for limits.js, and the
+-- cleanup URL/secret wire the daily pg_cron call to the import-cleanup
+-- function. Only Edge Functions (service role) read or write it.
+CREATE TABLE IF NOT EXISTS public.import_settings (
+    id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
+    limits JSONB NOT NULL DEFAULT '{}'::jsonb,
+    cleanup_url TEXT,
+    cleanup_secret TEXT,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_by UUID REFERENCES public.users(id) ON DELETE SET NULL
+);
+
+ALTER TABLE public.import_settings ENABLE ROW LEVEL SECURITY;
+-- Explicit REVOKE (mirroring ai_settings): the row never appears on the
+-- PostgREST surface, even for admins; a settings action in the import-job
+-- function is the only writer.
+REVOKE ALL ON TABLE public.import_settings FROM PUBLIC, anon, authenticated;
+
+INSERT INTO public.import_settings (id) VALUES (TRUE) ON CONFLICT (id) DO NOTHING;
+
+CREATE OR REPLACE TRIGGER update_import_settings_updated_at
+    BEFORE UPDATE ON public.import_settings
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+-- AI provider settings and encrypted keys. Recreated from the v1 AI import;
+-- the encryption key is now the dedicated AI_SETTINGS_ENC_KEY secret
+-- (spec §13.6), not one derived from the service-role key. `enabled` is the
+-- `import_agent_enabled` feature flag: every import function checks it and
+-- the client hides the entry point when false (spec §14.4).
+CREATE TABLE IF NOT EXISTS public.ai_settings (
+    id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
+    provider TEXT NOT NULL DEFAULT 'openrouter',
+    openrouter_key_encrypted TEXT,
+    cloudflare_account_id TEXT,
+    cloudflare_token_encrypted TEXT,
+    openai_base_url TEXT,
+    openai_key_encrypted TEXT,
+    model TEXT DEFAULT 'google/gemini-2.5-flash-lite',
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_by UUID REFERENCES public.users(id) ON DELETE SET NULL
+);
+
+ALTER TABLE public.ai_settings ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.ai_settings FROM PUBLIC, anon, authenticated;
+
+-- Idempotent column migrations for databases created before multi-provider
+-- support (they are no-ops on the CREATE TABLE above).
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'openrouter';
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS cloudflare_account_id TEXT;
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS cloudflare_token_encrypted TEXT;
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS openai_base_url TEXT;
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS openai_key_encrypted TEXT;
+
+-- Import batch tracking (recreated from v1): every patient row written by one
+-- commit carries the batch id; M7's undo removes exactly those rows. Nullable
+-- on purpose: app-created patients have no batch.
+ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS import_batch_id UUID;
+CREATE INDEX IF NOT EXISTS idx_patients_import_batch_id ON public.patients(import_batch_id);
+
+-- Cross-section duplicate detection (§8.6): RLS hides other sections'
+-- patients from a caller, so this SECURITY DEFINER helper answers "does this
+-- national id exist anywhere?" without exposing the rows themselves. M7 adds
+-- `AND p.deleted_at IS NULL` when soft delete lands.
+CREATE OR REPLACE FUNCTION public.existing_national_ids(ids text[])
+RETURNS text[]
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT COALESCE(array_agg(DISTINCT p.national_id), '{}')
+    FROM unnest(ids) AS nid
+    JOIN public.patients p ON p.national_id = nid
+$$;
+
+REVOKE ALL ON FUNCTION public.existing_national_ids(text[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.existing_national_ids(text[]) TO authenticated;
+
+-- ----------------------------------------------------------------------------
+-- Job tables (spec §9.3). `expires_at` and `token_cap` are deliberately set
+-- by the import-job function from limits.js instead of SQL defaults, so every
+-- tunable keeps a single source of truth.
+-- ----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.import_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_by UUID NOT NULL REFERENCES auth.users(id),
+    section TEXT,                                  -- default section chosen at start
+    status TEXT NOT NULL DEFAULT 'uploaded'
+        CHECK (status IN ('uploaded','extracting','review','committing','done','cancelled','failed')),
+    config JSONB NOT NULL,                         -- enum snapshot, prompt ids, provider/model, limits, defaults
+    hints TEXT,
+    counts JSONB NOT NULL DEFAULT '{}'::jsonb,
+    tokens_in INTEGER NOT NULL DEFAULT 0,
+    tokens_out INTEGER NOT NULL DEFAULT 0,
+    token_cap INTEGER NOT NULL,
+    batch_id UUID,
+    commit_key UUID UNIQUE,                        -- idempotency key from the client
+    error_code TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    cancelled_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS public.import_sources (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id UUID NOT NULL REFERENCES public.import_jobs(id) ON DELETE CASCADE,
+    idx INTEGER NOT NULL,
+    kind TEXT NOT NULL,                            -- sheet | docx | pdf | image | text
+    name TEXT,
+    mime TEXT,
+    bytes INTEGER,
+    sha256 TEXT,
+    storage_path TEXT,                             -- `<user-id>/<job-id>/<idx>-<name>` in import-staging
+    meta JSONB,
+    warnings JSONB,
+    UNIQUE (job_id, idx)
+);
+
+CREATE TABLE IF NOT EXISTS public.import_chunks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id UUID NOT NULL REFERENCES public.import_jobs(id) ON DELETE CASCADE,
+    source_id UUID REFERENCES public.import_sources(id) ON DELETE CASCADE,
+    idx INTEGER NOT NULL,
+    parent_chunk UUID,                             -- set when a chunk was split
+    kind TEXT NOT NULL,
+    payload JSONB,
+    payload_path TEXT,
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued','running','done','failed','split')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    lease_until TIMESTAMPTZ,                       -- pump lease (§9.5)
+    error_code TEXT,
+    truncated BOOLEAN NOT NULL DEFAULT FALSE,
+    prompt_id TEXT,
+    model TEXT,
+    tokens_in INTEGER,
+    tokens_out INTEGER,
+    raw_response_path TEXT,
+    UNIQUE (job_id, idx)
+);
+
+CREATE TABLE IF NOT EXISTS public.import_rows (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id UUID NOT NULL REFERENCES public.import_jobs(id) ON DELETE CASCADE,
+    chunk_id UUID REFERENCES public.import_chunks(id) ON DELETE SET NULL,
+    seq INTEGER NOT NULL,
+    src JSONB,                                     -- cited line ids
+    extracted JSONB,                               -- parsed model output, untouched (nulled by retention)
+    cells JSONB,                                   -- { field: { value, origin, raw } } (nulled by retention)
+    issues JSONB NOT NULL DEFAULT '[]'::jsonb,
+    acknowledged JSONB NOT NULL DEFAULT '[]'::jsonb,
+    dup JSONB,                                     -- { kind, action, existing_id? }
+    status TEXT NOT NULL DEFAULT 'review'
+        CHECK (status IN ('ready','review','error')),
+    removed BOOLEAN NOT NULL DEFAULT FALSE,
+    commit_result JSONB,                           -- { result: created|filled|skipped|failed, patient_id?, code? }
+    version INTEGER NOT NULL DEFAULT 1,            -- optimistic concurrency (§9.6)
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (chunk_id, seq)                         -- duplicate delivery cannot duplicate rows
+);
+
+CREATE TABLE IF NOT EXISTS public.import_rejects (     -- the tray (invariant I8)
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id UUID NOT NULL REFERENCES public.import_jobs(id) ON DELETE CASCADE,
+    chunk_id UUID,
+    reason TEXT NOT NULL,
+    raw TEXT,
+    src JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()  -- tray ordering (not in §9.3)
+);
+
+CREATE TABLE IF NOT EXISTS public.import_batches (
+    id UUID PRIMARY KEY,                           -- also stamped on patients.import_batch_id
+    job_id UUID NOT NULL REFERENCES public.import_jobs(id),
+    committed_by UUID NOT NULL,
+    committed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    counts JSONB NOT NULL,
+    undone_at TIMESTAMPTZ,
+    undone_by UUID,
+    undo_result JSONB
+);
+
+CREATE TABLE IF NOT EXISTS public.import_batch_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    batch_id UUID NOT NULL REFERENCES public.import_batches(id) ON DELETE CASCADE,
+    patient_id UUID NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('created','filled')),
+    before JSONB,                                  -- for 'filled': previous values of changed fields
+    after JSONB                                    -- values written
+);
+
+-- Cost and cap accounting (spec §13.5, §16). No PHI: ids, tokens, cost only.
+-- Rows are written by the functions; admins read them for dashboards (M9).
+CREATE TABLE IF NOT EXISTS public.ai_usage (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL,
+    job_id UUID,
+    chunk_id UUID,
+    model TEXT,
+    tokens_in INTEGER,
+    tokens_out INTEGER,
+    cost_est NUMERIC(10,4),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Audit trail (spec §9.3, §12.7): actor, action, entity, ids and counts only;
+-- never PHI. Actions: job.created, job.committed, job.undone, job.cancelled.
+CREATE TABLE IF NOT EXISTS public.audit_log (
+    id BIGSERIAL PRIMARY KEY,
+    actor UUID,
+    action TEXT NOT NULL,
+    entity TEXT NOT NULL,
+    entity_id TEXT,
+    meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_import_jobs_created_by ON public.import_jobs(created_by);
+CREATE INDEX IF NOT EXISTS idx_import_jobs_status ON public.import_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_import_chunks_job_status ON public.import_chunks(job_id, status);
+CREATE INDEX IF NOT EXISTS idx_import_rows_job_status ON public.import_rows(job_id, status);
+CREATE INDEX IF NOT EXISTS idx_import_rejects_job ON public.import_rejects(job_id);
+CREATE INDEX IF NOT EXISTS idx_import_batches_job ON public.import_batches(job_id);
+CREATE INDEX IF NOT EXISTS idx_import_batch_items_batch ON public.import_batch_items(batch_id);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_user_created ON public.ai_usage(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_job ON public.ai_usage(job_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON public.audit_log(entity, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created ON public.audit_log(created_at);
+
+CREATE OR REPLACE TRIGGER update_import_jobs_updated_at
+    BEFORE UPDATE ON public.import_jobs
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+CREATE OR REPLACE TRIGGER update_import_rows_updated_at
+    BEFORE UPDATE ON public.import_rows
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+-- ----------------------------------------------------------------------------
+-- Row-level security (spec §9.4). Read access follows job ownership (plus
+-- admins); writes from the client are limited to review edits on the owner's
+-- own rows. All state changes go through service-role Edge Functions.
+-- ----------------------------------------------------------------------------
+
+ALTER TABLE public.import_jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.import_sources ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.import_chunks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.import_rows ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.import_rejects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.import_batches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.import_batch_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_usage ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.audit_log ENABLE ROW LEVEL SECURITY;
+
+-- Same pattern as is_admin()/is_section_user(): SECURITY DEFINER helpers so
+-- a policy can ask "does the caller own this job?" without re-entering the
+-- import_jobs policies. They answer booleans about ids the caller already
+-- holds and never expose row contents.
+CREATE OR REPLACE FUNCTION public.import_job_access(p_job_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.import_jobs j
+        WHERE j.id = p_job_id AND (j.created_by = auth.uid() OR public.is_admin())
+    );
+$$;
+
+CREATE OR REPLACE FUNCTION public.import_job_owned(p_job_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.import_jobs j
+        WHERE j.id = p_job_id AND j.created_by = auth.uid()
+    );
+$$;
+
+CREATE OR REPLACE FUNCTION public.import_batch_access(p_batch_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.import_batches b
+        WHERE b.id = p_batch_id AND (b.committed_by = auth.uid() OR public.is_admin())
+    );
+$$;
+
+REVOKE ALL ON FUNCTION public.import_job_access(UUID) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.import_job_owned(UUID) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.import_batch_access(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.import_job_access(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.import_job_owned(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.import_batch_access(UUID) TO authenticated;
+
+DROP POLICY IF EXISTS "Owner and admins read jobs" ON public.import_jobs;
+CREATE POLICY "Owner and admins read jobs" ON public.import_jobs
+    FOR SELECT USING (public.import_job_access(id));
+
+DROP POLICY IF EXISTS "Owner and admins read sources" ON public.import_sources;
+CREATE POLICY "Owner and admins read sources" ON public.import_sources
+    FOR SELECT USING (public.import_job_access(job_id));
+
+DROP POLICY IF EXISTS "Owner and admins read chunks" ON public.import_chunks;
+CREATE POLICY "Owner and admins read chunks" ON public.import_chunks
+    FOR SELECT USING (public.import_job_access(job_id));
+
+DROP POLICY IF EXISTS "Owner and admins read rows" ON public.import_rows;
+CREATE POLICY "Owner and admins read rows" ON public.import_rows
+    FOR SELECT USING (public.import_job_access(job_id));
+
+-- The owner edits review state only, with the optimistic-concurrency bump;
+-- the guard trigger below enforces the column set.
+DROP POLICY IF EXISTS "Owner edits own rows" ON public.import_rows;
+CREATE POLICY "Owner edits own rows" ON public.import_rows
+    FOR UPDATE USING (public.import_job_owned(job_id))
+    WITH CHECK (public.import_job_owned(job_id));
+
+DROP POLICY IF EXISTS "Owner and admins read rejects" ON public.import_rejects;
+CREATE POLICY "Owner and admins read rejects" ON public.import_rejects
+    FOR SELECT USING (public.import_job_access(job_id));
+
+DROP POLICY IF EXISTS "Owner and admins read batches" ON public.import_batches;
+CREATE POLICY "Owner and admins read batches" ON public.import_batches
+    FOR SELECT USING (public.import_batch_access(id));
+
+DROP POLICY IF EXISTS "Owner and admins read batch items" ON public.import_batch_items;
+CREATE POLICY "Owner and admins read batch items" ON public.import_batch_items
+    FOR SELECT USING (public.import_batch_access(batch_id));
+
+DROP POLICY IF EXISTS "Admins read usage" ON public.ai_usage;
+CREATE POLICY "Admins read usage" ON public.ai_usage
+    FOR SELECT USING (public.is_admin());
+
+DROP POLICY IF EXISTS "Admins read the audit log" ON public.audit_log;
+CREATE POLICY "Admins read the audit log" ON public.audit_log
+    FOR SELECT USING (public.is_admin());
+
+-- Client review edits are restricted to the columns the review UI owns.
+-- Extraction artefacts (src, extracted) and commit results are immutable from
+-- PostgREST; service role and direct SQL bypass this trigger. `status` is
+-- included because it is derived from the same review fields the owner may
+-- change; the commit path re-validates everything server-side (spec §11.2).
+CREATE OR REPLACE FUNCTION public.guard_import_row_update()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF current_user IN ('anon', 'authenticated') THEN
+        IF NEW.id IS DISTINCT FROM OLD.id
+           OR NEW.job_id IS DISTINCT FROM OLD.job_id
+           OR NEW.chunk_id IS DISTINCT FROM OLD.chunk_id
+           OR NEW.seq IS DISTINCT FROM OLD.seq
+           OR NEW.src IS DISTINCT FROM OLD.src
+           OR NEW.extracted IS DISTINCT FROM OLD.extracted
+           OR NEW.commit_result IS DISTINCT FROM OLD.commit_result THEN
+            RAISE EXCEPTION 'import_rows: only the review fields (cells, issues, acknowledged, dup, removed, status, version) may be changed by the owner'
+                USING ERRCODE = 'check_violation';
+        END IF;
+        IF NEW.version IS DISTINCT FROM OLD.version + 1 THEN
+            RAISE EXCEPTION 'import_rows: version must be incremented by exactly 1'
+                USING ERRCODE = 'check_violation';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+DROP TRIGGER IF EXISTS guard_import_row_update_trigger ON public.import_rows;
+CREATE TRIGGER guard_import_row_update_trigger
+    BEFORE UPDATE ON public.import_rows
+    FOR EACH ROW EXECUTE FUNCTION public.guard_import_row_update();
+
+-- ----------------------------------------------------------------------------
+-- The pump's claim step (spec §9.5). Every tunable is an argument (the pump
+-- passes resolved limits.js values: PUMP_PARALLEL, LEASE_SECONDS,
+-- MAX_ATTEMPTS), so no limit lives twice in SQL. Expired leases make a
+-- crashed chunk claimable again; attempts cap out at p_max_attempts.
+-- ----------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.import_claim_chunks(
+    p_job_id UUID,
+    p_limit INTEGER,
+    p_lease_seconds INTEGER,
+    p_max_attempts INTEGER
+)
+RETURNS SETOF public.import_chunks
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    UPDATE public.import_chunks c
+       SET status = 'running',
+           lease_until = NOW() + make_interval(secs => p_lease_seconds),
+           attempts = c.attempts + 1
+     WHERE c.id IN (
+        SELECT id FROM public.import_chunks
+         WHERE job_id = p_job_id
+           AND attempts < p_max_attempts
+           AND (status = 'queued' OR (status = 'running' AND lease_until < NOW()))
+         ORDER BY idx
+         FOR UPDATE SKIP LOCKED
+         LIMIT p_limit
+     )
+    RETURNING c.*;
+$$;
+
+REVOKE ALL ON FUNCTION public.import_claim_chunks(UUID, INTEGER, INTEGER, INTEGER) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.import_claim_chunks(UUID, INTEGER, INTEGER, INTEGER) TO service_role;
+
+-- ----------------------------------------------------------------------------
+-- Retention (spec §9.7). The SQL half (rows, batch payloads) runs from cron
+-- without the Storage API; the import-cleanup Edge Function adds the storage
+-- purge (files, chunk payloads, raw responses) and passes resolved limits.
+-- The fallback defaults mirror limits.js ROW_RETENTION_DAYS and
+-- BATCH_PAYLOAD_RETENTION_DAYS for the no-function cron path.
+-- ----------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.import_run_retention(
+    p_row_days INTEGER DEFAULT 30,
+    p_batch_days INTEGER DEFAULT 90
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_rows INTEGER;
+    v_batch_items INTEGER;
+BEGIN
+    -- Rows of finished jobs: drop the payloads, keep the counts and results.
+    UPDATE public.import_rows r
+       SET extracted = NULL, cells = NULL
+      FROM public.import_jobs j
+     WHERE r.job_id = j.id
+       AND j.status IN ('done', 'cancelled')
+       AND j.updated_at < NOW() - make_interval(days => p_row_days)
+       AND (r.extracted IS NOT NULL OR r.cells IS NOT NULL);
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+
+    -- Undo payloads past the window; the batch record itself stays.
+    UPDATE public.import_batch_items i
+       SET before = NULL, after = NULL
+     WHERE i.batch_id IN (
+        SELECT b.id FROM public.import_batches b
+         WHERE b.committed_at < NOW() - make_interval(days => p_batch_days)
+     )
+       AND (i.before IS NOT NULL OR i.after IS NOT NULL);
+    GET DIAGNOSTICS v_batch_items = ROW_COUNT;
+
+    RETURN jsonb_build_object('rows_cleared', v_rows, 'batch_items_cleared', v_batch_items);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.import_run_retention(INTEGER, INTEGER) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.import_run_retention(INTEGER, INTEGER) TO service_role;
+
+-- Daily maintenance: SQL retention, then (when configured) a call to the
+-- import-cleanup function for the storage purge. The pg_net call is dynamic
+-- so this function can be created on projects where pg_net is not enabled.
+CREATE OR REPLACE FUNCTION public.import_daily_maintenance()
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_url TEXT;
+    v_secret TEXT;
+BEGIN
+    PERFORM public.import_run_retention();
+
+    SELECT cleanup_url, cleanup_secret INTO v_url, v_secret
+      FROM public.import_settings WHERE id;
+    IF v_url IS NULL OR btrim(v_url) = '' THEN
+        RETURN;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_net') THEN
+        RAISE WARNING 'import_daily_maintenance: pg_net is not installed; storage cleanup call skipped';
+        RETURN;
+    END IF;
+
+    EXECUTE format(
+        'SELECT net.http_post(url := %L, headers := jsonb_build_object(''content-type'', ''application/json'', ''x-cleanup-secret'', %L), body := ''{}''::jsonb)',
+        v_url, COALESCE(v_secret, '')
+    );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.import_daily_maintenance() FROM PUBLIC, anon, authenticated;
+
+-- Enable pg_cron/pg_net and schedule the daily run. Both extension steps are
+-- guarded: where they are unavailable (or not permitted from this file) the
+-- schema still applies — enable them from the dashboard and re-run this file
+-- (or run cron.schedule from docs/import-agent/m2-persistence.md).
+DO $$ BEGIN
+    CREATE EXTENSION IF NOT EXISTS pg_cron;
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'pg_cron not available here: %', SQLERRM;
+END $$;
+
+DO $$ BEGIN
+    CREATE EXTENSION IF NOT EXISTS pg_net;
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'pg_net not available here: %', SQLERRM;
+END $$;
+
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+        PERFORM cron.schedule('import-daily-maintenance', '15 3 * * *', 'SELECT public.import_daily_maintenance()');
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'pg_cron scheduling skipped: %', SQLERRM;
+END $$;
+
+-- ----------------------------------------------------------------------------
+-- Staging bucket (spec §9.4). Private; objects live under
+-- `<auth-user-id>/<job-id>/…` so the owner can upload and read through RLS.
+-- The functions read/delete with the service role (which bypasses RLS).
+-- ----------------------------------------------------------------------------
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('import-staging', 'import-staging', FALSE)
+ON CONFLICT (id) DO UPDATE SET public = FALSE;
+
+DROP POLICY IF EXISTS "Import staging: owner uploads" ON storage.objects;
+CREATE POLICY "Import staging: owner uploads" ON storage.objects
+    FOR INSERT TO authenticated
+    WITH CHECK (bucket_id = 'import-staging' AND split_part(name, '/', 1) = auth.uid()::text);
+
+DROP POLICY IF EXISTS "Import staging: owner reads" ON storage.objects;
+CREATE POLICY "Import staging: owner reads" ON storage.objects
+    FOR SELECT TO authenticated
+    USING (bucket_id = 'import-staging' AND split_part(name, '/', 1) = auth.uid()::text);

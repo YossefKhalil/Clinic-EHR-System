@@ -38,3 +38,9 @@ jobs:
 
       - name: Deploy manage-user
         run: supabase functions deploy manage-user --project-ref "$PROJECT_REF"
+
+      # --no-verify-jwt: pg_cron calls this with the shared x-cleanup-secret
+      # header (IMPORT_CLEANUP_SECRET); the function authenticates callers
+      # itself and fails closed.
+      - name: Deploy import-cleanup
+        run: supabase functions deploy import-cleanup --no-verify-jwt --project-ref "$PROJECT_REF"

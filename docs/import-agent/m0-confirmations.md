@@ -115,7 +115,8 @@ Import behaviour:
    but still verify it exists in `app_options`.
 4. **Table count of patients columns is 24** (22 in `CREATE TABLE` + `attachments` +
    `registered_by_name` added by idempotent `ALTER`s). The registry covers 17 importable columns;
-   the other 7 are app-managed and allow-listed in the CI check.
+   the other 7 are app-managed and allow-listed in the CI check. (M2 adds an 8th app-managed
+   column, `import_batch_id`.)
 5. **`anysearch` is a computed field** over every patient column. M7's soft-delete regression must
    keep it consistent with the new `deleted_at` filter.
 6. **CI already applies schema and builds** (`ci.yml`, `supabase-schema.yml`, `deploy-functions.yml`).
