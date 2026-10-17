@@ -10,11 +10,11 @@ It is rebuilt from [BelalAhmed2214/health](https://github.com/BelalAhmed2214/hea
 
 ## Why it stands out
 
-- **Same clinic workflow, zero infrastructure.** Every screen of the Laravel original (registry, dashboard, prices, users, EN/AR) is here — plus features the original never had: patient attachments, AI import from spreadsheets/scans/PDFs/pasted text, Excel export, and a Settings page that edits the option lists without a redeploy.
+- **Same clinic workflow, zero infrastructure.** Every screen of the Laravel original (registry, dashboard, prices, users, EN/AR) is here — plus features the original never had: patient attachments, Excel export, and a Settings page that edits the option lists without a redeploy.
 - **Free end to end.** Static hosting, managed Postgres + auth, CDN file storage and all automation (CI, schema deploys, function deploys, keep-alive) run within free tiers. There is no VPS, no PHP runtime, no container, and nothing to patch.
-- **Fast because it is mostly static.** One prebuilt bundle served from Cloudflare's edge network; heavy libraries (SheetJS, mammoth) are downloaded only at the moment they are used.
-- **Secure by construction.** Postgres RLS enforces every read/write inside the database, Edge Functions hold all secrets, AI provider keys are stored AES-GCM encrypted, and the browser only ever receives the public anon key.
-- **Operable by one person.** Push to deploy functions and schema, transactional schema apply with rollback, lint+build CI on every push, one-click undo for import batches, and a keep-alive cron so a free Supabase project never pauses.
+- **Fast because it is mostly static.** One prebuilt bundle served from Cloudflare's edge network; heavy libraries (SheetJS) are downloaded only at the moment they are used.
+- **Secure by construction.** Postgres RLS enforces every read/write inside the database, Edge Functions hold all secrets, and the browser only ever receives the public anon key.
+- **Operable by one person.** Push to deploy functions and schema, transactional schema apply with rollback, lint+build CI on every push, and a keep-alive cron so a free Supabase project never pauses.
 
 ## How it compares to the Laravel original
 
@@ -28,33 +28,30 @@ The original is a well-structured Laravel app (controllers → DTOs → service 
 | Authorization | Middleware + policies evaluated in PHP on each request | Postgres RLS enforced inside the database, plus JWT-gated Edge Functions |
 | Search | Single-column `LIKE '%term%'` on the field you pick | Indexed all-column `anysearch` + Arabic-aware fuzzy suggestions, order-independent tokens |
 | Patient files | Not present | Cloudinary attachments — browser uploads straight to the CDN with live progress |
-| Bulk / AI import | Not present (manual entry only) | AI import from Excel/CSV/PDF/Word/phone photos/pasted text, with a review grid, retries and one-click undo |
 | Export | Not present | Excel export |
 | Option lists (followers, sections, sources) | Hardcoded PHP enums/arrays — edit code and redeploy to change | DB-backed `app_options` edited from a super-admin Settings page, no redeploy |
 | Bilingual | Session locale; switching reloads the page; some strings hardcoded Arabic in views | Instant client-side EN/AR switch with full RTL |
 | Automation & ops | No CI or deploy automation; you patch PHP and manage the server | GitHub Actions: lint+build CI, transactional schema apply, function auto-deploy, daily keep-alive |
 | Cost model | Needs PHP hosting you keep alive | Runs within free tiers end to end |
 
-In short: the Laravel app trades a hosting bill and ops work for full server control. This rewrite trades server control for zero ops and $0 — while adding attachments, AI import, export and self-service settings. If you need PHP-level server control, the original is the better fit; if you want a clinic system with no server to maintain, this is.
+In short: the Laravel app trades a hosting bill and ops work for full server control. This rewrite trades server control for zero ops and $0 — while adding attachments, export and self-service settings. If you need PHP-level server control, the original is the better fit; if you want a clinic system with no server to maintain, this is.
 
 ## Free cloud-based — no server to own, scale or pay for
 
 - **Hosting.** Cloudflare Pages' free tier serves the static build from Cloudflare's edge network with automatic SSL. There is no app server in the request path.
 - **Data & auth.** Supabase's free tier provides managed Postgres and authentication. Authorization is done by RLS *inside the database*, so nothing else needs to run to be secure. The included daily cron (`.github/workflows/keep-alive.yml`) pings the project's GoTrue health endpoint so a free-tier project never hits the inactivity pause.
 - **Files.** The Cloudinary upload preset is **unsigned**, so the browser POSTs every attachment directly to Cloudinary — no signing endpoint, no server bandwidth, delivery through Cloudinary's CDN with on-the-fly transforms.
-- **AI extraction.** Runs on whichever provider you plug in (OpenRouter, Cloudflare Workers AI — which has a free daily allowance — or any OpenAI-compatible endpoint) behind a Supabase Edge Function. Credentials are encrypted at rest, never shipped to the client.
 - **Automation.** GitHub Actions is free for public repositories: CI lint+build, schema apply, Edge Function deploys and the keep-alive ping all run on free runners.
-- **No cost-shifting.** `.env.example` contains only public values. The `SUPABASE_SERVICE_ROLE_KEY` and provider API keys exist only as Edge Function secrets or repository secrets.
+- **No cost-shifting.** `.env.example` contains only public values. The `SUPABASE_SERVICE_ROLE_KEY` exists only as an Edge Function secret or repository secret.
 
 ## Fast and responsive by design
 
 - **One static artifact.** A single hashed entry bundle (≈280 KB JS + ≈315 KB CSS minified, mostly Bootstrap + icons) served with immutable caching from the edge. No per-request PHP boot, no server-side rendering.
-- **Heavy code is lazy.** `xlsx` (≈490 KB) loads only when you import or export a spreadsheet; `mammoth` (≈300 KB) only when a `.docx` is actually dropped; admin/user/AI modules arrive on first use via dynamic `import()`. The initial page never pays for them.
+- **Heavy code is lazy.** `xlsx` (≈490 KB) loads only when you export a spreadsheet; admin/user modules arrive on first use via dynamic `import()`. The initial page never pays for them.
 - **No page reloads.** Views switch with `x-show` on an always-mounted DOM, and writes update rows in place (status toggles, deletes, user edits) instead of re-rendering whole pages.
 - **Search that feels instant.** Keystrokes are debounced with a request-id guard against stale responses; while the indexed server query (`anysearch`) is in flight, the first suggestions render from already-loaded rows through the Arabic-aware fuzzy matcher. Results cap at 5, with full keyboard navigation (arrows, Enter, Escape).
 - **Arabic-aware matching.** Normalization handles alef/ya/ta-marbuta variants, harakat, tatweel and Arabic-Indic digits, and requires every token to match somewhere across ~18 fields, order-independently — so `احمد محمد` finds `محمد احمد السيد`, and Arabic-digit phone numbers match.
 - **Attachments that don't touch a server.** Direct browser→Cloudinary uploads with XHR progress, list thumbnails delivered at `w_320,q_80` and full view at `w_1600,q_90` via `f_auto`.
-- **Bounded, cancellable AI import.** Text is chunked every 4,000 characters, spreadsheets 15 rows per request with the header repeated, 3 requests in parallel; images are downscaled to 1600 px / q0.85 in the browser before they are sent. Hard caps (8 MB/file, 10 files, 500 rows), a Cancel button via `AbortController`, and one automatic retry per chunk when parsing fails.
 - **Survives redeploys.** A `vite:preloadError` handler reloads once (sessionStorage-guarded) when a stale tab references old hashed chunks — the classic "blank page after deploy" failure mode is handled, not left to the user.
 
 ## Production-ready — why it can run a real clinic
@@ -63,17 +60,14 @@ In short: the Laravel app trades a hosting bill and ops work for full server con
 
 - RLS is enabled on every table. Section staff only ever see their own section's patients; policies run through `SECURITY DEFINER` helpers (`is_admin()`, `is_section_user()`) to avoid the classic RLS recursion trap, and execute on those helpers is revoked from `PUBLIC`.
 - Privilege escalation is blocked at the source: signup metadata is never trusted for `is_admin`/`section` — `handle_new_user()` hard-codes `FALSE, NULL`.
-- `ai_settings` is removed from the PostgREST API surface entirely (`REVOKE ALL ... FROM anon, authenticated`). Provider keys are stored AES-GCM encrypted (HKDF-SHA256 key derived from the service-role key) and only masks/last-4 are ever exposed back.
-- Every Edge Function verifies the caller's Supabase JWT and its own role gate (admin-only / admin-or-section). The service-role key never leaves the function.
+- The Edge Function verifies the caller's Supabase JWT and its role gate (admin only). The service-role key never leaves the function.
 
 **Operations & reliability**
 
 - `supabase/schema.sql` is idempotent: safe to re-run as a repair path (it recreates policies and backfills missing profile rows). CI applies it with `--single-transaction --set ON_ERROR_STOP=1`, verifies expected columns afterwards, and rolls the whole file back if any statement fails.
 - Edge Functions deploy automatically when `supabase/functions/**` changes, eliminating drift between repo and hosted functions.
 - CI runs ESLint (flat config, `no-undef`/`no-unused-vars`) + build on every push and PR.
-- Failure handling with real UX: non-stacking toasts, database error codes mapped to human sentences (duplicate / constraint / permission), bulk imports inserted in chunks of 50 that fall back to per-row retries so one bad row can't abort a batch, and skipped rows downloadable as CSV.
-- Undo is first-class: every import batch carries an indexed `import_batch_id`; one click deletes exactly that batch.
-- Duplicate safety: in-batch duplicates flagged in the review grid; cross-section duplicates detected via a `SECURITY DEFINER` RPC that answers "already exists elsewhere" without leaking the other section's rows.
+- Failure handling with real UX: non-stacking toasts and database error codes mapped to human sentences (duplicate / constraint / permission).
 
 **Data integrity**
 
@@ -84,7 +78,7 @@ In short: the Laravel app trades a hosting bill and ops work for full server con
 
 **Real-world details**
 
-- Full RTL through logical CSS properties (`margin-inline`, `inset-inline-*`), instant EN/AR switching persisted to localStorage, localized ARIA labels, `aria-live` toasts, a keyboard-operable dropzone, and a `capture="environment"` camera shortcut for phone photos.
+- Full RTL through logical CSS properties (`margin-inline`, `inset-inline-*`), instant EN/AR switching persisted to localStorage, localized ARIA labels, and `aria-live` toasts.
 - Loading spinners clear in `finally` — a failed request can never strand the app on the loading screen.
 
 ## Features
@@ -92,7 +86,6 @@ In short: the Laravel app trades a hosting bill and ops work for full server con
 - **Patient Registry** — create, read, update, delete patient records with visit history, symptoms, diagnosis, and internal notes
 - **Instant Global Search** — one box across every patient field, Arabic-aware, with keyboard navigation
 - **Attachments** — medical/lab papers and images attached to each patient file via Cloudinary (unsigned uploads)
-- **AI Import** — 3-step import (Add data → Review → Done): drop Excel/CSV files, photos, Word/PDF documents or pasted text; an AI extraction pass proposes patient rows, a review grid flags problems, and the whole batch can be undone with one click. The extraction can run on OpenRouter, Cloudflare Workers AI, or any OpenAI-compatible endpoint — switchable from Settings
 - **Excel Export** — export the patient list for reporting (SheetJS loads only when used)
 - **Price Tracking** — section and source breakdowns for clinic revenue
 - **Editable Option Lists** — super-admin Settings page manages followers, sections and sources (EN/AR labels, activate/deactivate) across the whole app, no redeploy
@@ -109,9 +102,8 @@ In short: the Laravel app trades a hosting bill and ops work for full server con
 | Database | Supabase (PostgreSQL) |
 | Auth | Supabase Auth |
 | Files | Cloudinary (unsigned upload) |
-| AI extraction | OpenRouter / Cloudflare Workers AI / OpenAI-compatible (server-side credentials, via Supabase Edge Function) |
 | Hosting | Cloudflare Pages |
-| Spreadsheet/docs | SheetJS (xlsx), js-yaml, mammoth |
+| Spreadsheet | SheetJS (xlsx) |
 
 ## Getting Started
 
@@ -194,13 +186,13 @@ missing a `public.users` profile row.
 
 ### 4. Deploy Edge Functions
 
-Three Edge Functions back the app: `manage-user` (admin user CRUD), `ai-import` (provider proxy for the import flow) and `ai-settings` (encrypted storage of the AI provider credentials — OpenRouter key, Cloudflare account ID + token, or OpenAI-compatible base URL + key). Pushing changes under `supabase/functions/**` deploys them automatically via `.github/workflows/deploy-functions.yml` (requires the `SUPABASE_ACCESS_TOKEN` repository secret); to deploy manually:
+One Edge Function backs the app: `manage-user` (admin user CRUD). Pushing changes under `supabase/functions/**` deploys it automatically via `.github/workflows/deploy-functions.yml` (requires the `SUPABASE_ACCESS_TOKEN` repository secret); to deploy manually:
 
 ```bash
-supabase functions deploy manage-user ai-import ai-settings
+supabase functions deploy manage-user
 ```
 
-Set the `SUPABASE_SERVICE_ROLE_KEY` secret in the Supabase project. `ai-settings` encrypts the stored credentials with material derived from that secret — after rotating the service role key, re-save the provider credentials from the Settings page. The only environment fallback is a legacy `OPENROUTER_API_KEY` secret, used when no OpenRouter key is stored in the database.
+Set the `SUPABASE_SERVICE_ROLE_KEY` secret in the Supabase project — `manage-user` uses it (via the service client) to create and delete auth users.
 
 ### 5. Development
 
@@ -241,9 +233,6 @@ Since Cloudflare Pages only serves the static `dist/`, the build step does not d
 │   │   ├── dashboard.js        # Dashboard stats
 │   │   ├── options.js          # Editable option lists
 │   │   ├── fuzzy.js            # Arabic-aware fuzzy search
-│   │   ├── ai-import.js        # AI extraction parsing/validation
-│   │   ├── ai-import-client.js # File reading + chunked extraction calls
-│   │   ├── ai-settings.js      # AI provider settings client
 │   │   └── export.js           # Excel export
 │   ├── locales/
 │   │   ├── en.json             # English translations
@@ -254,10 +243,7 @@ Since Cloudflare Pages only serves the static `dist/`, the build step does not d
 │   ├── schema.sql              # Full DB schema + RLS
 │   ├── seed.sql                # Seed notes
 │   └── functions/
-│       ├── manage-user/        # Admin user CRUD
-│       ├── ai-import/          # Provider proxy + extraction prompt
-│       ├── ai-settings/        # Encrypted AI provider credential store
-│       └── _shared/            # Shared Edge Function helpers
+│       └── manage-user/        # Admin user CRUD
 ├── eslint.config.js
 ├── package.json
 ├── vite.config.js

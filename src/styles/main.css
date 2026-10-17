@@ -336,36 +336,6 @@ i.bi {
     }
 }
 
-/* ===== AI import (3 steps) ===== */
-
-.ai-dropzone {
-    border: 2px dashed var(--bs-primary);
-    background: var(--bs-tertiary-bg);
-    cursor: pointer;
-    transition: background .15s ease, border-color .15s ease;
-}
-
-.ai-dropzone:hover,
-.ai-dropzone-active {
-    background: var(--bs-primary-bg-subtle);
-    border-color: var(--bs-primary);
-}
-
-[dir="rtl"] .ai-dropzone i {
-    transform: scaleX(-1);
-}
-
-/* Invalid cell: red border + soft red fill. */
-.ai-cell-error {
-    border-color: var(--bs-danger) !important;
-    background: var(--bs-danger-bg-subtle) !important;
-}
-
-/* Needs-a-look cell: amber fill. */
-.ai-cell-check {
-    background: var(--bs-warning-bg-subtle) !important;
-}
-
 .table-responsive td:first-child,
 .table-responsive th:first-child {
     z-index: 2;

@@ -205,8 +205,8 @@ CREATE OR REPLACE TRIGGER update_patients_updated_at
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
 -- Editable option lists (issue #1): followers, clinic sections and sources of
--- money live here instead of being hard-coded in the client, the SQL CHECK
--- constraints and the AI prompt. `key` is the immutable value stored on
+-- money live here instead of being hard-coded in the client or the SQL CHECK
+-- constraints. `key` is the immutable value stored on
 -- patients rows; renaming an option changes only its labels. Deactivation is
 -- a soft delete: existing patient rows keep rendering their stored key.
 CREATE TABLE IF NOT EXISTS public.app_options (
@@ -293,39 +293,6 @@ CREATE OR REPLACE TRIGGER update_app_options_updated_at
     BEFORE UPDATE ON public.app_options
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
--- Single-row table holding the AI integration settings (issue #10, extended
--- to multiple providers). Credentials (keys, tokens) are stored as AES-GCM
--- ciphertext produced by the ai-settings Edge Function; the encryption key is
--- derived from the service-role key, so no caller can ever read the
--- plaintext back out of Postgres.
-CREATE TABLE IF NOT EXISTS public.ai_settings (
-    id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
-    provider TEXT NOT NULL DEFAULT 'openrouter',
-    openrouter_key_encrypted TEXT,
-    cloudflare_account_id TEXT,
-    cloudflare_token_encrypted TEXT,
-    openai_base_url TEXT,
-    openai_key_encrypted TEXT,
-    model TEXT DEFAULT 'google/gemini-2.5-flash-lite',
-    enabled BOOLEAN NOT NULL DEFAULT FALSE,
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_by UUID REFERENCES public.users(id) ON DELETE SET NULL
-);
-
-ALTER TABLE public.ai_settings ENABLE ROW LEVEL SECURITY;
--- RLS with no policies denies every anon/authenticated request; the explicit
--- REVOKE keeps the table off the PostgREST API surface entirely. Only
--- service-role calls from Edge Functions can touch it.
-REVOKE ALL ON TABLE public.ai_settings FROM PUBLIC, anon, authenticated;
-
--- Idempotent column migrations for databases created before multi-provider
--- support: no-ops when the columns already exist.
-ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'openrouter';
-ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS cloudflare_account_id TEXT;
-ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS cloudflare_token_encrypted TEXT;
-ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS openai_base_url TEXT;
-ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS openai_key_encrypted TEXT;
-
 -- Idempotent column migrations for databases created by an older schema.
 -- Safe to re-run: each line is a no-op when the column is already present.
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS age INTEGER;
@@ -333,35 +300,6 @@ ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS mobile TEXT;
 -- Medical/lab papers & images are stored on Cloudinary; the row keeps only
 -- the metadata array [{ public_id, url, name, size, mime, uploaded_at }].
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]'::jsonb;
-
--- The per-user OpenRouter key was superseded by the shared ai_settings row
--- above; drop the legacy column wherever it exists.
-ALTER TABLE public.users DROP COLUMN IF EXISTS openrouter_api_key;
-
--- AI Import batch tracking: every row created by one Import click gets the
--- same UUID, which is what makes "Undo this import" possible — the undo
--- handler deletes only rows carrying that batch id.
-ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS import_batch_id UUID;
-CREATE INDEX IF NOT EXISTS idx_patients_import_batch_id ON public.patients(import_batch_id);
-
--- Cross-section duplicate detection: RLS lets a section user see only their
--- own patients, so the client cannot reliably know that a national ID already
--- exists under another section. This SECURITY DEFINER helper answers that
--- question for any signed-in caller without leaking the other rows.
-CREATE OR REPLACE FUNCTION public.existing_national_ids(ids text[])
-RETURNS text[]
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
-    SELECT COALESCE(array_agg(DISTINCT p.national_id), '{}')
-    FROM unnest(ids) AS nid
-    JOIN public.patients p ON p.national_id = nid
-$$;
-
-REVOKE ALL ON FUNCTION public.existing_national_ids(text[]) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.existing_national_ids(text[]) TO authenticated;
 
 -- Backfill profile rows for auth users created while the trigger was missing
 -- or broken (sign-in otherwise succeeds but the profile cannot be loaded).
