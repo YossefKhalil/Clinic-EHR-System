@@ -11,6 +11,7 @@ import { getPatients, deletePatient, togglePatientStatus, GOVERNORATES } from '.
 import { patientMatchesQuery } from './services/fuzzy.js';
 import { getPriceStats } from './services/prices.js';
 import { loadOptions as fetchOptions, allOptions, createOption, updateOption, optionLabel as lookupOptionLabel } from './services/options.js';
+import { importAgentWizard, importAgentEnter } from './features/import-agent/ui.js';
 
 // A tab left open across a deploy still points at the previous build's
 // hashed chunks, so the next dynamic import 404s ("error loading dynamically
@@ -320,6 +321,7 @@ function app() {
                 if (page === 'prices') await this.showPrices();
                 if (page === 'users') await this.loadUsers();
                 if (page === 'settings') await this.showSettings();
+                if (page === 'import') importAgentEnter();
             } catch (error) {
                 console.error(error);
             }
@@ -936,6 +938,10 @@ function app() {
 }
 
 window.app = app;
+
+// The wizard mounts as a nested Alpine scope on its own page; this global is
+// what the page markup references (mirrors `window.app`).
+window.importAgentWizard = importAgentWizard;
 
 document.addEventListener('DOMContentLoaded', () => {
     Alpine.start();

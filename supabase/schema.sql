@@ -682,6 +682,12 @@ DROP POLICY IF EXISTS "Owner and admins read rejects" ON public.import_rejects;
 CREATE POLICY "Owner and admins read rejects" ON public.import_rejects
     FOR SELECT USING (public.import_job_access(job_id));
 
+-- The owner resolves tray items: moving unmapped text into a cell removes its
+-- reject row (spec 10.7), so owners may delete their own job's items only.
+DROP POLICY IF EXISTS "Owner deletes own rejects" ON public.import_rejects;
+CREATE POLICY "Owner deletes own rejects" ON public.import_rejects
+    FOR DELETE USING (public.import_job_owned(job_id));
+
 DROP POLICY IF EXISTS "Owner and admins read batches" ON public.import_batches;
 CREATE POLICY "Owner and admins read batches" ON public.import_batches
     FOR SELECT USING (public.import_batch_access(id));

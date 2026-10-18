@@ -52,6 +52,8 @@ function hasContent(value) {
  *   nameDobMatches?: Set<string>,         // keys from dedupe.nameDobKey()
  *   collapseOverlaps?: ((a: object, b: object) => boolean) | null,
  *   requireSection?: boolean,             // true on the commit/save paths
+ *   ground?: boolean,                     // false for manual rows (§10.7)
+ *   keepPhantoms?: boolean,               // true on review edits (§10.10)
  * }} input
  */
 export function runPipeline({
@@ -68,6 +70,8 @@ export function runPipeline({
     nameDobMatches = new Set(),
     collapseOverlaps = null,
     requireSection = false,
+    ground = true,
+    keepPhantoms = false,
 } = {}) {
     if (!today || !/^\d{4}-\d{2}-\d{2}$/.test(String(today))) {
         throw new Error('runPipeline: `today` (ISO date) is required — the pipeline never reads the clock');
@@ -85,7 +89,7 @@ export function runPipeline({
     records.forEach((record, offset) => {
         const row = runRecord(record, {
             index: offset + 1, sourceId, kind, linesById, chunkIds, snapshot,
-            today, defaults, requireSection,
+            today, defaults, requireSection, groundEnabled: ground, keepPhantoms,
         });
         (row.rejected ? rejected : rows).push(row);
     });
@@ -132,6 +136,7 @@ export function runPipeline({
 function runRecord(record, context) {
     const {
         index, sourceId, kind, linesById, chunkIds, snapshot, today, defaults, requireSection,
+        groundEnabled, keepPhantoms,
     } = context;
 
     const issues = [];
@@ -159,13 +164,40 @@ function runRecord(record, context) {
     const cells = {};
     for (const field of FIELDS) cells[field.key] = emptyCell(field);
 
-    // Step 4 (per-field normalization; §8.1 lists grounding before it, but
+    // Review edits (spec 10.10): `_cells` carries the reviewer's own raw input
+    // per field together with its origin (`user` from an edit, `default` from
+    // the bulk panel). A prefilled field replaces the extracted raw — its text
+    // is normalized exactly like model output — and keeps its origin, so
+    // grounding skips it: it is not a claim about the source.
+    const prefills = record._cells && typeof record._cells === 'object' ? record._cells : null;
+
+    // Step 4 (per-field normalization; 8.1 lists grounding before it, but
     // grounding compares normalized values, and the DOB disambiguation needs
     // the already-normalized national ID).
     for (const field of FIELDS) {
-        if (!field.extract) continue;
-        const value = record[field.key];
-        if (!hasContent(value)) continue;
+        const prefill = prefills && prefills[field.key] ? prefills[field.key] : null;
+        const edited = Boolean(prefill) && (prefill.origin === 'user' || prefill.origin === 'default');
+        let value;
+        let origin;
+        if (edited) {
+            value = prefill.raw !== undefined ? prefill.raw : prefill.value;
+            origin = prefill.origin;
+        } else {
+            if (!field.extract) continue;
+            value = record[field.key];
+            origin = 'extracted';
+        }
+        if (!hasContent(value)) {
+            if (!edited) continue;
+            // The reviewer cleared the cell: it stays an empty `user` cell so
+            // reload and revalidation both keep it clear.
+            cells[field.key] = {
+                value: field.type === 'list' ? [] : '',
+                origin,
+                raw: value === null || value === undefined ? '' : String(value),
+            };
+            continue;
+        }
         let idDate = null;
         if (field.key === 'date_of_birth') {
             idDate = decodeNationalId(cells.national_id?.value)?.date ?? null;
@@ -173,7 +205,9 @@ function runRecord(record, context) {
         const result = normalizeField(field, value, { today, snapshot, idDate });
         cells[field.key] = {
             value: result.value,
-            origin: valueIsEmpty(result.value) ? null : 'extracted',
+            // A cleared cell keeps its `user` origin — the reviewer's empty
+            // value must survive revalidation and reload like any edit.
+            origin: valueIsEmpty(result.value) ? (edited ? origin : null) : origin,
             raw: result.raw !== undefined ? result.raw : String(value ?? ''),
         };
         for (const entry of result.issues) addParse(entry);
@@ -186,7 +220,9 @@ function runRecord(record, context) {
         if (text) unmapped.push(text);
     }
     for (const [key, value] of Object.entries(record)) {
-        if (key === '_src' || key === 'unmapped' || key === '_uncertain') continue;
+        // `unmapped` is explicit; every other underscore-prefixed key is
+        // pipeline meta (`_src`, `_uncertain`, `_chunkIndex`, `_cells`).
+        if (key === 'unmapped' || key.startsWith('_')) continue;
         if (fieldByKey(key)) continue;
         const text = Array.isArray(value) ? value.join(' ') : String(value ?? '');
         if (!text.trim()) continue;
@@ -208,33 +244,41 @@ function runRecord(record, context) {
         }));
     }
 
-    // Step 3: ground and snap (§8.2).
-    const ground = groundRecord({
-        cells, srcValue: record._src, sourceId, linesById, chunkLineIds: chunkIds,
-    });
-    for (const fieldKey of ground.changedFields) dropParse(fieldKey);
-    issues.push(...ground.issues);
+    // Step 3: ground and snap (§8.2). Manual rows are typed by the reviewer,
+    // so there is no source to ground against; review edits keep phantom rows
+    // on screen (`lenient`) and let the per-field checks flag them.
+    const grounding = groundEnabled
+        ? groundRecord({
+            cells, srcValue: record._src, sourceId, linesById, chunkLineIds: chunkIds,
+            lenient: keepPhantoms,
+        })
+        : {
+            cells, issues: [], changedFields: [], phantom: false,
+            citedIds: [], srcValid: true, foundInChunkOnly: false,
+        };
+    for (const fieldKey of grounding.changedFields) dropParse(fieldKey);
+    issues.push(...grounding.issues);
 
-    if (ground.phantom) {
+    if (grounding.phantom && !keepPhantoms) {
         return {
             index,
             rejected: true,
             reason: 'PHANTOM_RECORD',
             raw: JSON.stringify(record),
             srcRaw: record._src ?? null,
-            citedIds: ground.citedIds,
+            citedIds: grounding.citedIds,
             cells,
             issues,
         };
     }
 
     // Prompt-injection and image-legibility signals (§7.6, §8.4).
-    const citedTexts = ground.citedIds.map((id) => linesById.get(id)?.text ?? '');
+    const citedTexts = grounding.citedIds.map((id) => linesById.get(id)?.text ?? '');
     if (citedTexts.some((text) => containsInjectionPhrase(text))) {
-        issues.push(issue('POSSIBLE_INJECTION', { detail: { lineIds: ground.citedIds } }));
+        issues.push(issue('POSSIBLE_INJECTION', { detail: { lineIds: grounding.citedIds } }));
     }
     if (kind === 'image' && citedTexts.some((text) => text.includes('[?]'))) {
-        issues.push(issue('LOW_CONFIDENCE_IMAGE', { detail: { lineIds: ground.citedIds } }));
+        issues.push(issue('LOW_CONFIDENCE_IMAGE', { detail: { lineIds: grounding.citedIds } }));
     }
 
     // Step 5: repair swaps.
@@ -246,12 +290,13 @@ function runRecord(record, context) {
     const derive = deriveFields(cells, { today });
     issues.push(...derive.issues);
 
-    // Step 7: bulk defaults — fill blanks only (spec §8.7).
+    // Step 7: bulk defaults — fill blanks only (spec §8.7). A cell the
+    // reviewer edited is never overwritten, even when they cleared it.
     for (const [key, value] of Object.entries(defaults || {})) {
         const field = fieldByKey(key);
         if (!field || !field.bulkFill || !hasContent(value)) continue;
         const cell = cells[key];
-        if (!cell || !valueIsEmpty(cell.value)) continue;
+        if (!cell || cell.origin === 'user' || !valueIsEmpty(cell.value)) continue;
         const result = normalizeField(field, value, { today, snapshot });
         if (valueIsEmpty(result.value)) continue;
         cells[key] = { value: result.value, origin: 'default', raw: String(value ?? '') };
@@ -266,10 +311,11 @@ function runRecord(record, context) {
     return {
         index,
         rejected: false,
-        src: ground.citedIds,
-        citedIds: ground.citedIds,
+        src: grounding.citedIds,
+        citedIds: grounding.citedIds,
         srcRaw: record._src ?? null,
-        srcValid: ground.srcValid,
+        srcValid: grounding.srcValid,
+        phantom: grounding.phantom,
         chunkIndex: Number.isInteger(record._chunkIndex) ? record._chunkIndex : null,
         cells,
         issues,

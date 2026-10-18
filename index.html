@@ -91,6 +91,11 @@
                                 <i class="bi bi-people me-1"></i><span x-text="t('Patients')"></span>
                             </span>
                         </li>
+                        <li class="nav-item">
+                            <span class="nav-link" :class="{ 'active fw-semibold': currentPage === 'import' }" @click="navigate('import')" style="cursor:pointer">
+                                <i class="bi bi-cloud-arrow-up me-1"></i><span x-text="t('importAgent.wizard.title')"></span>
+                            </span>
+                        </li>
                         <li class="nav-item ms-2 dropdown">
                             <a class="nav-link px-2 dropdown-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" :title="profile?.name || user?.email || 'User'" :aria-label="profile?.name || user?.email || 'User'">
                                 <i class="bi bi-person-circle fs-5"></i>
@@ -505,6 +510,746 @@
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <!-- AI IMPORT AGENT (spec 10): files → preview → extract → review -->
+            <div x-show="currentPage === 'import'" x-cloak x-data="importAgentWizard()" x-init="init()">
+                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                    <h2 class="text-secondary fw-bold mb-0">
+                        <i class="bi bi-cloud-arrow-up-fill me-2 text-primary"></i><span x-text="t('importAgent.wizard.title')"></span>
+                    </h2>
+                    <div class="btn-group btn-group-sm" role="group" :aria-label="t('importAgent.wizard.title')">
+                        <span class="btn" :class="step === 'add' || step === 'preview' ? 'btn-primary' : 'btn-outline-secondary'" x-text="t('importAgent.wizard.step.add')" aria-current="step"></span>
+                        <span class="btn" :class="step === 'extracting' ? 'btn-primary' : 'btn-outline-secondary'" x-text="t('importAgent.wizard.step.extracting')"></span>
+                        <span class="btn" :class="step === 'review' ? 'btn-primary' : 'btn-outline-secondary'" x-text="t('importAgent.wizard.step.review')"></span>
+                    </div>
+                </div>
+
+                <div class="alert alert-danger d-flex justify-content-between align-items-start" role="alert" x-show="errorBanner" x-cloak>
+                    <span x-text="errorBanner ? t(errorBanner.messageKey) : ''"></span>
+                    <button type="button" class="btn-close" @click="errorBanner = null" :aria-label="t('Cancel')"></button>
+                </div>
+
+                <!-- resume bar (spec 10.1 resumability) -->
+                <div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap gap-2" x-show="resumable" x-cloak>
+                    <span x-text="resumable ? t('importAgent.wizard.resumeHint', { status: t('importAgent.wizard.status.' + resumable.status) }) : ''"></span>
+                    <button type="button" class="btn btn-sm btn-primary" @click="resume()" x-text="t('importAgent.wizard.resume')"></button>
+                </div>
+
+                <!-- STEP: ADD (spec 5) -->
+                <template x-if="step === 'add'">
+                    <div class="row g-4">
+                        <div class="col-lg-7">
+                            <div class="card shadow-sm mb-3">
+                                <div class="card-body">
+                                    <h5 class="card-title mb-2"><i class="bi bi-files me-2"></i><span x-text="t('importAgent.wizard.files')"></span></h5>
+                                    <p class="small text-muted" x-text="t('importAgent.wizard.limits', { maxFiles, maxMb, maxRows })"></p>
+                                    <label class="d-block border border-2 border-dashed rounded-3 p-4 text-center position-relative" style="cursor:pointer">
+                                        <i class="bi bi-cloud-arrow-up fs-3 d-block text-primary"></i>
+                                        <span class="small" x-text="t('importAgent.wizard.dropHere')"></span>
+                                        <input type="file" class="position-absolute top-0 start-0 w-100 h-100 opacity-0" multiple
+                                            @change="onFilesPicked($event)" :aria-label="t('importAgent.wizard.chooseFiles')">
+                                    </label>
+                                    <template x-if="files.length === 0">
+                                        <p class="small text-muted mb-0 mt-2" x-text="t('importAgent.wizard.noFiles')"></p>
+                                    </template>
+                                    <ul class="list-group list-group-flush mt-2">
+                                        <template x-for="file in files" :key="file.id">
+                                            <li class="list-group-item px-0 d-flex justify-content-between align-items-start gap-2">
+                                                <div class="flex-grow-1">
+                                                    <div class="d-flex justify-content-between">
+                                                        <span class="fw-semibold text-break"><i class="bi bi-file-earmark me-1"></i><span x-text="file.name"></span></span>
+                                                        <button type="button" class="btn btn-sm btn-link text-danger p-0" @click="removeFile(file.id)" :aria-label="t('importAgent.wizard.removeFile')"><i class="bi bi-x-lg"></i></button>
+                                                    </div>
+                                                    <div class="small text-muted">
+                                                        <span x-text="formatBytes(file.size ?? 0)"></span>
+                                                        <template x-if="file.sha256"><span class="font-monospace ms-2" style="font-size:.68rem"><span x-text="file.sha256"></span></span></template>
+                                                    </div>
+                                                    <div x-show="file.error">
+                                                        <span class="badge text-bg-danger" x-text="file.error ? t('importAgent.error.' + file.error.code) : ''"></span>
+                                                    </div>
+                                                    <div x-show="file.warnings && file.warnings.length > 0">
+                                                        <template x-for="(warning, wIndex) in file.warnings" :key="wIndex">
+                                                            <span class="badge text-bg-warning-subtle border border-warning-subtle me-1 text-body"
+                                                                :title="warning.code" x-text="t('importAgent.warn.' + warning.code, warning.params ?? {})"></span>
+                                                        </template>
+                                                    </div>
+                                                </div>
+                                            </li>
+                                        </template>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div class="card shadow-sm">
+                                <div class="card-body">
+                                    <h5 class="card-title mb-2"><i class="bi bi-input-cursor-text me-2"></i><span x-text="t('importAgent.wizard.pasteTitle')"></span></h5>
+                                    <p class="small text-muted" x-text="t('importAgent.wizard.pasteHint')"></p>
+                                    <textarea class="form-control" rows="4" x-model="pastedText" @input="onPastedInput()"></textarea>
+                                    <div class="mt-3">
+                                        <label class="form-label small mb-1 fw-semibold"><span x-text="t('Section')"></span></label>
+                                        <select class="form-select form-select-sm" x-model="section">
+                                            <option value="">-- All Sections --</option>
+                                            <template x-for="option in sectionOptions" :key="option.key">
+                                                <option :value="option.key" x-text="optionDisplay(option)"></option>
+                                            </template>
+                                        </select>
+                                        <div class="form-text" x-text="t('importAgent.wizard.sectionHint')"></div>
+                                    </div>
+                                    <div class="mt-3">
+                                        <label class="form-label small mb-1 fw-semibold" x-text="t('importAgent.wizard.hints')"></label>
+                                        <textarea class="form-control form-control-sm" rows="2" x-model="hints" :maxlength="2000"></textarea>
+                                        <div class="form-text" x-text="t('importAgent.wizard.hintsHint')"></div>
+                                    </div>
+                                    <div class="d-flex justify-content-end gap-2 mt-3">
+                                        <button type="button" class="btn btn-outline-primary" @click="prepare()" :disabled="addBlocked">
+                                            <i class="bi bi-eye me-1"></i><span x-text="t('importAgent.preview.title')"></span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-lg-5">
+                            <template x-if="preview">
+                                <div class="card shadow-sm">
+                                    <div class="card-body">
+                                        <h5 class="card-title mb-2" x-text="t('importAgent.preview.title')"></h5>
+                                        <table class="table table-sm mb-2 small">
+                                            <tbody>
+                                                <tr><td x-text="t('importAgent.preview.sources')"></td><td class="text-end" x-text="preview.totals.sources"></td></tr>
+                                                <tr><td x-text="t('importAgent.preview.rows')"></td><td class="text-end" x-text="preview.totals.rows"></td></tr>
+                                                <tr><td x-text="t('importAgent.preview.characters')"></td><td class="text-end" x-text="preview.totals.chars"></td></tr>
+                                                <tr><td x-text="t('importAgent.preview.images')"></td><td class="text-end" x-text="preview.totals.images"></td></tr>
+                                            </tbody>
+                                        </table>
+                                        <p class="small text-muted mb-0" x-text="t('importAgent.preview.privacy', { days: preview.privacy.retentionDays })"></p>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- STEP: PREVIEW (spec 5.3) -->
+                <template x-if="step === 'preview'">
+                    <div>
+                        <div class="card shadow-sm">
+                            <div class="card-body">
+                                <h5 class="card-title mb-3" x-text="t('importAgent.preview.title')"></h5>
+                                <template x-if="preview">
+                                    <div>
+                                        <div class="row row-cols-2 row-cols-md-4 g-2 mb-3">
+                                            <div class="col"><div class="border rounded p-2 text-center small"><div class="fw-bold" x-text="preview.totals.sources"></div><div class="text-muted" x-text="t('importAgent.preview.sources')"></div></div></div>
+                                            <div class="col"><div class="border rounded p-2 text-center small"><div class="fw-bold" x-text="preview.totals.rows"></div><div class="text-muted" x-text="t('importAgent.preview.rows')"></div></div></div>
+                                            <div class="col"><div class="border rounded p-2 text-center small"><div class="fw-bold" x-text="preview.totals.chars"></div><div class="text-muted" x-text="t('importAgent.preview.characters')"></div></div></div>
+                                            <div class="col"><div class="border rounded p-2 text-center small"><div class="fw-bold" x-text="preview.totals.images"></div><div class="text-muted" x-text="t('importAgent.preview.images')"></div></div></div>
+                                        </div>
+                                        <div class="table-responsive">
+                                            <table class="table table-sm align-middle small">
+                                                <thead>
+                                                    <tr>
+                                                        <th x-text="t('importAgent.wizard.files')"></th>
+                                                        <th x-text="t('importAgent.preview.rows')"></th>
+                                                        <th x-text="t('importAgent.preview.characters')"></th>
+                                                        <th class="d-none d-md-table-cell" x-text="t('importAgent.preview.columns')"></th>
+                                                        <th class="d-none d-md-table-cell" x-text="t('importAgent.preview.images')"></th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <template x-for="entry in preview.entries" :key="entry.sourceId">
+                                                        <tr>
+                                                            <td><i class="bi bi-file-earmark-text me-1"></i><span x-text="entry.name"></span></td>
+                                                            <td x-text="entry.rows ?? entry.lines ?? '—'"></td>
+                                                            <td x-text="entry.chars"></td>
+                                                            <td class="d-none d-md-table-cell"><span class="text-muted" x-text="previewEntryColumnLabel(entry)"></span></td>
+                                                            <td class="d-none d-md-table-cell" x-text="entry.images || '—'"></td>
+                                                        </tr>
+                                                    </template>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <p class="small text-muted" x-text="t('importAgent.preview.privacy', { days: preview.privacy.retentionDays })"></p>
+                                    </div>
+                                </template>
+                                <div class="d-flex justify-content-between mt-3">
+                                    <button type="button" class="btn btn-outline-secondary" @click="backToAdd()" x-text="t('importAgent.wizard.back')"></button>
+                                    <button type="button" class="btn btn-primary" @click="extract()" :disabled="busy" x-text="busy ? t('importAgent.wizard.sending') : t('importAgent.preview.send')"></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- STEP: EXTRACTING (spec 9) -->
+                <template x-if="step === 'extracting'">
+                    <div class="card shadow-sm">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                                <h5 class="card-title mb-0">
+                                    <span class="spinner-border spinner-border-sm text-primary me-2"></span>
+                                    <span x-text="t('importAgent.progress.working')"></span>
+                                </h5>
+                                <button type="button" class="btn btn-sm btn-outline-danger" @click="cancelJob()" x-text="t('importAgent.wizard.cancel')"></button>
+                            </div>
+                            <div class="d-flex justify-content-between small mb-1">
+                                <span x-text="t('importAgent.progress.chunks', { done: progress.done, total: progress.total })"></span>
+                                <span x-text="progress.tokens ? t('importAgent.progress.tokens', { used: progress.tokens.in + progress.tokens.out, cap: progress.tokens.cap }) : ''"></span>
+                            </div>
+                            <div class="progress mb-3" style="height:1.2rem">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" :style="'width:' + (progress.total > 0 ? Math.round(100 * progress.done / progress.total) : 0) + '%'"></div>
+                            </div>
+                            <p class="small text-muted mb-2" x-show="progress.nextLabel" x-text="t('importAgent.progress.next', { label: progress.nextLabel })"></p>
+                            <div class="alert alert-warning py-2 small" role="alert" x-show="banners.length > 0">
+                                <template x-for="(banner, bIndex) in banners" :key="bIndex">
+                                    <div x-text="t('importAgent.warn.' + banner.code, { count: banner.count })"></div>
+                                </template>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-warning" @click="retryFailed()" x-show="progress.failed > 0"
+                                x-text="t('importAgent.review.retryChunk') + ' (' + progress.failed + ')'"></button>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- STEP: REVIEW (spec 10.3–10.9) -->
+                <template x-if="step === 'review'">
+                    <div>
+                        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                            <div>
+                                <h5 class="mb-1" x-text="t('importAgent.review.title')"></h5>
+                                <div class="small text-muted" x-text="t('importAgent.review.counts', { total: counts.all, attention: counts.attention })"></div>
+                            </div>
+                            <span role="status" class="small text-success"
+                                x-text="saveState === 'saving' ? t('importAgent.review.autosave.saving') : saveState === 'failed' ? t('importAgent.review.autosave.failed') : t('importAgent.review.autosave.saved')"></span>
+                        </div>
+
+                        <div class="alert alert-danger py-2 small" role="alert" x-show="saveState === 'failed'" x-cloak x-text="t('importAgent.review.autosave.failed')"></div>
+                        <div class="alert alert-warning py-2 small" role="alert" x-show="banners.length > 0">
+                            <template x-for="(banner, bIndex) in banners" :key="bIndex">
+                                <div x-text="t('importAgent.warn.' + banner.code, { count: banner.count })"></div>
+                            </template>
+                            <button type="button" class="btn btn-sm btn-outline-warning mt-1" @click="retryFailed()" x-show="hasFailedChunks"
+                                x-text="t('importAgent.review.retryChunk')"></button>
+                        </div>
+
+                        <!-- filter pills (spec 10.2) -->
+                        <div class="d-flex flex-wrap gap-2 mb-2" role="tablist">
+                            <template x-for="pill in ['all', 'attention', 'errors', 'duplicates', 'edited', 'removed']" :key="pill">
+                                <button type="button" class="btn btn-sm" role="tab"
+                                    :class="filter === pill ? 'btn-primary' : 'btn-outline-secondary'"
+                                    :aria-selected="filter === pill ? 'true' : 'false'"
+                                    @click="filter = pill; selected = []"
+                                    x-text="t('importAgent.review.pill.' + pill) + ' (' + counts[pill] + ')'"></button>
+                            </template>
+                        </div>
+
+                        <!-- defaults panel (spec 10.2) -->
+                        <div class="card shadow-sm mb-2" x-show="showDefaults" x-cloak>
+                            <div class="card-body py-2">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span class="fw-semibold"><i class="bi bi-magic me-1"></i><span x-text="t('importAgent.review.defaults.title')"></span></span>
+                                    <button type="button" class="btn-close" @click="showDefaults = false" :aria-label="t('Cancel')"></button>
+                                </div>
+                                <p class="small text-muted mb-2" x-text="t('importAgent.review.defaults.hint')"></p>
+                                <div class="row g-2">
+                                    <template x-for="field in bulkFields" :key="field.key">
+                                        <div class="col-md-4 col-lg-3">
+                                            <label class="form-label small mb-0" x-text="fieldLabel(field.key)"></label>
+                                            <template x-if="editorType(field.key) === 'select'">
+                                                <select class="form-select form-select-sm" x-model="defaultsDraft[field.key]">
+                                                    <option value="">--</option>
+                                                    <template x-for="optionItem in editorOptions(field.key)" :key="optionItem.value">
+                                                        <option :value="optionItem.value" x-text="optionItem.label"></option>
+                                                    </template>
+                                                </select>
+                                            </template>
+                                            <template x-if="editorType(field.key) === 'date'">
+                                                <input type="text" class="form-control form-control-sm" placeholder="dd/mm/yyyy" x-model="defaultsDraft[field.key]">
+                                            </template>
+                                            <template x-if="editorType(field.key) === 'number'">
+                                                <input type="number" step="any" class="form-control form-control-sm" dir="ltr" x-model="defaultsDraft[field.key]">
+                                            </template>
+                                            <template x-if="editorType(field.key) === 'text'">
+                                                <input type="text" class="form-control form-control-sm" x-model="defaultsDraft[field.key]">
+                                            </template>
+                                        </div>
+                                    </template>
+                                </div>
+                                <div class="text-end mt-2">
+                                    <button type="button" class="btn btn-sm btn-primary" @click="applyDefaults()" x-text="t('importAgent.review.defaults.apply')"></button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- toolbar (spec 10.5, 10.6) -->
+                        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                            <button type="button" class="btn btn-sm btn-outline-primary" @click="showDefaults = !showDefaults" :aria-expanded="showDefaults ? 'true' : 'false'">
+                                <i class="bi bi-magic me-1"></i><span x-text="t('importAgent.review.defaults.title')"></span>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @click="addRowAction()"><i class="bi bi-plus-lg me-1"></i><span x-text="t('importAgent.review.addRow')"></span></button>
+                            <button type="button" class="btn btn-sm btn-outline-danger" @click="deleteSelected()" :disabled="selectedCount === 0"><i class="bi bi-trash"></i></button>
+                            <button type="button" class="btn btn-sm btn-outline-danger" @click="restoreSelected()" :disabled="selectedCount === 0" x-show="filter === 'removed'"><i class="bi bi-arrow-counterclockwise"></i></button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @click="openBulk()" :disabled="selectedCount === 0"><i class="bi bi-pencil-square me-1"></i><span x-text="t('importAgent.review.setValue')"></span></button>
+                            <button type="button" class="btn btn-sm btn-outline-success" @click="markReviewedSelected()" :disabled="selectedCount === 0"><i class="bi bi-check2-square me-1"></i><span x-text="t('importAgent.review.markReviewed')"></span></button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @click="undo()" :disabled="undoStack.length === 0"><i class="bi bi-arrow-counterclockwise"></i></button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @click="redo()" :disabled="redoStack.length === 0"><i class="bi bi-arrow-clockwise"></i></button>
+                            <span class="small text-muted" x-show="selectedCount > 0" x-text="t('importAgent.review.selected', { count: selectedCount })"></span>
+                            <div class="ms-auto btn-group btn-group-sm">
+                                <button type="button" class="btn" :class="tray === 'rejected' ? 'btn-warning' : 'btn-outline-secondary'" @click="selectTray('rejected')">
+                                    <span x-text="t('importAgent.review.tray.rejected')"></span> (<span x-text="rejectedCount"></span>)
+                                </button>
+                                <button type="button" class="btn" :class="tray === 'removed' ? 'btn-warning' : 'btn-outline-secondary'" @click="selectTray('removed')">
+                                    <span x-text="t('importAgent.review.tray.removed')"></span> (<span x-text="removedCount"></span>)
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- trays (spec 10.7) -->
+                        <div class="card shadow-sm mb-2" x-show="tray === 'rejected'" x-cloak>
+                            <div class="card-body py-2">
+                                <template x-if="rejectedCount === 0"><p class="small text-muted mb-0" x-text="t('importAgent.review.tray.empty')"></p></template>
+                                <template x-for="item in rejectedItems" :key="item.id">
+                                    <div class="border rounded p-2 mb-2 small">
+                                        <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                                            <span class="badge text-bg-secondary" x-text="trayReasonLabel(item.reason)"></span>
+                                            <span class="text-muted" x-text="item.chunk_id ? chunkRef(item.chunk_id) : ''"></span>
+                                        </div>
+                                        <div class="my-1 text-break" x-text="item.raw"></div>
+                                        <div class="d-flex flex-wrap gap-1">
+                                            <template x-if="trayRow(item) && trayRow(item).chunk_id && item.reason === 'UNMAPPED'">
+                                                <div class="d-flex flex-wrap gap-1">
+                                                    <span class="small text-muted me-1" x-text="t('importAgent.review.tray.moveTo')" x-cloak></span>
+                                                    <template x-for="target in ['address', 'problem', 'solution', 'notes']" :key="target">
+                                                        <button type="button" class="btn btn-sm btn-outline-secondary py-0" @click="moveUnmapped(item, target)" x-text="fieldLabel(target)"></button>
+                                                    </template>
+                                                </div>
+                                            </template>
+                                            <template x-if="trayRow(item)">
+                                                <button type="button" class="btn btn-sm btn-outline-secondary py-0" @click="showSource(trayRow(item))"><i class="bi bi-search me-1"></i></button>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                        <div class="card shadow-sm mb-2" x-show="tray === 'removed'" x-cloak>
+                            <div class="card-body py-2">
+                                <template x-if="removedCount === 0"><p class="small text-muted mb-0" x-text="t('importAgent.review.tray.empty')"></p></template>
+                                <template x-for="row in (reviewState ? reviewState.rows.filter(r => r.removed) : [])" :key="row.id">
+                                    <div class="d-flex justify-content-between align-items-center border rounded p-2 mb-1 small">
+                                        <span><span class="text-muted me-2" x-text="'#' + row.seq"></span><span x-text="row.cells?.name?.value ?? ''"></span></span>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary py-0" @click="restoreRemovedRow(row)" x-text="t('importAgent.review.tray.restore')"></button>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+
+                        <!-- keyboard hint -->
+                        <p class="small text-muted mb-1 d-none d-lg-block" x-text="t('importAgent.review.kbdHint')"></p>
+
+                        <!-- GRID (lg+), virtualized window (spec 10.3) -->
+                        <div class="card shadow-sm d-none d-lg-block">
+                            <div class="ia-grid-scroll" x-ref="gridScroll" @scroll="onGridScroll($event)" tabindex="0">
+                                <table class="table table-sm table-hover align-middle mb-0 ia-grid">
+                                    <colgroup>
+                                        <col class="ia-col-check">
+                                        <col class="ia-col-status">
+                                        <col>
+                                        <col>
+                                        <col>
+                                        <col>
+                                        <col>
+                                        <col>
+                                        <col>
+                                        <col>
+                                        <col>
+                                        <col>
+                                        <col>
+                                        <col>
+                                        <col>
+                                        <col>
+                                        <col>
+                                        <col>
+                                        <col>
+                                        <col class="ia-col-actions">
+                                    </colgroup>
+                                    <thead class="table-light ia-head" style="position:sticky;top:0;z-index:2">
+                                        <tr>
+                                            <th class="text-center"><input type="checkbox" :checked="allVisibleSelected" @change="toggleSelectAll()" :aria-label="selectedCount > 0 ? t('importAgent.review.selected', { count: selectedCount }) : ''"></th>
+                                            <th x-text="t('Status')"></th>
+                                            <template x-for="field in fields" :key="field.key">
+                                                <th class="ia-th text-truncate" :title="fieldLabel(field.key)" x-text="fieldLabel(field.key)"></th>
+                                            </template>
+                                            <th class="text-center"><i class="bi bi-arrows-angle-expand" role="img" :title="t('importAgent.review.drawer.title')"></i></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr aria-hidden="true"><td colspan="20" :style="'height:' + gridWindow.padTop + 'px;border:0;padding:0'"></td></tr>
+                                        <template x-for="row in windowRows" :key="row.id">
+                                            <tr :class="rowSelected(row) ? 'table-active' : ''">
+                                                <td class="text-center ia-check">
+                                                    <input type="checkbox" :checked="rowSelected(row)" @change="toggleSelect(row)" :aria-label="'row ' + row.seq">
+                                                </td>
+                                                <td class="ia-td-status">
+                                                    <span class="badge" :class="statusChip(row).cls" x-text="statusChip(row).label"></span>
+                                                    <div class="ia-badges small">
+                                                        <template x-for="(badge, badgeIndex) in rowBadges(row)" :key="badgeIndex">
+                                                            <span class="badge text-bg-light border ia-badge" x-text="badge"></span>
+                                                        </template>
+                                                    </div>
+                                                </td>
+                                                <template x-for="field in fields" :key="field.key">
+                                                    <td class="ia-td" :class="cellStateClass(row, field.key)" :title="cellTitle(row, field.key)">
+                                                        <div class="d-flex align-items-center gap-1">
+                                                            <template x-if="editorType(field.key) === 'select'">
+                                                                <select class="form-select form-select-sm ia-editor"
+                                                                    :value="editorValue(row, field.key)"
+                                                                    @change="onEnumChange(row, field.key, $event.target.value)"
+                                                                    @keydown="onCellKeydown($event, row, field.key)">
+                                                                    <option value="">--</option>
+                                                                    <template x-for="optionItem in editorOptions(field.key)" :key="optionItem.value">
+                                                                        <option :value="optionItem.value" x-text="optionItem.label" :selected="String(optionItem.value) === String(editorValue(row, field.key))"></option>
+                                                                    </template>
+                                                                </select>
+                                                            </template>
+                                                            <template x-if="editorType(field.key) === 'date'">
+                                                                <div class="input-group input-group-sm ia-editor-group">
+                                                                    <input type="text" class="form-control" :dir="editorDir(field.key) || undefined" placeholder="dd/mm/yyyy"
+                                                                        :value="editorValue(row, field.key)"
+                                                                        @focus="onEditorFocus(row, field.key)"
+                                                                        @input="onEditorInput(row, field.key, $event.target.value)"
+                                                                        @blur="onEditorBlur(row, field.key)"
+                                                                        @keydown="onCellKeydown($event, row, field.key)">
+                                                                    <input type="date" class="form-control ia-date-trigger" :aria-label="fieldLabel(field.key)"
+                                                                        @change="onDatePicked(row, field.key, $event)">
+                                                                </div>
+                                                            </template>
+                                                            <template x-if="editorType(field.key) === 'number'">
+                                                                <input type="number" step="any" class="form-control form-control-sm ia-editor" :dir="editorDir(field.key) || undefined"
+                                                                    :value="editorValue(row, field.key)"
+                                                                    @focus="onEditorFocus(row, field.key)"
+                                                                    @input="onEditorInput(row, field.key, $event.target.value)"
+                                                                    @blur="onEditorBlur(row, field.key)"
+                                                                    @keydown="onCellKeydown($event, row, field.key)">
+                                                            </template>
+                                                            <template x-if="editorType(field.key) === 'text'">
+                                                                <input type="text" class="form-control form-control-sm ia-editor" :dir="editorDir(field.key) || undefined"
+                                                                    :value="editorValue(row, field.key)"
+                                                                    @focus="onEditorFocus(row, field.key)"
+                                                                    @input="onEditorInput(row, field.key, $event.target.value)"
+                                                                    @blur="onEditorBlur(row, field.key)"
+                                                                    @keydown="onCellKeydown($event, row, field.key)">
+                                                            </template>
+                                                            <template x-if="editorType(field.key) === 'notes'">
+                                                                <button type="button" class="btn btn-sm ia-editor ia-notes"
+                                                                    @click="openDrawer(row, 'notes')"
+                                                                    :title="cellTitle(row, field.key) || fieldLabel(field.key)">
+                                                                    <span x-text="editorPlaceholder(row, field.key) || '…'"></span>
+                                                                </button>
+                                                            </template>
+                                                            <i class="ia-icon" x-show="cellIconClass(row, field.key)" :class="cellIconClass(row, field.key)"
+                                                                :title="cellTitle(row, field.key)"></i>
+                                                        </div>
+                                                    </td>
+                                                </template>
+                                                <td class="text-center">
+                                                    <button type="button" class="btn btn-sm btn-link p-0 text-primary"
+                                                        @click="openDrawer(row, null)" :aria-label="t('importAgent.review.drawer.title')" :title="t('importAgent.review.drawer.title')">
+                                                        <i class="bi bi-arrows-fullscreen"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                        <tr aria-hidden="true"><td colspan="20" :style="'height:' + gridWindow.padBottom + 'px;border:0;padding:0'"></td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- CARDS (below lg) -->
+                        <div class="d-lg-none">
+                            <template x-for="row in cardRows" :key="row.id">
+                                <div class="card mb-2" :class="rowSelected(row) ? 'border-primary' : ''" @click="openDrawer(row)">
+                                    <div class="card-body py-2">
+                                        <div class="d-flex justify-content-between align-items-center gap-2" @click.stop>
+                                            <input class="form-check-input mt-0" type="checkbox" :checked="rowSelected(row)" @change="toggleSelect(row)" :aria-label="'row ' + row.seq">
+                                            <span class="badge" :class="statusChip(row).cls" x-text="statusChip(row).label"></span>
+                                            <span class="text-muted small" x-text="'#' + row.seq"></span>
+                                        </div>
+                                        <div class="mt-1">
+                                            <span class="fw-semibold" x-text="editorValue(row, 'name')"></span>
+                                            <span class="small text-muted ms-2" dir="ltr" x-text="editorValue(row, 'national_id')"></span>
+                                        </div>
+                                        <div class="small text-muted">
+                                            <span dir="ltr" x-text="editorValue(row, 'date_of_birth')"></span>
+                                            <span class="ms-2" dir="ltr" x-text="editorValue(row, 'mobile')"></span>
+                                        </div>
+                                        <template x-if="cellIssueList(row, null).length > 0">
+                                            <div class="small text-danger mt-1 text-truncate" x-text="cellIssueList(row, null).join(' · ')"></div>
+                                        </template>
+                                        <div class="mt-1 d-flex gap-1" @click.stop>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0" @click="openDrawer(row)" x-text="t('Edit')"></button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0" @click="showSource(row, null)"><i class="bi bi-search"></i></button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                            <button type="button" class="btn btn-sm btn-outline-secondary mb-3" x-show="visibleRows.length > cardLimit" @click="cardLimit += 30" x-text="'+ 30'"></button>
+                        </div>
+
+                        <!-- footer + confirmation gate (spec 10.9) -->
+                        <div class="card shadow-sm mt-2">
+                            <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                <div class="small text-muted" x-text="t('importAgent.review.counts', { total: counts.all, attention: counts.attention })"></div>
+                                <button type="button" class="btn btn-primary" @click="openConfirm()">
+                                    <i class="bi bi-check2-circle me-1"></i><span x-text="t('importAgent.review.confirm.title')"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- ROW DRAWER -->
+                <div class="offcanvas offcanvas-end" :class="{ show: drawerOpen }" tabindex="-1" style="width:min(640px, 95vw); visibility:visible;" x-show="drawerOpen" x-cloak>
+                    <div class="offcanvas-header">
+                        <h5 class="offcanvas-title" x-text="t('importAgent.review.drawer.title')"></h5>
+                        <button type="button" class="btn-close" @click="closeDrawer()" :aria-label="t('Cancel')"></button>
+                    </div>
+                    <div class="offcanvas-body" x-show="drawerRow">
+                        <template x-if="drawerRow">
+                            <div>
+                                <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="badge" :class="statusChip(drawerRow).cls" x-text="statusChip(drawerRow).label"></span>
+                                        <template x-for="(badge, badgeIndex) in rowBadges(drawerRow)" :key="badgeIndex">
+                                            <span class="badge text-bg-light border" x-text="badge"></span>
+                                        </template>
+                                        <span class="text-muted small" x-text="'#' + drawerRow.seq"></span>
+                                    </div>
+                                    <div class="d-flex gap-1">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" @click="showSource(drawerRow, null)" x-text="t('importAgent.review.drawer.openSource')"></button>
+                                        <button type="button" class="btn btn-sm btn-outline-success" @click="markRow(drawerRow)" x-text="t('importAgent.review.markReviewed')"></button>
+                                    </div>
+                                </div>
+
+                                <!-- row issues (spec 10.4) -->
+                                <template x-if="cellIssueList(drawerRow, null).length > 0">
+                                    <div class="mb-2"><span class="badge text-bg-warning" x-text="cellIssueList(drawerRow, null).join(' · ')"></span></div>
+                                </template>
+
+                                <!-- field editors -->
+                                <div class="row g-2">
+                                    <template x-for="field in fields" :key="field.key">
+                                        <div class="col-md-6">
+                                            <label class="form-label small mb-0 d-flex justify-content-between" x-text="fieldLabel(field.key)">
+                                                <button type="button" class="btn btn-sm btn-link p-0 text-body-secondary" x-show="drawerRow.cells?.[field.key]?.origin === 'user'" @click="revertCell(drawerRow, field.key)" :title="t('importAgent.review.cell.revert')"><i class="bi bi-arrow-counterclockwise small"></i></button>
+                                            </label>
+                                            <template x-if="editorType(field.key) === 'select'">
+                                                <select class="form-select form-select-sm" :value="drawerFieldValue(drawerRow, field.key)" @change="onEnumChange(drawerRow, field.key, $event.target.value)">
+                                                    <option value="">--</option>
+                                                    <template x-for="optionItem in editorOptions(field.key)" :key="optionItem.value">
+                                                        <option :value="optionItem.value" x-text="optionItem.label" :selected="String(optionItem.value) === String(drawerFieldValue(drawerRow, field.key))"></option>
+                                                    </template>
+                                                </select>
+                                            </template>
+                                            <template x-if="editorType(field.key) === 'date'">
+                                                <input type="text" class="form-control form-control-sm" dir="ltr" placeholder="dd/mm/yyyy"
+                                                    :value="drawerFieldValue(drawerRow, field.key)" @change="drawerFieldChange(drawerRow, field.key, $event.target.value)">
+                                            </template>
+                                            <template x-if="editorType(field.key) === 'number'">
+                                                <input type="number" step="any" class="form-control form-control-sm" dir="ltr"
+                                                    :value="drawerFieldValue(drawerRow, field.key)" @change="drawerFieldChange(drawerRow, field.key, $event.target.value)">
+                                            </template>
+                                            <template x-if="editorType(field.key) === 'text'">
+                                                <input type="text" class="form-control form-control-sm"
+                                                    :value="drawerFieldValue(drawerRow, field.key)" @change="drawerFieldChange(drawerRow, field.key, $event.target.value)">
+                                            </template>
+                                            <template x-if="editorType(field.key) === 'notes'">
+                                                <div>
+                                                    <template x-for="(note, noteIndex) in noteList(drawerRow)" :key="noteIndex">
+                                                        <div class="d-flex gap-1 mb-1">
+                                                            <input type="text" class="form-control form-control-sm" :value="note" @change="noteChange(drawerRow, noteIndex, $event.target.value)">
+                                                            <button type="button" class="btn btn-sm btn-outline-danger py-0" @click="noteRemove(drawerRow, noteIndex)"><i class="bi bi-x"></i></button>
+                                                        </div>
+                                                    </template>
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary py-0" @click="noteAdd(drawerRow)"><i class="bi bi-plus"></i></button>
+                                                </div>
+                                            </template>
+                                            <div class="small" x-show="cellIssueList(drawerRow, field.key).length > 0">
+                                                <span class="text-danger small" x-text="cellIssueList(drawerRow, field.key).join(' · ')"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+
+                                <!-- duplicate panel (spec 10.6) -->
+                                <template x-if="partnerRow || drawerRow.dup || drawerRow.collapsed">
+                                    <div class="border rounded p-2 mt-3">
+                                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-1">
+                                            <span class="fw-semibold small" x-text="dupKindLabel(drawerRow.dup?.kind) || t('importAgent.review.dup.possible')"></span>
+                                            <template x-if="drawerRow.collapsed">
+                                                <span class="badge text-bg-secondary" x-text="t('importAgent.review.dup.collapsed')"></span>
+                                            </template>
+                                        </div>
+                                        <template x-if="partnerRow">
+                                            <div class="small mt-1">
+                                                <span class="text-muted me-1" x-text="t('importAgent.review.dup.partner')"></span>
+                                                <span class="fw-semibold" x-text="partnerRow.cells?.name?.value ?? ''"></span>
+                                                <span class="text-muted ms-2" x-text="partnerRow.cells?.national_id?.value ?? ''"></span>
+                                                <span class="badge ms-2" :class="statusChip(partnerRow).cls" x-text="statusChip(partnerRow).label"></span>
+                                            </div>
+                                        </template>
+                                        <template x-for="action in ['fill', 'keep', 'skip']" :key="action">
+                                            <button type="button" class="btn btn-sm me-1 mt-2" :class="drawerRow.dup?.action === action ? 'btn-primary' : 'btn-outline-secondary'"
+                                                @click="setDupAction(drawerRow, action)" x-text="t('importAgent.review.dup.' + action)"></button>
+                                        </template>
+                                        <template x-if="drawerRow.dup?.action === 'skip' && drawerRow.dup?.kind === 'in_batch'">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary mt-2" @click="keepDupRow(drawerRow)" x-text="t('importAgent.review.dup.keepThis')"></button>
+                                        </template>
+                                    </div>
+                                </template>
+
+                                <div class="d-flex gap-2 mt-3 flex-wrap">
+                                    <button type="button" class="btn btn-outline-danger btn-sm" @click="removeRow(drawerRow)" x-show="!drawerRow.removed" x-text="t('Delete')"></button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" @click="restoreRow(drawerRow)" x-show="drawerRow.removed" x-text="t('importAgent.review.tray.restore')"></button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" @click="closeDrawer()" x-text="t('importAgent.review.drawer.backToGrid')"></button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="offcanvas-backdrop fade show" @click="closeDrawer()" x-show="drawerOpen" x-cloak style="position:fixed;inset:0"></div>
+                </div>
+
+                <!-- SOURCE DRAWER -->
+                <div class="offcanvas offcanvas-end" :class="{ show: sourceOpen }" tabindex="-1" style="width:min(560px, 95vw); visibility:visible;">
+                    <div class="offcanvas-header">
+                        <h5 class="offcanvas-title" x-text="t('importAgent.review.source.title')"></h5>
+                        <button type="button" class="btn-close" @click="sourceOpen = false" :aria-label="t('Cancel')"></button>
+                    </div>
+                    <div class="offcanvas-body">
+                        <template x-if="sourceModel && sourceModel.kind === 'manual'">
+                            <p class="small text-muted" x-text="t('importAgent.review.source.manual')"></p>
+                        </template>
+                        <template x-if="sourceModel && sourceModel.kind === 'sheet'">
+                            <div class="table-responsive small">
+                                <table class="table table-sm table-bordered">
+                                    <thead><tr><template x-for="(header, hIndex) in sourceModel.sheet.header" :key="hIndex"><th x-text="header"></th></template></tr></thead>
+                                    <tbody>
+                                        <template x-for="line in sourceModel.lines" :key="line.id">
+                                            <tr :class="line.cited ? 'table-success' : ''">
+                                                <template x-for="(cellText, cIndex) in line.text.split(' | ')" :key="cIndex"><td x-text="cellText"></td></template>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </template>
+                        <template x-if="sourceModel && sourceModel.kind === 'text'">
+                            <ol class="ia-source-lines small">
+                                <template x-for="line in sourceModel.lines" :key="line.id">
+                                    <li :class="line.cited ? 'ia-cited' : ''">
+                                        <template x-for="segment in highlightSegments(line.text, sourceModel.highlight)" :key="segment.start">
+                                            <mark x-show="segment.match" x-text="segment.text"></mark><span x-show="!segment.match" x-text="segment.text"></span>
+                                        </template>
+                                    </li>
+                                </template>
+                            </ol>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- CONFIRMATION MODAL (spec 10.9) -->
+                <div class="modal d-block" tabindex="-1" x-show="confirmOpen" x-cloak style="background-color:rgba(0,0,0,.5)">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" x-text="t('importAgent.review.confirm.title')"></h5>
+                                <button type="button" class="btn-close" @click="confirmOpen = false" :aria-label="t('Cancel')"></button>
+                            </div>
+                            <div class="modal-body">
+                                <template x-if="confirmCounts">
+                                    <div class="small">
+                                        <p class="fw-semibold mb-2" x-text="t('importAgent.review.confirm.summary', { importable: confirmCounts.importable })"></p>
+                                        <div><i class="bi bi-person-plus me-2"></i><span x-text="t('importAgent.review.confirm.new', { count: confirmCounts.fresh })"></span></div>
+                                        <div><i class="bi bi-person-down me-2"></i><span x-text="t('importAgent.review.confirm.fill', { count: confirmCounts.fill })"></span></div>
+                                        <div class="mt-2 text-muted" x-text="t('importAgent.review.confirm.skipped', { errors: confirmCounts.skippedErrors, dups: confirmCounts.skippedDups, removed: removedCount })"></div>
+                                        <div class="mt-1" :class="confirmCounts.unreviewed > 0 ? 'text-danger' : 'text-muted'" x-text="t('importAgent.review.confirm.unreviewed', { count: confirmCounts.unreviewed })"></div>
+                                    </div>
+                                </template>
+                                <p class="small text-muted mt-2" x-text="confirmNote"></p>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-outline-secondary" @click="confirmOpen = false" x-text="t('Cancel')"></button>
+                                <button type="button" class="btn btn-primary" @click="confirmImportNow()" :disabled="confirmImportDisabled" :title="confirmImportTitle()">
+                                    <i class="bi bi-box-arrow-down me-1"></i><span x-text="t('importAgent.review.confirm.import', { count: confirmCounts ? confirmCounts.importable : 0 })"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- BULK VALUE MODAL (spec 10.5) -->
+                <div class="modal d-block" tabindex="-1" x-show="bulkOpen" x-cloak style="background-color:rgba(0,0,0,.5)">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" x-text="t('importAgent.review.bulk.title', { count: selectedCount })"></h5>
+                                <button type="button" class="btn-close" @click="bulkOpen = false" :aria-label="t('Cancel')"></button>
+                            </div>
+                            <div class="modal-body">
+                                <label class="form-label small" x-text="t('importAgent.review.bulk.field')"></label>
+                                <select class="form-select form-select-sm mb-2" x-model="bulkField">
+                                    <option value="">--</option>
+                                    <template x-for="field in bulkFields" :key="field.key">
+                                        <option :value="field.key" x-text="fieldLabel(field.key)"></option>
+                                    </template>
+                                </select>
+                                <template x-if="bulkField">
+                                    <div>
+                                        <template x-if="editorType(bulkField) === 'select'">
+                                            <select class="form-select form-select-sm" x-model="bulkValue">
+                                                <option value="">--</option>
+                                                <template x-for="optionItem in editorOptions(bulkField)" :key="optionItem.value">
+                                                    <option :value="optionItem.value" x-text="optionItem.label"></option>
+                                                </template>
+                                            </select>
+                                        </template>
+                                        <template x-if="editorType(bulkField) === 'date'">
+                                            <input type="text" class="form-control form-control-sm" dir="ltr" placeholder="dd/mm/yyyy" x-model="bulkValue">
+                                        </template>
+                                        <template x-if="editorType(bulkField) === 'number'">
+                                            <input type="number" step="any" class="form-control form-control-sm" dir="ltr" x-model="bulkValue">
+                                        </template>
+                                        <template x-if="editorType(bulkField) === 'text'">
+                                            <input type="text" class="form-control form-control-sm" x-model="bulkValue">
+                                        </template>
+                                    </div>
+                                </template>
+                                <div class="btn-group btn-group-sm mt-3" role="group">
+                                    <button type="button" class="btn" :class="bulkMode === 'blanks' ? 'btn-primary' : 'btn-outline-secondary'" @click="bulkMode = 'blanks'" x-text="t('importAgent.review.bulk.blanks')"></button>
+                                    <button type="button" class="btn" :class="bulkMode === 'overwrite' ? 'btn-primary' : 'btn-outline-secondary'" @click="bulkMode = 'overwrite'" x-text="t('importAgent.review.bulk.overwrite')"></button>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-outline-secondary" @click="bulkOpen = false" x-text="t('Cancel')"></button>
+                                <button type="button" class="btn btn-primary" @click="applyBulk()" :disabled="!bulkField" x-text="t('importAgent.review.bulk.apply')"></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CSS + small helpers -->
+                <style>
+                    .ia-grid { table-layout: fixed; }
+                    .ia-grid .ia-col-status { width: 96px; }
+                    .ia-grid .ia-col-actions { width: 64px; }
+                    .ia-cell-error { background-color: #fdf0ef; }
+                    .ia-cell-warn { background-color: #fff8e6; }
+                    .ia-cell-info { background-color: #eef4fd; }
+                    .ia-cell-source { background-color: #f2fdf5; }
+                    .ia-cited { background-color: #e9f7ec; }
+                    [dir="rtl"] .ia-grid { direction: rtl; }
+                </style>
             </div>
 
             <!-- PRICES PAGE -->

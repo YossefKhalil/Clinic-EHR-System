@@ -1,9 +1,9 @@
 // import-job — the extraction pump (design spec §9.5, §14.3).
 //
-// Actions: create | add_source | start | pump | cancel | status | retry_chunk.
-// The browser calls `pump` in a loop; each call claims chunks under a lease
-// (import_claim_chunks), runs them through the provider in parallel, writes
-// rows through the shared import-core pipeline, and returns progress.
+// Actions: create | add_source | start | pump | cancel | status | retry_chunk |
+// add_row. The browser calls `pump` in a loop; each call claims chunks under a
+// lease (import_claim_chunks), runs them through the provider in parallel,
+// writes rows through the shared import-core pipeline, and returns progress.
 //
 // Nothing PHI leaves this function except through the provider call itself:
 // responses carry counts, labels and codes — never patient values.
@@ -464,6 +464,20 @@ async function persistChunkResult(
         await service.from('import_rejects').insert(trayPayload);
     }
 
+    // Unmapped text stays visible in the tray (invariant I8, spec 10.7): one
+    // reject row per entry, carrying its row's seq so the tray can move the
+    // text into a cell and then resolve (delete) the item.
+    const unmappedPayload = pipeline.rows.flatMap((row, offset) => (row.unmapped ?? []).map((text: string) => ({
+        job_id: job.id,
+        chunk_id: chunkRow.id,
+        reason: 'UNMAPPED',
+        raw: text,
+        src: { seq: offset + 1 },
+    })));
+    if (unmappedPayload.length > 0) {
+        await service.from('import_rejects').insert(unmappedPayload);
+    }
+
     const usageRecord = {
         user_id: job.created_by,
         job_id: job.id,
@@ -708,6 +722,57 @@ async function actionRetryChunk(body: Record<string, unknown>, ctx: Context) {
     return json({ ok: true, status: 'extracting' });
 }
 
+async function actionAddRow(body: Record<string, unknown>, ctx: Context) {
+    const { user, service } = ctx;
+    const loaded = await loadJobForUser(service, user.id, String(body.job_id ?? ''));
+    if ('error' in loaded) return fail(loaded.error, loaded.error === 'NOT_FOUND' ? 404 : 403);
+    const job = loaded.job;
+    if (job.status !== 'review') return fail('JOB_STATE', 409);
+
+    const { data: last } = await service
+        .from('import_rows')
+        .select('seq')
+        .eq('job_id', job.id)
+        .order('seq', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+    const seq = (last?.seq ?? 0) + 1;
+
+    // The client cannot insert rows (RLS), so the function builds the manual
+    // row through the same pipeline — validation, derivations and the job's
+    // bulk defaults apply; grounding does not (nothing to ground against).
+    const config = (job.config ?? {}) as { enum_snapshot?: object; defaults?: object };
+    const pipeline = runPipeline({
+        records: [{}],
+        sourceId: 'MANUAL',
+        kind: 'text',
+        lines: [],
+        snapshot: config.enum_snapshot ?? {},
+        today: todayIso(),
+        defaults: config.defaults ?? {},
+        requireSection: false,
+        ground: false,
+    });
+    const row = pipeline.rows[0];
+
+    const { data: inserted, error } = await service
+        .from('import_rows')
+        .insert({
+            job_id: job.id,
+            chunk_id: null,
+            seq,
+            src: [],
+            extracted: null,
+            cells: row.cells,
+            issues: row.issues,
+            status: row.status,
+        })
+        .select()
+        .single();
+    if (error || !inserted) return fail('INTERNAL', 500);
+    return json({ ok: true, row: inserted });
+}
+
 async function actionStatus(body: Record<string, unknown>, ctx: Context) {
     const { user, service } = ctx;
     const loaded = await loadJobForUser(service, user.id, String(body.job_id ?? ''));
@@ -768,6 +833,7 @@ Deno.serve(async (req) => {
             case 'cancel': return await actionCancel(body, ctx);
             case 'status': return await actionStatus(body, ctx);
             case 'retry_chunk': return await actionRetryChunk(body, ctx);
+            case 'add_row': return await actionAddRow(body, ctx);
             default: return fail('BAD_REQUEST');
         }
     } catch (err) {

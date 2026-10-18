@@ -31,7 +31,8 @@ INSERT INTO public.import_rows (id, job_id, chunk_id, seq, extracted, cells) VAL
     ('f0000000-0000-4000-8000-000000000002', 'c0000000-0000-4000-8000-000000000002', NULL, 1, '{}'::jsonb, '{}'::jsonb);
 
 INSERT INTO public.import_rejects (job_id, reason) VALUES
-    ('c0000000-0000-4000-8000-000000000001', 'phantom row');
+    ('c0000000-0000-4000-8000-000000000001', 'phantom row'),
+    ('c0000000-0000-4000-8000-000000000002', 'dekhila parse');
 
 INSERT INTO public.import_batches (id, job_id, committed_by, counts) VALUES
     ('ba000000-0000-4000-8000-000000000001', 'c0000000-0000-4000-8000-000000000002', 'b0000000-0000-4000-8000-000000000001', '{"created": 1}'::jsonb);
@@ -107,6 +108,17 @@ SELECT public.rls_assert_eq((SELECT count(*) FROM public.audit_log), 0::bigint,
     'section staff see no audit rows');
 SELECT public.rls_assert_eq((SELECT count(*) FROM public.ai_usage), 0::bigint,
     'section staff see no usage rows');
+
+-- Tray lifecycle: the owner resolves their own rejects (spec 10.7) and only
+-- their own — moving unmapped text into a cell deletes its tray item.
+SELECT public.rls_assert_eq(
+    public.rls_exec($q$DELETE FROM public.import_rejects WHERE job_id = 'c0000000-0000-4000-8000-000000000002'$q$),
+    0::bigint, 'owner cannot delete another job''s tray items');
+SELECT public.rls_assert_eq(
+    public.rls_exec($q$DELETE FROM public.import_rejects WHERE reason = 'phantom row'$q$),
+    1::bigint, 'owner may delete their own tray items');
+SELECT public.rls_assert_eq((SELECT count(*) FROM public.import_rejects), 0::bigint,
+    'a resolved item leaves the owner''s tray');
 
 -- Cross-section duplicate detection still answers (invariant of §8.6).
 SELECT public.rls_assert_eq((SELECT count(*) FROM public.patients), 0::bigint,

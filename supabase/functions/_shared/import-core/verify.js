@@ -413,15 +413,20 @@ export function containsInjectionPhrase(text) {
  * back to the whole chunk (with SRC_REF_INVALID when a value is found only
  * there). Applies the snapping/blanking table of §8.2.3.
  *
+ * `lenient` is the review-time mode (spec §10.10): a phantom never rejects the
+ * record there — the row stays on screen and the per-field grounding below
+ * reports exactly what could not be found.
+ *
  * @returns {{cells, issues, phantom: boolean, citedIds: string[], srcValid: boolean,
  *            foundInChunkOnly: boolean}}
  */
-export function groundRecord({ cells, srcValue, sourceId, linesById, chunkLineIds }) {
+export function groundRecord({ cells, srcValue, sourceId, linesById, chunkLineIds, lenient = false }) {
     const issues = [];
     const changedFields = [];
     const cited = resolveSrc(srcValue, { sourceId, linesById });
     let citedIds = cited.ids;
     let srcValid = cited.valid;
+    let phantom = false;
 
     const citedTexts = citedIds.filter((id) => linesById.has(id)).map((id) => linesById.get(id).text);
     const chunkTexts = chunkLineIds.filter((id) => linesById.has(id)).map((id) => linesById.get(id).text);
@@ -449,8 +454,10 @@ export function groundRecord({ cells, srcValue, sourceId, linesById, chunkLineId
             });
             citedIds = matchedIds;
             srcValid = matchedIds.length > 0;
-        } else {
+        } else if (!lenient) {
             return { cells, issues, changedFields, phantom: true, citedIds, srcValid: false, foundInChunkOnly: false };
+        } else {
+            phantom = true;
         }
     }
 
@@ -464,7 +471,10 @@ export function groundRecord({ cells, srcValue, sourceId, linesById, chunkLineId
     const mobileOk = cells.mobile?.value ? digitsGrounded(cells.mobile.value, [...effectiveTexts, ...chunkTexts]) : false;
     if (cells.name?.value || cells.national_id?.value || cells.mobile?.value) {
         if (!nameOk && !idOk && !mobileOk) {
-            return { cells, issues, changedFields, phantom: true, citedIds, srcValid, foundInChunkOnly: false };
+            if (!lenient) {
+                return { cells, issues, changedFields, phantom: true, citedIds, srcValid, foundInChunkOnly: false };
+            }
+            phantom = true;
         }
     }
 
@@ -553,5 +563,5 @@ export function groundRecord({ cells, srcValue, sourceId, linesById, chunkLineId
         issues.push(issue('SRC_REF_INVALID', { detail: { src: srcValue, reason: 'found_in_chunk_only' } }));
     }
 
-    return { cells, issues, changedFields, phantom: false, citedIds, srcValid, foundInChunkOnly };
+    return { cells, issues, changedFields, phantom, citedIds, srcValid, foundInChunkOnly };
 }
