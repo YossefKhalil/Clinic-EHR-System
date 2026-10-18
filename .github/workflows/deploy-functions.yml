@@ -44,3 +44,9 @@ jobs:
       # itself and fails closed.
       - name: Deploy import-cleanup
         run: supabase functions deploy import-cleanup --no-verify-jwt --project-ref "$PROJECT_REF"
+
+      # User-facing: verifies the caller's JWT (owner scoping happens in the
+      # function itself through auth.uid()). Provider credentials live in
+      # ai_settings (encrypted with the AI_SETTINGS_ENC_KEY project secret).
+      - name: Deploy import-job
+        run: supabase functions deploy import-job --project-ref "$PROJECT_REF"
