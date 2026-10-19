@@ -1,21 +1,26 @@
 <!DOCTYPE html>
 <!--
-  AI Import — Step 0 clickable mock (UX rebuild, proposed).
+  AI Import — Step 0 clickable mock, v2 (UX rebuild, proposed).
   Static artifact for design review: no app code, no data, no network.
-  Open: /mockups/import-ux.html on the branch preview.
+  Open: /mockups/import-ux on the branch preview.
 
-  What this mock argues:
+  v2 changes (owner feedback):
+    - full container width, same as the patients page — nothing squeezed
+    - review has two modes: Simple (default, by-eye review, click-to-edit)
+      and Advanced (issues, duplicates, source, filters) — toggled, remembered
+
+  The mock argues:
     1. The entry is the patients toolbar dropdown — no navbar item.
     2. One screen that grows: drop / paste -> rows appear -> review -> import.
        No wizard steps, no mandatory popups, no modal confirmations.
-    3. The review table is the patients table — same columns, same badges —
-       editable in place, problems first, source on demand.
+    3. The review table is the patients table — same width, same badges —
+       editable in place; Simple by default, Advanced on demand.
 -->
 <html lang="en" dir="ltr">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Import UX — Step 0 mock</title>
+<title>Import UX — Step 0 mock (v2)</title>
 <link id="bsLtr" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
 <link id="bsRtl" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" disabled>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
@@ -40,9 +45,10 @@
     .quote-box { background: #f8f9fa; border-inline-start: 3px solid #6ea8fe; font-size: .82rem; }
     mark { background: #fff3a3; padding: 0 .15rem; }
     .sticky-import { position: sticky; bottom: 0; z-index: 50; }
-    table .form-control-plaintext { min-width: 6rem; }
     .dot-col { width: 28px; }
     .expand-col { width: 34px; }
+    /* simple mode: roomy, calm cells */
+    .simple-table td, .simple-table th { padding-top: .7rem; padding-bottom: .7rem; }
 </style>
 </head>
 <body>
@@ -50,7 +56,7 @@
 <!-- ============ mock chrome (not part of the design) ============ -->
 <div class="mock-chrome bg-dark">
     <div class="container py-2 d-flex flex-wrap align-items-center gap-2">
-        <span class="text-white fw-semibold me-2"><i class="bi bi-stars me-1"></i>Import UX — Step 0 mock</span>
+        <span class="text-white fw-semibold me-2"><i class="bi bi-stars me-1"></i>Import UX — Step 0 mock <span class="badge text-bg-secondary">v2</span></span>
         <div class="btn-group btn-group-sm" role="group">
             <button type="button" class="btn btn-outline-light mock-tab active" data-view="entry">1 · Entry</button>
             <button type="button" class="btn btn-outline-light mock-tab" data-view="start">2 · Start</button>
@@ -66,7 +72,7 @@
     </div>
 </div>
 
-<div class="container py-4" style="max-width:1080px">
+<div class="container page-container py-4">
 
 <!-- ============ VIEW 1: ENTRY ============ -->
 <section id="view-entry" class="view">
@@ -234,192 +240,275 @@
         <h2 class="text-secondary fw-bold mb-0 fs-4"><i class="bi bi-stars me-2 text-primary"></i>Import patients</h2>
         <span class="small text-muted">18 rows from 3 files · finished 2 min ago</span>
         <span class="small text-success ms-auto"><i class="bi bi-cloud-check me-1"></i>All changes saved</span>
+        <div class="btn-group btn-group-sm ms-2" role="group" aria-label="Review mode">
+            <button type="button" class="btn btn-primary" id="modeSimple">Simple</button>
+            <button type="button" class="btn btn-outline-secondary" id="modeAdvanced">Advanced</button>
+        </div>
     </div>
 
     <div class="mock-note mb-3"><span class="mock-num">5</span>
-        The review table <strong>is the patients table</strong> — same columns, same badges,
-        same row rhythm you already know — but every cell edits in place, and problems sort
-        to the top. No 18-column spreadsheet, no toolbars-on-toolbars.
+        Two modes, one table. <strong>Simple is the default</strong> — the patients table trimmed to
+        what you'd check by eye; click any field to fix it. <strong>Advanced</strong> is the full
+        machinery for messy data. The choice is remembered per user.
     </div>
 
-    <!-- attention strip -->
-    <div class="d-flex flex-wrap align-items-center gap-2 border rounded-3 px-3 py-2 mb-2"
-         style="background:#fff8e6;border-color:#ffe69c !important">
-        <i class="bi bi-exclamation-triangle-fill text-warning"></i>
-        <span class="small"><strong>3 rows need attention</strong> · 1 possible duplicate</span>
-        <button class="btn btn-sm btn-warning ms-auto"><i class="bi bi-arrow-down-short me-1"></i>Next issue</button>
-        <button class="btn btn-sm btn-outline-secondary">Show only attention</button>
-    </div>
-
-    <!-- filter chips -->
-    <div class="d-flex flex-wrap gap-2 mb-2 small">
-        <button class="btn btn-sm btn-primary">All (18)</button>
-        <button class="btn btn-sm btn-outline-secondary">Needs attention (3)</button>
-        <button class="btn btn-sm btn-outline-secondary">Duplicates (1)</button>
-        <button class="btn btn-sm btn-outline-secondary">Ready (14)</button>
-        <button class="btn btn-sm btn-outline-secondary">Removed (0)</button>
-    </div>
-
-    <div class="card shadow-sm">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <thead class="table-light border-bottom text-muted">
-                    <tr>
-                        <th class="ps-3" style="width:36px"><input class="form-check-input" type="checkbox"></th>
-                        <th class="dot-col"></th>
-                        <th>Patient Name</th><th>National ID</th><th>Mobile No.</th>
-                        <th>Governorate</th><th>Status</th><th>Follower</th><th>Source</th>
-                        <th>Section</th><th>Visit date</th><th class="expand-col"></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <!-- ready row -->
-                    <tr>
-                        <td class="ps-3"><input class="form-check-input" type="checkbox"></td>
-                        <td><i class="bi bi-check-circle text-success opacity-50"></i></td>
-                        <td class="fw-bold text-dark">Mona Mahmoud Saleh</td>
-                        <td><code>29104011204567</code></td>
-                        <td>01098765432</td>
-                        <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Alexandria</span></td>
-                        <td><span class="badge text-bg-success">Ready</span></td>
-                        <td><span class="text-secondary"><i class="bi bi-person-badge me-1"></i>Nour</span></td>
-                        <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i>Cash</span></td>
-                        <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Agamy</span></td>
-                        <td class="text-muted small">12 Oct 2026</td>
-                        <td><button class="btn btn-sm btn-link text-secondary p-0"><i class="bi bi-chevron-expand"></i></button></td>
-                    </tr>
-
-                    <!-- duplicate row -->
-                    <tr>
-                        <td class="ps-3"><input class="form-check-input" type="checkbox" checked></td>
-                        <td><i class="bi bi-files text-info"></i></td>
-                        <td class="fw-bold text-dark">Ahmed Samir Hassan</td>
-                        <td><code>29511150102345</code></td>
-                        <td>01234567890</td>
-                        <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Cairo</span></td>
-                        <td><span class="badge text-bg-info">Duplicate</span></td>
-                        <td><span class="text-muted">—</span></td>
-                        <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i>Insurance</span></td>
-                        <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Dekhila</span></td>
-                        <td class="text-muted small">05 Oct 2026</td>
-                        <td><button class="btn btn-sm btn-link text-secondary p-0"><i class="bi bi-chevron-expand"></i></button></td>
-                    </tr>
-                    <tr class="small">
-                        <td></td>
-                        <td colspan="11" class="text-muted">
-                            <i class="bi bi-files me-1 text-info"></i>
-                            Same national ID as <strong>row 7</strong> (in this batch).
-                            <button class="btn btn-sm btn-outline-secondary py-0 ms-1">Keep this one</button>
-                            <button class="btn btn-sm btn-outline-secondary py-0 ms-1">Skip this one</button>
-                            <button class="btn btn-sm btn-link py-0 ms-1">Compare</button>
-                        </td>
-                    </tr>
-
-                    <!-- needs-attention row, expanded -->
-                    <tr class="table-warning" style="--bs-table-bg:#fff8e6">
-                        <td class="ps-3"><input class="form-check-input" type="checkbox"></td>
-                        <td><i class="bi bi-exclamation-triangle-fill text-warning"></i></td>
-                        <td class="fw-bold text-dark">Fatma Ibrahim Ali</td>
-                        <td><code>28811220501187</code></td>
-                        <td class="cell-check"><span class="text-body">0112 street 9, camp Caesar</span>
-                            <i class="bi bi-question-circle text-warning ms-1" title="Looks like an address"></i></td>
-                        <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Alexandria</span></td>
-                        <td><span class="badge text-bg-warning">Check</span></td>
-                        <td><span class="text-muted">—</span></td>
-                        <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i>Cash</span></td>
-                        <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Agamy</span></td>
-                        <td class="text-muted small">02 Oct 2026</td>
-                        <td><button class="btn btn-sm btn-link text-secondary p-0"><i class="bi bi-chevron-contract"></i></button></td>
-                    </tr>
-                    <!-- expanded details row -->
-                    <tr>
-                        <td></td>
-                        <td colspan="11" style="background:#fffdf5">
-                            <div class="row g-3 p-1">
-                                <div class="col-lg-7">
-                                    <div class="small fw-semibold mb-2 text-muted text-uppercase">More details</div>
-                                    <div class="row g-2 small">
-                                        <div class="col-6"><span class="text-muted d-block">Date of birth</span>05/11/1988</div>
-                                        <div class="col-6"><span class="text-muted d-block">Age</span>37</div>
-                                        <div class="col-6"><span class="text-muted d-block">Marital status</span>Married</div>
-                                        <div class="col-6"><span class="text-muted d-block">Children</span>2</div>
-                                        <div class="col-6"><span class="text-muted d-block">Price</span>150 EGP</div>
-                                        <div class="col-6"><span class="text-muted d-block">Notes</span><span class="badge text-bg-light border">2 notes</span></div>
-                                        <div class="col-12"><span class="text-muted d-block">Address</span>Camp Caesar, street 9, building 4 — Alexandria</div>
-                                    </div>
-                                    <div class="d-flex gap-2 mt-3">
-                                        <button class="btn btn-sm btn-success"><i class="bi bi-check2 me-1"></i>Row looks good</button>
-                                        <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>Remove row</button>
-                                    </div>
-                                </div>
-                                <div class="col-lg-5">
-                                    <div class="small fw-semibold mb-2 text-muted text-uppercase">From the source</div>
-                                    <div class="quote-box rounded p-2">
-                                        <div class="text-muted mb-1"><i class="bi bi-file-earmark-text me-1"></i>notes-scan.pdf · page 2</div>
-                                        Fatma Ibrahim Ali — ID 28811220501187 —
-                                        <mark>0112 street 9, camp Caesar</mark> — first visit 02/10
-                                    </div>
-                                    <div class="small text-muted mt-2">
-                                        <i class="bi bi-info-circle me-1"></i>The phone column may have picked up an address.
-                                        Type the real number, or clear the cell.
-                                    </div>
-                                </div>
-                            </div>
-                        </td>
-                    </tr>
-
-                    <!-- problem row -->
-                    <tr>
-                        <td class="ps-3"><input class="form-check-input" type="checkbox"></td>
-                        <td><i class="bi bi-x-octagon-fill text-danger"></i></td>
-                        <td class="fw-bold text-dark">Youssef Karim</td>
-                        <td class="cell-bad"><code>3010</code>
-                            <i class="bi bi-x-octagon-fill text-danger ms-1"></i></td>
-                        <td>01055566677</td>
-                        <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Giza</span></td>
-                        <td><span class="badge text-bg-danger">Problem</span></td>
-                        <td><span class="text-muted">—</span></td>
-                        <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i>Cash</span></td>
-                        <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Dekhila</span></td>
-                        <td class="text-muted small">28 Sep 2026</td>
-                        <td><button class="btn btn-sm btn-link text-secondary p-0"><i class="bi bi-chevron-expand"></i></button></td>
-                    </tr>
-                    <tr class="small">
-                        <td></td>
-                        <td colspan="11" class="text-danger">
-                            <i class="bi bi-x-octagon me-1"></i>National ID is 14 digits. Fix it or remove the row — problem rows are skipped.
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
+    <!-- ================= SIMPLE (default) ================= -->
+    <div id="reviewSimple">
+        <div class="mock-note mb-2"><span class="mock-num">6</span>
+            Simple keeps only five columns — name, national ID, mobile, governorate, status — at the
+            same full width as the patients page, so nothing is squeezed. Amber = worth a look,
+            red = must fix (the row is skipped otherwise).
         </div>
 
-        <!-- collapsed strips under the table -->
-        <div class="card-body border-top py-2 d-flex flex-wrap gap-3 small">
-            <a href="#" class="text-secondary text-decoration-none" onclick="return false">
-                <i class="bi bi-inboxes me-1"></i>4 lines couldn't be mapped — <span class="text-decoration-underline">show</span>
-            </a>
-            <a href="#" class="text-secondary text-decoration-none" onclick="return false">
-                <i class="bi bi-trash ms-1"></i>1 row removed — <span class="text-decoration-underline">show</span>
-            </a>
-            <a href="#" class="text-secondary text-decoration-none" onclick="return false">
-                <i class="bi bi-magic me-1"></i>Fill blanks with common values (visit date, follower…)
-            </a>
+        <div class="card shadow-sm">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 simple-table">
+                    <thead class="table-light border-bottom text-muted">
+                        <tr>
+                            <th class="ps-4">Patient Name</th>
+                            <th>National ID</th>
+                            <th>Mobile No.</th>
+                            <th>Governorate</th>
+                            <th class="pe-4">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="ps-4 fw-bold text-dark">Mona Mahmoud Saleh</td>
+                            <td><code>29104011204567</code></td>
+                            <!-- click-to-edit state -->
+                            <td><input class="form-control form-control-sm border-primary shadow-sm" style="max-width:10rem" value="01098765432" aria-label="Mobile"></td>
+                            <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Alexandria</span></td>
+                            <td class="pe-4"><span class="badge text-bg-success">Ready</span></td>
+                        </tr>
+                        <tr>
+                            <td class="ps-4 fw-bold text-dark">Ahmed Samir Hassan</td>
+                            <td><code>29511150102345</code></td>
+                            <td>01234567890</td>
+                            <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Cairo</span></td>
+                            <td class="pe-4"><span class="badge text-bg-info">Duplicate</span></td>
+                        </tr>
+                        <tr>
+                            <td class="ps-4 fw-bold text-dark">Fatma Ibrahim Ali</td>
+                            <td><code>28811220501187</code></td>
+                            <td class="cell-check">0112 street 9, camp Caesar
+                                <i class="bi bi-question-circle text-warning ms-1" title="Looks like an address"></i></td>
+                            <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Alexandria</span></td>
+                            <td class="pe-4"><span class="badge text-bg-warning">Check</span></td>
+                        </tr>
+                        <tr>
+                            <td class="ps-4 fw-bold text-dark">Youssef Karim</td>
+                            <td class="cell-bad"><code>3010</code>
+                                <i class="bi bi-x-octagon-fill text-danger ms-1"></i></td>
+                            <td>01055566677</td>
+                            <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Giza</span></td>
+                            <td class="pe-4"><span class="badge text-bg-danger">Problem</span></td>
+                        </tr>
+                        <tr>
+                            <td class="ps-4 fw-bold text-dark">Sara Hassan Ali</td>
+                            <td><code>29805121201234</code></td>
+                            <td>01001234567</td>
+                            <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Alexandria</span></td>
+                            <td class="pe-4"><span class="badge text-bg-success">Ready</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="mock-note mt-3 mb-3"><span class="mock-num">7</span>
+            That's the whole simple workflow: read down the list, click a field to edit it right
+            there, import. Problems are still flagged — choosing what to do about a duplicate or
+            checking against the original is what Advanced is for.
         </div>
     </div>
 
-    <div class="mock-note mt-3 mb-3"><span class="mock-num">6</span>
-        Duplicates resolve inline on the row. The old side panel, the trays of buttons and the
-        18-column grid are all deleted. Source appears only when you expand a row — on phones it
-        stacks below the details.
+    <!-- ================= ADVANCED ================= -->
+    <div id="reviewAdvanced" class="d-none">
+        <div class="mock-note mb-2"><span class="mock-num">8</span>
+            Advanced = the messy-data machinery: attention strip with "Next issue", filters,
+            duplicate resolution, source expansion, unmapped and removed lines. Same table, more
+            detail — reachable in one click, never in the way.
+        </div>
+
+        <!-- attention strip -->
+        <div class="d-flex flex-wrap align-items-center gap-2 border rounded-3 px-3 py-2 mb-2"
+             style="background:#fff8e6;border-color:#ffe69c !important">
+            <i class="bi bi-exclamation-triangle-fill text-warning"></i>
+            <span class="small"><strong>3 rows need attention</strong> · 1 possible duplicate</span>
+            <button class="btn btn-sm btn-warning ms-auto"><i class="bi bi-arrow-down-short me-1"></i>Next issue</button>
+            <button class="btn btn-sm btn-outline-secondary">Show only attention</button>
+        </div>
+
+        <!-- filter chips -->
+        <div class="d-flex flex-wrap gap-2 mb-2 small">
+            <button class="btn btn-sm btn-primary">All (18)</button>
+            <button class="btn btn-sm btn-outline-secondary">Needs attention (3)</button>
+            <button class="btn btn-sm btn-outline-secondary">Duplicates (1)</button>
+            <button class="btn btn-sm btn-outline-secondary">Ready (14)</button>
+            <button class="btn btn-sm btn-outline-secondary">Removed (0)</button>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light border-bottom text-muted">
+                        <tr>
+                            <th class="ps-3" style="width:36px"><input class="form-check-input" type="checkbox"></th>
+                            <th class="dot-col"></th>
+                            <th>Patient Name</th><th>National ID</th><th>Mobile No.</th>
+                            <th>Governorate</th><th>Status</th><th>Follower</th><th>Source</th>
+                            <th>Section</th><th>Visit date</th><th class="expand-col"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- ready row -->
+                        <tr>
+                            <td class="ps-3"><input class="form-check-input" type="checkbox"></td>
+                            <td><i class="bi bi-check-circle text-success opacity-50"></i></td>
+                            <td class="fw-bold text-dark">Mona Mahmoud Saleh</td>
+                            <td><code>29104011204567</code></td>
+                            <td>01098765432</td>
+                            <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Alexandria</span></td>
+                            <td><span class="badge text-bg-success">Ready</span></td>
+                            <td><span class="text-secondary"><i class="bi bi-person-badge me-1"></i>Nour</span></td>
+                            <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i>Cash</span></td>
+                            <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Agamy</span></td>
+                            <td class="text-muted small">12 Oct 2026</td>
+                            <td><button class="btn btn-sm btn-link text-secondary p-0"><i class="bi bi-chevron-expand"></i></button></td>
+                        </tr>
+
+                        <!-- duplicate row -->
+                        <tr>
+                            <td class="ps-3"><input class="form-check-input" type="checkbox" checked></td>
+                            <td><i class="bi bi-files text-info"></i></td>
+                            <td class="fw-bold text-dark">Ahmed Samir Hassan</td>
+                            <td><code>29511150102345</code></td>
+                            <td>01234567890</td>
+                            <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Cairo</span></td>
+                            <td><span class="badge text-bg-info">Duplicate</span></td>
+                            <td><span class="text-muted">—</span></td>
+                            <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i>Insurance</span></td>
+                            <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Dekhila</span></td>
+                            <td class="text-muted small">05 Oct 2026</td>
+                            <td><button class="btn btn-sm btn-link text-secondary p-0"><i class="bi bi-chevron-expand"></i></button></td>
+                        </tr>
+                        <tr class="small">
+                            <td></td>
+                            <td colspan="11" class="text-muted">
+                                <i class="bi bi-files me-1 text-info"></i>
+                                Same national ID as <strong>row 7</strong> (in this batch).
+                                <button class="btn btn-sm btn-outline-secondary py-0 ms-1">Keep this one</button>
+                                <button class="btn btn-sm btn-outline-secondary py-0 ms-1">Skip this one</button>
+                                <button class="btn btn-sm btn-link py-0 ms-1">Compare</button>
+                            </td>
+                        </tr>
+
+                        <!-- needs-attention row, expanded -->
+                        <tr style="--bs-table-bg:#fff8e6">
+                            <td class="ps-3"><input class="form-check-input" type="checkbox"></td>
+                            <td><i class="bi bi-exclamation-triangle-fill text-warning"></i></td>
+                            <td class="fw-bold text-dark">Fatma Ibrahim Ali</td>
+                            <td><code>28811220501187</code></td>
+                            <td class="cell-check"><span class="text-body">0112 street 9, camp Caesar</span>
+                                <i class="bi bi-question-circle text-warning ms-1" title="Looks like an address"></i></td>
+                            <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Alexandria</span></td>
+                            <td><span class="badge text-bg-warning">Check</span></td>
+                            <td><span class="text-muted">—</span></td>
+                            <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i>Cash</span></td>
+                            <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Agamy</span></td>
+                            <td class="text-muted small">02 Oct 2026</td>
+                            <td><button class="btn btn-sm btn-link text-secondary p-0"><i class="bi bi-chevron-contract"></i></button></td>
+                        </tr>
+                        <!-- expanded details row -->
+                        <tr>
+                            <td></td>
+                            <td colspan="11" style="background:#fffdf5">
+                                <div class="row g-3 p-1">
+                                    <div class="col-lg-7">
+                                        <div class="small fw-semibold mb-2 text-muted text-uppercase">More details</div>
+                                        <div class="row g-2 small">
+                                            <div class="col-6"><span class="text-muted d-block">Date of birth</span>05/11/1988</div>
+                                            <div class="col-6"><span class="text-muted d-block">Age</span>37</div>
+                                            <div class="col-6"><span class="text-muted d-block">Marital status</span>Married</div>
+                                            <div class="col-6"><span class="text-muted d-block">Children</span>2</div>
+                                            <div class="col-6"><span class="text-muted d-block">Price</span>150 EGP</div>
+                                            <div class="col-6"><span class="text-muted d-block">Notes</span><span class="badge text-bg-light border">2 notes</span></div>
+                                            <div class="col-12"><span class="text-muted d-block">Address</span>Camp Caesar, street 9, building 4 — Alexandria</div>
+                                        </div>
+                                        <div class="d-flex gap-2 mt-3">
+                                            <button class="btn btn-sm btn-success"><i class="bi bi-check2 me-1"></i>Row looks good</button>
+                                            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>Remove row</button>
+                                        </div>
+                                    </div>
+                                    <div class="col-lg-5">
+                                        <div class="small fw-semibold mb-2 text-muted text-uppercase">From the source</div>
+                                        <div class="quote-box rounded p-2">
+                                            <div class="text-muted mb-1"><i class="bi bi-file-earmark-text me-1"></i>notes-scan.pdf · page 2</div>
+                                            Fatma Ibrahim Ali — ID 28811220501187 —
+                                            <mark>0112 street 9, camp Caesar</mark> — first visit 02/10
+                                        </div>
+                                        <div class="small text-muted mt-2">
+                                            <i class="bi bi-info-circle me-1"></i>The phone column may have picked up an address.
+                                            Type the real number, or clear the cell.
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+
+                        <!-- problem row -->
+                        <tr>
+                            <td class="ps-3"><input class="form-check-input" type="checkbox"></td>
+                            <td><i class="bi bi-x-octagon-fill text-danger"></i></td>
+                            <td class="fw-bold text-dark">Youssef Karim</td>
+                            <td class="cell-bad"><code>3010</code>
+                                <i class="bi bi-x-octagon-fill text-danger ms-1"></i></td>
+                            <td>01055566677</td>
+                            <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Giza</span></td>
+                            <td><span class="badge text-bg-danger">Problem</span></td>
+                            <td><span class="text-muted">—</span></td>
+                            <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i>Cash</span></td>
+                            <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Dekhila</span></td>
+                            <td class="text-muted small">28 Sep 2026</td>
+                            <td><button class="btn btn-sm btn-link text-secondary p-0"><i class="bi bi-chevron-expand"></i></button></td>
+                        </tr>
+                        <tr class="small">
+                            <td></td>
+                            <td colspan="11" class="text-danger">
+                                <i class="bi bi-x-octagon me-1"></i>National ID is 14 digits. Fix it or remove the row — problem rows are skipped.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- collapsed strips under the table -->
+            <div class="card-body border-top py-2 d-flex flex-wrap gap-3 small">
+                <a href="#" class="text-secondary text-decoration-none" onclick="return false">
+                    <i class="bi bi-inboxes me-1"></i>4 lines couldn't be mapped — <span class="text-decoration-underline">show</span>
+                </a>
+                <a href="#" class="text-secondary text-decoration-none" onclick="return false">
+                    <i class="bi bi-trash ms-1"></i>1 row removed — <span class="text-decoration-underline">show</span>
+                </a>
+                <a href="#" class="text-secondary text-decoration-none" onclick="return false">
+                    <i class="bi bi-magic me-1"></i>Fill blanks with common values (visit date, follower…)
+                </a>
+            </div>
+        </div>
+
+        <div class="mock-note mt-3 mb-3"><span class="mock-num">9</span>
+            Everything here exists only for messy imports. In simple mode none of it is rendered —
+            flagged rows still show their badges, and the same fixes stay one click away.
+        </div>
     </div>
 
-    <!-- sticky import bar -->
+    <!-- sticky import bar (both modes) -->
     <div class="card shadow sticky-import">
         <div class="card-body py-2">
             <div class="d-flex flex-wrap align-items-center gap-2">
                 <span class="small"><strong>14 ready to import</strong>
-                    <span class="text-muted">· 3 need attention · 1 skipped (problem)</span></span>
+                    <span class="text-muted">· 3 need a check · 1 duplicate — skipped unless resolved</span></span>
                 <button class="btn btn-primary ms-auto" onclick="document.getElementById('confirmStrip').classList.toggle('d-none')">
                     <i class="bi bi-box-arrow-down me-1"></i>Import 14 patients
                 </button>
@@ -436,7 +525,7 @@
             </div>
         </div>
     </div>
-    <div class="mock-note mt-2 mb-4"><span class="mock-num">7</span>
+    <div class="mock-note mt-2 mb-4"><span class="mock-num">10</span>
         Confirmation is <strong>inline</strong>, right where you clicked — never a modal. After
         import: back to Patients with a toast and the new rows highlighted.
     </div>
@@ -444,7 +533,7 @@
 
 <footer class="text-muted small pb-5">
     <hr>
-    Static mock for design review — proposed direction, not final. Arabic/RTL toggle is a rough
+    Static mock v2 for design review — proposed direction, not final. Arabic/RTL toggle is a rough
     preview. The real screen keeps the same engine already tested (rules, validation, dedupe);
     only the surface changes.
 </footer>
@@ -462,6 +551,16 @@
             window.scrollTo({ top: 0 });
         });
     });
+    // review modes
+    function setMode(mode) {
+        const simple = mode === 'simple';
+        document.getElementById('reviewSimple').classList.toggle('d-none', !simple);
+        document.getElementById('reviewAdvanced').classList.toggle('d-none', simple);
+        document.getElementById('modeSimple').className = 'btn ' + (simple ? 'btn-primary' : 'btn-outline-secondary');
+        document.getElementById('modeAdvanced').className = 'btn ' + (!simple ? 'btn-primary' : 'btn-outline-secondary');
+    }
+    document.getElementById('modeSimple').addEventListener('click', () => setMode('simple'));
+    document.getElementById('modeAdvanced').addEventListener('click', () => setMode('advanced'));
     // rough RTL preview
     const rtlToggle = document.getElementById('rtlToggle');
     rtlToggle.addEventListener('change', () => {
