@@ -1,7 +1,8 @@
 # AI Import — UX rebuild brief (Step 0, proposed)
 
 Status: **proposed — pending review**. Companion artifact:
-`public/mockups/import-ux.html` — mock v3 (open `/mockups/import-ux` on the branch preview).
+`public/mockups/import-ux.html` — v4, the live-feel preview (open `/mockups/import-ux` on
+the branch preview; full EN/AR toggle, no design annotations).
 
 v2 revision (from owner feedback on v1): the mock now runs at the full container width
 of the patients page (v1 squeezed itself to 1080px), and review has two modes —
@@ -10,6 +11,12 @@ Simple (default) and Advanced.
 v3 revision (from owner feedback on v2): every review row opens the **complete extracted
 record** — all 17 registry fields, grouped like the intake form — not just the five scan
 columns; the import bar carries the one field the AI never extracts (section).
+
+v4 revision (from owner feedback on v3): the record panel is restyled to mirror the
+Patient Intake Registry exactly (same numbered blue section headers, icons, colors and
+field order — muscle memory); Section is now read from the file when present; a source
+image is attached to the patient automatically; the mock is bilingual EN/AR and
+annotation-free.
 
 ## Why
 
@@ -74,17 +81,21 @@ everything behind `review.js`/`api.js`, all 351 tests) and replaces the entire s
   `Problem` (danger, skipped unless fixed), `Duplicate` (info, resolved in Advanced —
   skipped if left unresolved), `Removed` (secondary). Counts live in filter chips
   (Advanced) styled like the patients filters.
-- **Row expansion is the full record.** Every row — in both modes — opens the complete
-  extracted record: all 17 registry fields in intake-form groups (personal, demographics,
-  address, visit data, notes), each editable in place. The table columns are only the
-  scanning surface; nothing the AI extracted is unreachable. In Advanced the panel adds
-  the source quote and row actions (row looks good / remove). One row expanded at a time
-  on phones.
-- **Section picker.** The AI never extracts `section` (it is authorization-relevant);
-  the import bar carries one picker that applies a section to every row, and the row
-  record has a per-row select. Import rejects rows without a section.
-- **Attachments are out of scope**: they are Cloudinary uploads on the patient page,
-  not extractable data; the record panel says so.
+- **Row expansion is the full record, in intake-form clothes.** Every row — in both
+  modes — opens the complete extracted record: all 17 registry fields, wearing the exact
+  structure of the Patient Intake Registry (same numbered sections 1–5, same icons and
+  colors: red Problem, green Diagnosis & Treatment Plan, blue section headers, notes
+  list with Add Note, Attachments). The table columns are only the scanning surface;
+  nothing the AI extracted is unreachable. In Advanced the panel adds the source quote
+  and row actions (row looks good / remove). One row expanded at a time on phones.
+- **Section is read from the file when present** (owner decision, see engine deltas):
+  an extracted section is matched against the user's allowed sections and left blank if
+  it doesn't match or isn't in the source. The import bar carries one picker that fills
+  the rows that still have none; the record panel also has a per-row select. Rows
+  without a section cannot be imported.
+- **Source images are attached automatically** (owner decision, see engine deltas):
+  when a row's source is an image, that image is saved with the patient at import — an
+  additive extra, never a requirement. The record panel shows the attachment chip.
 - **Collapsed strips** under the table replace the trays: unmapped lines, removed rows,
   and the bulk "fill blanks with common values" panel (defaults, re-housed inline).
 - **Extraction strip**: while the job runs, a thin progress line with `done/total` and
@@ -101,8 +112,21 @@ everything behind `review.js`/`api.js`, all 351 tests) and replaces the entire s
 ## What stays untouched
 
 `review.js` (39 pure functions), `api.js`, `import-core`, the edge functions, schema,
-i18n test infrastructure and all existing tests. New surfaces are rendered from the
-same review state; no rule changes are part of the UX rebuild.
+i18n test infrastructure and all existing tests — with one agreed exception, the two
+engine deltas below. New surfaces are rendered from the same review state; no rule
+changes are part of the UX rebuild itself.
+
+## Engine deltas agreed with the owner
+
+1. **`section` becomes an extracted field.** The registry currently marks it
+   `extract: false` ("authorization-relevant, never guessed"). The owner decided the AI
+   may read it from the import data. Implementation: flip the registry flag, regenerate
+   the extractor guide, keep `enumMatch` against the user's allowed sections — an
+   unmatched or absent section stays blank and must be picked by a human.
+2. **Source-image attachment.** On commit, rows whose source is an image get that image
+   saved with the patient (the job file already exists in storage; the commit copies the
+   reference/image into the patient's attachments). Additive detail, no new required
+   step. Lands with the M6 commit work.
 
 ## Baby steps (one commit + preview build each)
 
@@ -111,7 +135,8 @@ same review state; no rule changes are part of the UX rebuild.
 2. **Review table I (Simple)** — five-column patients-style table, read-only, wired to
    `review.js`; mode toggle in place (Advanced shows an empty state until step 4).
 3. **Review table II (Simple, editable)** — click-to-edit cells, the row Details panel
-   with the complete 17-field record, issue tints/badges, autosave.
+   with the complete 17-field record styled as the intake registry, issue tints/badges,
+   autosave.
 4. **Advanced mode + import** — attention strip, "Next issue", filter chips, duplicate
    resolution, row expansion with source, collapsed strips, bulk fill; sticky import
    bar with inline confirm (wired to the real commit endpoint when M6 lands — M6 stays
