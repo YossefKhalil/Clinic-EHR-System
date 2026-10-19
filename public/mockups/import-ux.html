@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<!--
+  AI Import — Step 0 clickable mock (UX rebuild, proposed).
+  Static artifact for design review: no app code, no data, no network.
+  Open: /mockups/import-ux.html on the branch preview.
+
+  What this mock argues:
+    1. The entry is the patients toolbar dropdown — no navbar item.
+    2. One screen that grows: drop / paste -> rows appear -> review -> import.
+       No wizard steps, no mandatory popups, no modal confirmations.
+    3. The review table is the patients table — same columns, same badges —
+       editable in place, problems first, source on demand.
+-->
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Import UX — Step 0 mock</title>
+<link id="bsLtr" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link id="bsRtl" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" disabled>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<style>
+    body { background: #f8f9fa; }
+    .mock-chrome { position: sticky; top: 0; z-index: 100; }
+    .mock-tab { cursor: pointer; }
+    .mock-note {
+        border: 1px dashed #b9c0c7; background: #fdfdfb; color: #6c757d;
+        font-size: .78rem; border-radius: .5rem; padding: .5rem .65rem;
+    }
+    .mock-num {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 1.15rem; height: 1.15rem; border-radius: 50%;
+        background: #0d6efd; color: #fff; font-size: .68rem; font-weight: 700;
+        margin-inline-end: .4rem;
+    }
+    .mock-ruler { border: 1px solid #dee2e6; border-radius: .75rem; background: #fff; }
+    .faded { opacity: .55; }
+    .cell-bad { background: #fdf0ef !important; }
+    .cell-check { background: #fff8e6 !important; }
+    .quote-box { background: #f8f9fa; border-inline-start: 3px solid #6ea8fe; font-size: .82rem; }
+    mark { background: #fff3a3; padding: 0 .15rem; }
+    .sticky-import { position: sticky; bottom: 0; z-index: 50; }
+    table .form-control-plaintext { min-width: 6rem; }
+    .dot-col { width: 28px; }
+    .expand-col { width: 34px; }
+</style>
+</head>
+<body>
+
+<!-- ============ mock chrome (not part of the design) ============ -->
+<div class="mock-chrome bg-dark">
+    <div class="container py-2 d-flex flex-wrap align-items-center gap-2">
+        <span class="text-white fw-semibold me-2"><i class="bi bi-stars me-1"></i>Import UX — Step 0 mock</span>
+        <div class="btn-group btn-group-sm" role="group">
+            <button type="button" class="btn btn-outline-light mock-tab active" data-view="entry">1 · Entry</button>
+            <button type="button" class="btn btn-outline-light mock-tab" data-view="start">2 · Start</button>
+            <button type="button" class="btn btn-outline-light mock-tab" data-view="review">3 · Review</button>
+        </div>
+        <div class="ms-auto d-flex align-items-center gap-3">
+            <span class="text-secondary small d-none d-md-inline">static mock · nothing is real</span>
+            <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="rtlToggle">
+                <label class="form-check-label text-white small" for="rtlToggle">العربية</label>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container py-4" style="max-width:1080px">
+
+<!-- ============ VIEW 1: ENTRY ============ -->
+<section id="view-entry" class="view">
+    <p class="text-muted small mb-3">
+        <i class="bi bi-arrow-right-short"></i> Where the feature lives. Everything starts from the
+        button the staff already use every day — nothing new in the navbar.
+    </p>
+
+    <div class="mock-note mb-3"><span class="mock-num">1</span>
+        Entry = <strong>Add New Patient ▾</strong> dropdown. The navbar item is deleted. The whole
+        dropdown hides when the feature is off in Settings.
+    </div>
+
+    <div class="mock-ruler p-3 p-md-4">
+        <!-- patients toolbar slice -->
+        <div class="row align-items-center mb-3">
+            <div class="col-md-6">
+                <h2 class="text-secondary fw-bold mb-0 fs-4">
+                    <i class="bi bi-people-fill me-2 text-primary"></i>Patients Management
+                </h2>
+            </div>
+            <div class="col-md-6 text-end mt-2 mt-md-0">
+                <button class="btn btn-success shadow-sm me-2"><i class="bi bi-file-earmark-spreadsheet me-1"></i>Excel</button>
+                <div class="btn-group shadow-sm">
+                    <button class="btn btn-primary"><i class="bi bi-person-plus-fill me-1"></i>Add New Patient</button>
+                    <button class="btn btn-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="true"></button>
+                    <ul class="dropdown-menu dropdown-menu-end show" style="position:static;display:block;float:none;width:16rem;margin-top:.25rem">
+                        <li><button class="dropdown-item" type="button"><i class="bi bi-person-plus me-2"></i>New Patient</button></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <button class="dropdown-item fw-semibold" type="button">
+                                <i class="bi bi-stars me-2 text-primary"></i>Import from file or paste
+                            </button>
+                        </li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <!-- appears only when a job is unfinished -->
+                            <button class="dropdown-item text-secondary" type="button">
+                                <i class="bi bi-arrow-counterclockwise me-2"></i>Continue import
+                                <span class="badge text-bg-light border ms-1 fw-normal">12 rows ready</span>
+                            </button>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div class="mock-note mb-3"><span class="mock-num">2</span>
+            "Continue import" appears in this dropdown only while a job is unfinished — replacing the
+            old blue resume banner. No alerts, no bars.
+        </div>
+        <!-- patients table slice (context only) -->
+        <div class="table-responsive faded">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light border-bottom text-muted">
+                    <tr>
+                        <th class="ps-4 py-3">Patient Name</th><th>National ID</th><th>Mobile No.</th>
+                        <th>Governorate</th><th>Status</th><th>Registered Date</th><th class="text-end pe-4">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="ps-4 fw-bold text-dark">Sara Hassan Ali</td>
+                        <td><code>29805121201234</code></td>
+                        <td><i class="bi bi-telephone text-muted me-1"></i>01001234567</td>
+                        <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Alexandria</span></td>
+                        <td><button class="btn btn-sm px-2 py-1 btn-success"><i class="bi bi-check-circle-fill me-1"></i>Completed</button></td>
+                        <td class="text-muted small">12 Oct 2026</td>
+                        <td class="text-end pe-4"><span class="btn-group btn-group-sm"><button class="btn btn-outline-secondary"><i class="bi bi-eye"></i></button><button class="btn btn-outline-primary"><i class="bi bi-pencil-square"></i></button></span></td>
+                    </tr>
+                    <tr>
+                        <td class="ps-4 fw-bold text-dark">Omar Adel</td>
+                        <td><code>30102250101123</code></td>
+                        <td><i class="bi bi-telephone text-muted me-1"></i>01122334455</td>
+                        <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Cairo</span></td>
+                        <td><button class="btn btn-sm px-2 py-1 btn-outline-secondary"><i class="bi bi-circle me-1"></i>Pending</button></td>
+                        <td class="text-muted small">11 Oct 2026</td>
+                        <td class="text-end pe-4"><span class="btn-group btn-group-sm"><button class="btn btn-outline-secondary"><i class="bi bi-eye"></i></button><button class="btn btn-outline-primary"><i class="bi bi-pencil-square"></i></button></span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<!-- ============ VIEW 2: START ============ -->
+<section id="view-start" class="view d-none">
+    <div class="d-flex align-items-center gap-2 mb-3">
+        <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Patients</button>
+        <h2 class="text-secondary fw-bold mb-0 fs-4"><i class="bi bi-stars me-2 text-primary"></i>Import patients</h2>
+    </div>
+
+    <div class="mock-note mb-3"><span class="mock-num">3</span>
+        One screen, no step wizard. This is the same page that later becomes the review table —
+        it grows, it never switches or blocks.
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <label class="d-block border border-2 border-dashed rounded-3 p-4 p-md-5 text-center" style="cursor:pointer">
+                        <i class="bi bi-cloud-arrow-up fs-2 d-block text-primary mb-2"></i>
+                        <span class="fw-semibold d-block">Drag files here or click to choose</span>
+                        <span class="small text-muted">PDF · Word · Excel · CSV · photos of notes — up to 5 files</span>
+                    </label>
+
+                    <div class="mt-3">
+                        <label class="form-label small text-muted mb-1">…or paste text (WhatsApp messages, notes, a list)</label>
+                        <textarea class="form-control" rows="2" placeholder="Paste anything — one patient per line or free text."></textarea>
+                    </div>
+
+                    <div class="d-flex flex-wrap align-items-center gap-3 mt-3">
+                        <a href="#" class="small text-decoration-none" onclick="return false"><i class="bi bi-chevron-down me-1"></i>More options — section, hints for the AI</a>
+                    </div>
+
+                    <!-- chosen files -->
+                    <ul class="list-unstyled mb-0 mt-3">
+                        <li class="d-flex align-items-center gap-2 py-1 border-top">
+                            <i class="bi bi-file-earmark-spreadsheet text-success"></i>
+                            <span class="fw-semibold">october-visits.xlsx</span>
+                            <span class="text-muted small">82 KB · 46 rows</span>
+                            <button class="btn btn-sm btn-link text-danger ms-auto p-0"><i class="bi bi-x-lg"></i></button>
+                        </li>
+                        <li class="d-flex align-items-center gap-2 py-1 border-top">
+                            <i class="bi bi-file-earmark-text text-danger"></i>
+                            <span class="fw-semibold">notes-scan.pdf</span>
+                            <span class="text-muted small">1.2 MB</span>
+                            <span class="badge text-bg-warning-subtle border border-warning-subtle text-body fw-normal">2 pages look like handwriting</span>
+                            <button class="btn btn-sm btn-link text-danger ms-auto p-0"><i class="bi bi-x-lg"></i></button>
+                        </li>
+                    </ul>
+
+                    <div class="text-end mt-4">
+                        <button class="btn btn-primary btn-lg"><i class="bi bi-stars me-1"></i>Analyze files</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card shadow-sm">
+                <div class="card-body small">
+                    <div class="fw-semibold mb-2"><i class="bi bi-shield-check me-1 text-success"></i>While it works</div>
+                    <ul class="text-muted ps-3 mb-0">
+                        <li class="mb-2">Files are stored privately and deleted after 30 days.</li>
+                        <li class="mb-2">Extraction keeps running if you close the page — resume from
+                            <strong>Add New Patient ▾</strong>.</li>
+                        <li>Rows appear in the table below as soon as they're ready — you can start
+                            reviewing while it still works.</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="mock-note mt-3"><span class="mock-num">4</span>
+                No mandatory popups, nothing to acknowledge. The old wizard steps and the separate
+                "extracting" screen are gone.
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ VIEW 3: REVIEW ============ -->
+<section id="view-review" class="view d-none">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+        <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Patients</button>
+        <h2 class="text-secondary fw-bold mb-0 fs-4"><i class="bi bi-stars me-2 text-primary"></i>Import patients</h2>
+        <span class="small text-muted">18 rows from 3 files · finished 2 min ago</span>
+        <span class="small text-success ms-auto"><i class="bi bi-cloud-check me-1"></i>All changes saved</span>
+    </div>
+
+    <div class="mock-note mb-3"><span class="mock-num">5</span>
+        The review table <strong>is the patients table</strong> — same columns, same badges,
+        same row rhythm you already know — but every cell edits in place, and problems sort
+        to the top. No 18-column spreadsheet, no toolbars-on-toolbars.
+    </div>
+
+    <!-- attention strip -->
+    <div class="d-flex flex-wrap align-items-center gap-2 border rounded-3 px-3 py-2 mb-2"
+         style="background:#fff8e6;border-color:#ffe69c !important">
+        <i class="bi bi-exclamation-triangle-fill text-warning"></i>
+        <span class="small"><strong>3 rows need attention</strong> · 1 possible duplicate</span>
+        <button class="btn btn-sm btn-warning ms-auto"><i class="bi bi-arrow-down-short me-1"></i>Next issue</button>
+        <button class="btn btn-sm btn-outline-secondary">Show only attention</button>
+    </div>
+
+    <!-- filter chips -->
+    <div class="d-flex flex-wrap gap-2 mb-2 small">
+        <button class="btn btn-sm btn-primary">All (18)</button>
+        <button class="btn btn-sm btn-outline-secondary">Needs attention (3)</button>
+        <button class="btn btn-sm btn-outline-secondary">Duplicates (1)</button>
+        <button class="btn btn-sm btn-outline-secondary">Ready (14)</button>
+        <button class="btn btn-sm btn-outline-secondary">Removed (0)</button>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light border-bottom text-muted">
+                    <tr>
+                        <th class="ps-3" style="width:36px"><input class="form-check-input" type="checkbox"></th>
+                        <th class="dot-col"></th>
+                        <th>Patient Name</th><th>National ID</th><th>Mobile No.</th>
+                        <th>Governorate</th><th>Status</th><th>Follower</th><th>Source</th>
+                        <th>Section</th><th>Visit date</th><th class="expand-col"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- ready row -->
+                    <tr>
+                        <td class="ps-3"><input class="form-check-input" type="checkbox"></td>
+                        <td><i class="bi bi-check-circle text-success opacity-50"></i></td>
+                        <td class="fw-bold text-dark">Mona Mahmoud Saleh</td>
+                        <td><code>29104011204567</code></td>
+                        <td>01098765432</td>
+                        <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Alexandria</span></td>
+                        <td><span class="badge text-bg-success">Ready</span></td>
+                        <td><span class="text-secondary"><i class="bi bi-person-badge me-1"></i>Nour</span></td>
+                        <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i>Cash</span></td>
+                        <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Agamy</span></td>
+                        <td class="text-muted small">12 Oct 2026</td>
+                        <td><button class="btn btn-sm btn-link text-secondary p-0"><i class="bi bi-chevron-expand"></i></button></td>
+                    </tr>
+
+                    <!-- duplicate row -->
+                    <tr>
+                        <td class="ps-3"><input class="form-check-input" type="checkbox" checked></td>
+                        <td><i class="bi bi-files text-info"></i></td>
+                        <td class="fw-bold text-dark">Ahmed Samir Hassan</td>
+                        <td><code>29511150102345</code></td>
+                        <td>01234567890</td>
+                        <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Cairo</span></td>
+                        <td><span class="badge text-bg-info">Duplicate</span></td>
+                        <td><span class="text-muted">—</span></td>
+                        <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i>Insurance</span></td>
+                        <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Dekhila</span></td>
+                        <td class="text-muted small">05 Oct 2026</td>
+                        <td><button class="btn btn-sm btn-link text-secondary p-0"><i class="bi bi-chevron-expand"></i></button></td>
+                    </tr>
+                    <tr class="small">
+                        <td></td>
+                        <td colspan="11" class="text-muted">
+                            <i class="bi bi-files me-1 text-info"></i>
+                            Same national ID as <strong>row 7</strong> (in this batch).
+                            <button class="btn btn-sm btn-outline-secondary py-0 ms-1">Keep this one</button>
+                            <button class="btn btn-sm btn-outline-secondary py-0 ms-1">Skip this one</button>
+                            <button class="btn btn-sm btn-link py-0 ms-1">Compare</button>
+                        </td>
+                    </tr>
+
+                    <!-- needs-attention row, expanded -->
+                    <tr class="table-warning" style="--bs-table-bg:#fff8e6">
+                        <td class="ps-3"><input class="form-check-input" type="checkbox"></td>
+                        <td><i class="bi bi-exclamation-triangle-fill text-warning"></i></td>
+                        <td class="fw-bold text-dark">Fatma Ibrahim Ali</td>
+                        <td><code>28811220501187</code></td>
+                        <td class="cell-check"><span class="text-body">0112 street 9, camp Caesar</span>
+                            <i class="bi bi-question-circle text-warning ms-1" title="Looks like an address"></i></td>
+                        <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Alexandria</span></td>
+                        <td><span class="badge text-bg-warning">Check</span></td>
+                        <td><span class="text-muted">—</span></td>
+                        <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i>Cash</span></td>
+                        <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Agamy</span></td>
+                        <td class="text-muted small">02 Oct 2026</td>
+                        <td><button class="btn btn-sm btn-link text-secondary p-0"><i class="bi bi-chevron-contract"></i></button></td>
+                    </tr>
+                    <!-- expanded details row -->
+                    <tr>
+                        <td></td>
+                        <td colspan="11" style="background:#fffdf5">
+                            <div class="row g-3 p-1">
+                                <div class="col-lg-7">
+                                    <div class="small fw-semibold mb-2 text-muted text-uppercase">More details</div>
+                                    <div class="row g-2 small">
+                                        <div class="col-6"><span class="text-muted d-block">Date of birth</span>05/11/1988</div>
+                                        <div class="col-6"><span class="text-muted d-block">Age</span>37</div>
+                                        <div class="col-6"><span class="text-muted d-block">Marital status</span>Married</div>
+                                        <div class="col-6"><span class="text-muted d-block">Children</span>2</div>
+                                        <div class="col-6"><span class="text-muted d-block">Price</span>150 EGP</div>
+                                        <div class="col-6"><span class="text-muted d-block">Notes</span><span class="badge text-bg-light border">2 notes</span></div>
+                                        <div class="col-12"><span class="text-muted d-block">Address</span>Camp Caesar, street 9, building 4 — Alexandria</div>
+                                    </div>
+                                    <div class="d-flex gap-2 mt-3">
+                                        <button class="btn btn-sm btn-success"><i class="bi bi-check2 me-1"></i>Row looks good</button>
+                                        <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>Remove row</button>
+                                    </div>
+                                </div>
+                                <div class="col-lg-5">
+                                    <div class="small fw-semibold mb-2 text-muted text-uppercase">From the source</div>
+                                    <div class="quote-box rounded p-2">
+                                        <div class="text-muted mb-1"><i class="bi bi-file-earmark-text me-1"></i>notes-scan.pdf · page 2</div>
+                                        Fatma Ibrahim Ali — ID 28811220501187 —
+                                        <mark>0112 street 9, camp Caesar</mark> — first visit 02/10
+                                    </div>
+                                    <div class="small text-muted mt-2">
+                                        <i class="bi bi-info-circle me-1"></i>The phone column may have picked up an address.
+                                        Type the real number, or clear the cell.
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+
+                    <!-- problem row -->
+                    <tr>
+                        <td class="ps-3"><input class="form-check-input" type="checkbox"></td>
+                        <td><i class="bi bi-x-octagon-fill text-danger"></i></td>
+                        <td class="fw-bold text-dark">Youssef Karim</td>
+                        <td class="cell-bad"><code>3010</code>
+                            <i class="bi bi-x-octagon-fill text-danger ms-1"></i></td>
+                        <td>01055566677</td>
+                        <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Giza</span></td>
+                        <td><span class="badge text-bg-danger">Problem</span></td>
+                        <td><span class="text-muted">—</span></td>
+                        <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i>Cash</span></td>
+                        <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Dekhila</span></td>
+                        <td class="text-muted small">28 Sep 2026</td>
+                        <td><button class="btn btn-sm btn-link text-secondary p-0"><i class="bi bi-chevron-expand"></i></button></td>
+                    </tr>
+                    <tr class="small">
+                        <td></td>
+                        <td colspan="11" class="text-danger">
+                            <i class="bi bi-x-octagon me-1"></i>National ID is 14 digits. Fix it or remove the row — problem rows are skipped.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- collapsed strips under the table -->
+        <div class="card-body border-top py-2 d-flex flex-wrap gap-3 small">
+            <a href="#" class="text-secondary text-decoration-none" onclick="return false">
+                <i class="bi bi-inboxes me-1"></i>4 lines couldn't be mapped — <span class="text-decoration-underline">show</span>
+            </a>
+            <a href="#" class="text-secondary text-decoration-none" onclick="return false">
+                <i class="bi bi-trash ms-1"></i>1 row removed — <span class="text-decoration-underline">show</span>
+            </a>
+            <a href="#" class="text-secondary text-decoration-none" onclick="return false">
+                <i class="bi bi-magic me-1"></i>Fill blanks with common values (visit date, follower…)
+            </a>
+        </div>
+    </div>
+
+    <div class="mock-note mt-3 mb-3"><span class="mock-num">6</span>
+        Duplicates resolve inline on the row. The old side panel, the trays of buttons and the
+        18-column grid are all deleted. Source appears only when you expand a row — on phones it
+        stacks below the details.
+    </div>
+
+    <!-- sticky import bar -->
+    <div class="card shadow sticky-import">
+        <div class="card-body py-2">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="small"><strong>14 ready to import</strong>
+                    <span class="text-muted">· 3 need attention · 1 skipped (problem)</span></span>
+                <button class="btn btn-primary ms-auto" onclick="document.getElementById('confirmStrip').classList.toggle('d-none')">
+                    <i class="bi bi-box-arrow-down me-1"></i>Import 14 patients
+                </button>
+            </div>
+            <div id="confirmStrip" class="d-none">
+                <div class="border-top mt-2 pt-2 d-flex flex-wrap align-items-center gap-2">
+                    <span class="small">Adds <strong>14 new patients</strong> and fills missing fields of
+                        <strong>1 existing patient</strong>. This can't be undone.</span>
+                    <div class="ms-auto d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-secondary">Cancel</button>
+                        <button class="btn btn-sm btn-success"><i class="bi bi-check2 me-1"></i>Confirm import</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="mock-note mt-2 mb-4"><span class="mock-num">7</span>
+        Confirmation is <strong>inline</strong>, right where you clicked — never a modal. After
+        import: back to Patients with a toast and the new rows highlighted.
+    </div>
+</section>
+
+<footer class="text-muted small pb-5">
+    <hr>
+    Static mock for design review — proposed direction, not final. Arabic/RTL toggle is a rough
+    preview. The real screen keeps the same engine already tested (rules, validation, dedupe);
+    only the surface changes.
+</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // tabs
+    document.querySelectorAll('.mock-tab').forEach((tab) => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.mock-tab').forEach((t) => t.classList.remove('active'));
+            tab.classList.add('active');
+            document.querySelectorAll('.view').forEach((v) => v.classList.add('d-none'));
+            document.getElementById('view-' + tab.dataset.view).classList.remove('d-none');
+            window.scrollTo({ top: 0 });
+        });
+    });
+    // rough RTL preview
+    const rtlToggle = document.getElementById('rtlToggle');
+    rtlToggle.addEventListener('change', () => {
+        const rtl = rtlToggle.checked;
+        document.documentElement.dir = rtl ? 'rtl' : 'ltr';
+        document.getElementById('bsLtr').disabled = rtl;
+        document.getElementById('bsRtl').disabled = !rtl;
+    });
+</script>
+</body>
+</html>
