@@ -46,10 +46,12 @@ everything behind `review.js`/`api.js`, all 351 tests) and replaces the entire s
    filters, duplicate resolution, source expansion, strips, bulk fill — lives behind an
    Advanced toggle in the review header. The choice is remembered per user. Nothing
    auto-switches modes.
-5. **Problems first.** In Advanced, rows sort by severity and a "Next issue" action
-   walks the reviewer through problems. Issue state = marker + tint + badge, never
-   tooltip-only. In Simple, flagged rows keep their amber/red cell tints and badges so
-   the eye finds them without machinery.
+5. **Problems first.** In Advanced, rows sort by severity; one filter toolbar (chips
+   with counts) plus a "Next issue" action walks the reviewer through problems. Issue
+   state = marker + tint + badge, never tooltip-only, and never extra helper rows in
+   the table — duplicate resolution and problem guidance open inside the row's own
+   expanded panel. In Simple, flagged rows keep their amber/red cell tints and badges
+   so the eye finds them without machinery.
 6. **Source on demand.** The original text for a row is one expansion away in Advanced
    (right side on desktop, stacked below on phones) — not a separate drawer.
 7. **Quiet by default.** No alerts on entry, no resume banner, no autosave noise.
@@ -74,9 +76,14 @@ everything behind `review.js`/`api.js`, all 351 tests) and replaces the entire s
   `Advanced`, remembered per user. Simple renders five columns — name, national ID,
   mobile, governorate, status — at the patients-page width, no checkboxes or chips;
   cells are click-to-edit, flagged cells keep their tint and badge. Advanced adds the
-  marker column, bulk selection, attention strip, filter chips, duplicate resolution,
-  row expansion with source, collapsed strips and bulk fill. The import bar is the same
+  marker column, bulk selection, one filter toolbar (chips with counts + a "Next issue"
+  button), source expansion, collapsed strips and bulk fill. The import bar is the same
   in both modes.
+- **Issues live in the row, not in the table.** The table never grows helper rows for
+  duplicates or problems. A row's issue opens inside its expanded panel: a compact
+  banner at the top of the record (with "Row looks good" / "Remove row"), a comparison
+  card for duplicates ("This row" vs the partner, keep/skip/compare) and a one-line
+  fix-or-remove banner for blocked rows.
 - **Status vocabulary** (patients-style badges): `Ready` (success), `Check` (warning),
   `Problem` (danger, skipped unless fixed), `Duplicate` (info, resolved in Advanced —
   skipped if left unresolved), `Removed` (secondary). Counts live in filter chips

@@ -282,20 +282,13 @@
 
     <!-- ================= ADVANCED ================= -->
     <div id="reviewAdvanced" class="d-none">
-        <div class="d-flex flex-wrap align-items-center gap-2 border rounded-3 px-3 py-2 mb-2"
-             style="background:#fff8e6;border-color:#ffe69c !important">
-            <i class="bi bi-exclamation-triangle-fill text-warning"></i>
-            <span class="small"><strong data-i18n="att.rows">3 rows need attention</strong> · <span data-i18n="att.dup">1 possible duplicate</span></span>
-            <button class="btn btn-sm btn-warning ms-auto"><i class="bi bi-arrow-down-short me-1"></i><span data-i18n="att.next">Next issue</span></button>
-            <button class="btn btn-sm btn-outline-secondary" data-i18n="att.only">Show only attention</button>
-        </div>
-
-        <div class="d-flex flex-wrap gap-2 mb-2 small">
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-2 small">
             <button class="btn btn-sm btn-primary" data-i18n="chips.all">All (18)</button>
             <button class="btn btn-sm btn-outline-secondary" data-i18n="chips.attention">Needs attention (3)</button>
             <button class="btn btn-sm btn-outline-secondary" data-i18n="chips.dups">Duplicates (1)</button>
             <button class="btn btn-sm btn-outline-secondary" data-i18n="chips.ready">Ready (14)</button>
             <button class="btn btn-sm btn-outline-secondary" data-i18n="chips.removed">Removed (0)</button>
+            <button class="btn btn-sm btn-warning ms-auto"><i class="bi bi-arrow-down-short me-1"></i><span data-i18n="att.next">Next issue</span></button>
         </div>
 
         <div class="card shadow-sm border-0">
@@ -327,7 +320,7 @@
                         </tr>
 
                         <tr>
-                            <td class="ps-3"><input class="form-check-input" type="checkbox" checked aria-label="Select row"></td>
+                            <td class="ps-3"><input class="form-check-input" type="checkbox" aria-label="Select row"></td>
                             <td><i class="bi bi-files text-info"></i></td>
                             <td class="fw-bold text-dark">Ahmed Samir Hassan</td>
                             <td><code>29511150102345</code></td>
@@ -338,16 +331,42 @@
                             <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i><span data-i18n="money.insurance">Insurance</span></span></td>
                             <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Dekhila</span></td>
                             <td class="text-muted small">05 Oct 2026</td>
-                            <td><button class="btn btn-sm btn-link text-secondary p-0" aria-label="Expand"><i class="bi bi-chevron-expand"></i></button></td>
+                            <td><button class="btn btn-sm btn-link text-secondary p-0" data-toggle="dup-adv-wrap" aria-label="Expand"><i class="bi bi-chevron-down"></i></button></td>
                         </tr>
-                        <tr class="small">
+                        <tr id="dup-adv-wrap" class="d-none">
                             <td></td>
-                            <td colspan="11" class="text-muted">
-                                <i class="bi bi-files me-1 text-info"></i>
-                                <span data-i18n="dup.same">Same national ID as row 7 (in this batch).</span>
-                                <button class="btn btn-sm btn-outline-secondary py-0 ms-1" data-i18n="dup.keep">Keep this one</button>
-                                <button class="btn btn-sm btn-outline-secondary py-0 ms-1" data-i18n="dup.skip">Skip this one</button>
-                                <button class="btn btn-sm btn-link py-0 ms-1" data-i18n="dup.compare">Compare</button>
+                            <td colspan="11" class="p-0">
+                                <div class="border-bottom px-3 px-md-4 py-3" style="background:#f0f7ff">
+                                    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                                        <i class="bi bi-files text-info fs-5"></i>
+                                        <span class="fw-semibold" data-i18n="dup.title">Possible duplicate</span>
+                                        <span class="small text-muted" data-i18n="dup.same">Same national ID as row 7 (in this batch).</span>
+                                    </div>
+                                    <div class="table-responsive mb-3" style="max-width:720px">
+                                        <table class="table table-sm align-middle mb-0 bg-white">
+                                            <thead class="table-light text-muted">
+                                                <tr>
+                                                    <th style="width:10rem"></th>
+                                                    <th data-i18n="dup.thisRow">This row</th>
+                                                    <th data-i18n="dup.row7">Row 7</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="small">
+                                                <tr><td class="text-muted" data-i18n="t.name"></td><td>Ahmed Samir Hassan</td><td>Ahmed Samir Hassan</td></tr>
+                                                <tr><td class="text-muted" data-i18n="t.nid"></td><td><code>29511150102345</code></td><td><code>29511150102345</code> <i class="bi bi-check2 text-success"></i></td></tr>
+                                                <tr><td class="text-muted" data-i18n="t.mobile"></td><td>01234567890</td><td class="cell-check">01012345678</td></tr>
+                                                <tr><td class="text-muted" data-i18n="t.section"></td><td>Dekhila</td><td class="cell-check">Agamy</td></tr>
+                                                <tr><td class="text-muted" data-i18n="t.visitDate"></td><td>05 Oct 2026</td><td>05 Oct 2026</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="d-flex flex-wrap align-items-center gap-2">
+                                        <button class="btn btn-sm btn-success"><i class="bi bi-check2 me-1"></i><span data-i18n="dup.keep">Keep this one</span></button>
+                                        <button class="btn btn-sm btn-outline-secondary" data-i18n="dup.skip">Skip this one</button>
+                                        <button class="btn btn-sm btn-link px-1" data-i18n="dup.compare">Compare</button>
+                                        <span class="small text-muted ms-md-2" data-i18n="dup.note"></span>
+                                    </div>
+                                </div>
                             </td>
                         </tr>
 
@@ -364,7 +383,7 @@
                             <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i><span data-i18n="money.cash">Cash</span></span></td>
                             <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Agamy</span></td>
                             <td class="text-muted small">02 Oct 2026</td>
-                            <td><button class="btn btn-sm btn-link text-secondary p-0" data-toggle="record-adv-wrap" aria-label="Collapse"><i class="bi bi-chevron-contract"></i></button></td>
+                            <td><button class="btn btn-sm btn-link text-secondary p-0" data-toggle="record-adv-wrap" aria-label="Collapse"><i class="bi bi-chevron-up"></i></button></td>
                         </tr>
                         <tr id="record-adv-wrap">
                             <td></td>
@@ -384,12 +403,21 @@
                             <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i><span data-i18n="money.cash">Cash</span></span></td>
                             <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Dekhila</span></td>
                             <td class="text-muted small">28 Sep 2026</td>
-                            <td><button class="btn btn-sm btn-link text-secondary p-0" aria-label="Expand"><i class="bi bi-chevron-expand"></i></button></td>
+                            <td><button class="btn btn-sm btn-link text-secondary p-0" data-toggle="problem-adv-wrap" aria-label="Expand"><i class="bi bi-chevron-down"></i></button></td>
                         </tr>
-                        <tr class="small">
+                        <tr id="problem-adv-wrap" class="d-none">
                             <td></td>
-                            <td colspan="11" class="text-danger">
-                                <i class="bi bi-x-octagon me-1"></i><span data-i18n="problem.nid">National ID is 14 digits. Fix it or remove the row — problem rows are skipped.</span>
+                            <td colspan="11" class="p-0">
+                                <div class="border-bottom px-3 px-md-4 py-3" style="background:#fdf0ef">
+                                    <div class="d-flex flex-wrap align-items-center gap-2">
+                                        <i class="bi bi-x-octagon-fill text-danger fs-5"></i>
+                                        <span class="small text-danger" data-i18n="problem.nid">National ID is 14 digits. Fix it or remove the row — problem rows are skipped.</span>
+                                        <div class="ms-auto d-flex gap-2">
+                                            <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil-square me-1"></i><span data-i18n="actions.fix">Fix it</span></button>
+                                            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i><span data-i18n="actions.remove">Remove row</span></button>
+                                        </div>
+                                    </div>
+                                </div>
                             </td>
                         </tr>
                     </tbody>
@@ -502,10 +530,7 @@
             'review.simple': 'Simple',
             'review.advanced': 'Advanced',
             'review.details': 'Details',
-            'att.rows': '3 rows need attention',
-            'att.dup': '1 possible duplicate',
             'att.next': 'Next issue',
-            'att.only': 'Show only attention',
             'chips.all': 'All (18)',
             'chips.attention': 'Needs attention (3)',
             'chips.dups': 'Duplicates (1)',
@@ -514,6 +539,10 @@
             'money.cash': 'Cash',
             'money.insurance': 'Insurance',
             'dup.same': 'Same national ID as row 7 (in this batch).',
+            'dup.title': 'Possible duplicate',
+            'dup.thisRow': 'This row',
+            'dup.row7': 'Row 7',
+            'dup.note': 'Left as is, this row is skipped at import.',
             'dup.keep': 'Keep this one',
             'dup.skip': 'Skip this one',
             'dup.compare': 'Compare',
@@ -567,11 +596,12 @@
             'opt.selectFollower': '— Select Follower —',
             'opt.selectSection': '— Select Section —',
             'opt.selectSource': '— Select Source —',
-            'hint.section': "Read from the file — change it if it's wrong.",
             'hint.mobile': 'This looks like part of an address, not a phone number.',
+            'banner.check': '1 field to check — the highlighted field below is worth a look.',
             'src.title': 'From the source',
             'src.help': 'The phone column may have picked up an address. Type the real number, or clear the cell.',
             'actions.good': 'Row looks good',
+            'actions.fix': 'Fix it',
             'actions.remove': 'Remove row',
         },
         ar: {
@@ -621,10 +651,7 @@
             'review.simple': 'بسيط',
             'review.advanced': 'متقدم',
             'review.details': 'التفاصيل',
-            'att.rows': '3 صفوف تحتاج انتباهًا',
-            'att.dup': 'مكرر محتمل واحد',
             'att.next': 'المشكلة التالية',
-            'att.only': 'إظهار ما يحتاج انتباهًا فقط',
             'chips.all': 'الكل (18)',
             'chips.attention': 'تحتاج انتباهًا (3)',
             'chips.dups': 'المكررة (1)',
@@ -633,6 +660,10 @@
             'money.cash': 'نقدي',
             'money.insurance': 'تأمين',
             'dup.same': 'نفس الرقم القومي للصف 7 (في هذه الدفعة).',
+            'dup.title': 'مكرر محتمل',
+            'dup.thisRow': 'هذا الصف',
+            'dup.row7': 'الصف 7',
+            'dup.note': 'إن تركته كما هو، يُتخطى هذا الصف عند الاستيراد.',
             'dup.keep': 'الإبقاء على هذا',
             'dup.skip': 'تخطي هذا',
             'dup.compare': 'مقارنة',
@@ -686,11 +717,12 @@
             'opt.selectFollower': '— اختر المتابع —',
             'opt.selectSection': '— اختر القسم —',
             'opt.selectSource': '— اختر المصدر —',
-            'hint.section': 'مقروء من الملف — غيّره إذا كان غير صحيح.',
             'hint.mobile': 'يبدو هذا جزءًا من عنوان وليس رقم هاتف.',
+            'banner.check': 'حقل واحد بحاجة للتحقق — الحقل المظلل أدناه يستحق نظرة.',
             'src.title': 'من المصدر',
             'src.help': 'يبدو أن خانة الهاتف التقطت جزءًا من العنوان. اكتب الرقم الصحيح أو امسح الخانة.',
             'actions.good': 'الصف سليم',
+            'actions.fix': 'صحّحه',
             'actions.remove': 'حذف الصف',
         },
     };
@@ -800,7 +832,6 @@
                         <option>Smouha</option>
                         <option data-i18n="opt.selectSection"></option>
                     </select>
-                    <div class="form-text" data-i18n="hint.section"></div>
                 </div>
                 <div class="col-md-6">
                     <label class="form-label fw-semibold"><i class="bi bi-cash-coin me-1"></i><span data-i18n="f.source"></span></label>
@@ -861,15 +892,19 @@
                     <span class="badge text-bg-warning ms-auto" data-i18n="status.check"></span>
                 </h5>
             </div>
+            ${withSource ? `
+            <div class="border-bottom px-3 px-md-4 py-2 d-flex flex-wrap align-items-center gap-2" style="background:#fff8e6">
+                <i class="bi bi-exclamation-triangle-fill text-warning"></i>
+                <span class="small" data-i18n="banner.check"></span>
+                <div class="ms-auto d-flex gap-2">
+                    <button class="btn btn-sm btn-success"><i class="bi bi-check2 me-1"></i><span data-i18n="actions.good"></span></button>
+                    <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i><span data-i18n="actions.remove"></span></button>
+                </div>
+            </div>` : ''}
             <div class="row g-0">
                 <div class="${withSource ? 'col-lg-9' : 'col-12'}">
                     <div class="p-4 bg-white">
                         ${recordSectionsHTML()}
-                        ${withSource ? `
-                        <div class="d-flex gap-2 mt-2">
-                            <button class="btn btn-sm btn-success"><i class="bi bi-check2 me-1"></i><span data-i18n="actions.good"></span></button>
-                            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i><span data-i18n="actions.remove"></span></button>
-                        </div>` : ''}
                     </div>
                 </div>
                 ${withSource ? `
@@ -916,8 +951,12 @@
         btn.addEventListener('click', () => {
             const el = document.getElementById(btn.dataset.toggle);
             el.classList.toggle('d-none');
+            const open = !el.classList.contains('d-none');
             const icon = btn.querySelector('i');
-            if (icon) icon.className = 'bi me-1 ' + (el.classList.contains('d-none') ? 'bi-chevron-down' : 'bi-chevron-up');
+            if (icon) {
+                icon.classList.toggle('bi-chevron-down', !open);
+                icon.classList.toggle('bi-chevron-up', open);
+            }
         });
     });
 
