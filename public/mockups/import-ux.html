@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  Import UX — final preview mock (v4). Same URL: /mockups/import-ux.
+  Import UX — final preview mock (v5). Same URL: /mockups/import-ux.
 
   This is the live-feel version: no design annotations. It carries every owner
   decision so far:
@@ -14,7 +14,9 @@
     - a source image is attached to the patient automatically
     - full Arabic / RTL via the preview bar
 
-  Limited interaction: dropdown, screens, mode toggle, Fatma's Details panel,
+  Limited interaction: dropdown, screens, Simple/Advanced, every row's Details panel,
+  the three strips (inline panels: unmapped lines, removed + Restore, bulk fill),
+  "Next issue" walk (opens + flashes each issue, i-of-n counter), section picker,
   inline confirm, language switch. Everything else is static.
 -->
 <html lang="en" dir="ltr">
@@ -38,6 +40,12 @@
     .simple-table td, .simple-table th { padding-top: .7rem; padding-bottom: .7rem; }
     .record-panel { background: #fff; }
     .record-panel h6 { font-size: .95rem; }
+    .border-dashed { border-style: dashed !important; border-color: #c3cbd3; }
+    .flash { animation: flashPulse 1.4s ease; }
+    @keyframes flashPulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(13, 110, 253, 0); }
+        35% { box-shadow: 0 0 0 5px rgba(13, 110, 253, .35); }
+    }
     .toast-layer { position: fixed; bottom: 1.25rem; inset-inline: 0; z-index: 2000; pointer-events: none; }
 </style>
 </head>
@@ -143,7 +151,7 @@
     </div>
 
     <div class="row g-3">
-        <div class="col-lg-8">
+        <div class="col-12">
             <div class="card shadow-sm border-0">
                 <div class="card-body">
                     <label class="d-block border border-2 border-dashed rounded-3 p-4 p-md-5 text-center" style="cursor:pointer">
@@ -180,20 +188,6 @@
                     <div class="text-end mt-4">
                         <button class="btn btn-primary btn-lg" data-screen="review"><i class="bi bi-stars me-1"></i><span data-i18n="import.analyze">Analyze files</span></button>
                     </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-lg-4">
-            <div class="card shadow-sm border-0">
-                <div class="card-body small">
-                    <div class="fw-semibold mb-2"><i class="bi bi-shield-check me-1 text-success"></i><span data-i18n="import.whileTitle">While it works</span></div>
-                    <ul class="text-muted ps-3 mb-0">
-                        <li class="mb-2" data-i18n="import.stored">Files are stored privately and deleted after 30 days.</li>
-                        <li class="mb-2"><span data-i18n="import.keepsRunning">Extraction keeps running if you close the page — resume from</span>
-                            <strong data-i18n="patients.add">Add New Patient</strong>.</li>
-                        <li data-i18n="import.rowsAppear">Rows appear in the table below as soon as they're ready — you can start reviewing while it still works.</li>
-                    </ul>
                 </div>
             </div>
         </div>
@@ -288,7 +282,8 @@
             <button class="btn btn-sm btn-outline-secondary" data-i18n="chips.dups">Duplicates (1)</button>
             <button class="btn btn-sm btn-outline-secondary" data-i18n="chips.ready">Ready (14)</button>
             <button class="btn btn-sm btn-outline-secondary" data-i18n="chips.removed">Removed (0)</button>
-            <button class="btn btn-sm btn-warning ms-auto"><i class="bi bi-arrow-down-short me-1"></i><span data-i18n="att.next">Next issue</span></button>
+            <span class="text-muted ms-auto" id="issueStep" data-i18n="att.counter.initial">3 issues</span>
+            <button class="btn btn-sm btn-warning" id="nextIssue"><i class="bi bi-arrow-down-short me-1"></i><span data-i18n="att.next">Next issue</span></button>
         </div>
 
         <div class="card shadow-sm border-0">
@@ -425,15 +420,82 @@
             </div>
 
             <div class="card-body border-top py-2 d-flex flex-wrap gap-3 small">
-                <a href="#" class="text-secondary text-decoration-none" onclick="return false">
-                    <i class="bi bi-inboxes me-1"></i><span data-i18n="strips.unmapped">4 lines couldn't be mapped — show</span>
-                </a>
-                <a href="#" class="text-secondary text-decoration-none" onclick="return false">
-                    <i class="bi bi-trash ms-1"></i><span data-i18n="strips.removed">1 row removed — show</span>
-                </a>
-                <a href="#" class="text-secondary text-decoration-none" onclick="return false">
+                <button class="btn btn-link p-0 text-secondary text-decoration-none" data-strip="strip-unmapped">
+                    <i class="bi bi-inboxes me-1"></i><span data-i18n="strips.unmapped">4 lines couldn't be mapped</span>
+                    — <span class="strip-state text-decoration-underline"></span>
+                </button>
+                <button class="btn btn-link p-0 text-secondary text-decoration-none" data-strip="strip-removed">
+                    <i class="bi bi-trash me-1"></i><span data-i18n="strips.removed">1 row removed</span>
+                    — <span class="strip-state text-decoration-underline"></span>
+                </button>
+                <button class="btn btn-link p-0 text-secondary text-decoration-none" data-strip="strip-fill">
                     <i class="bi bi-magic me-1"></i><span data-i18n="strips.fill">Fill blanks with common values (visit date, follower…)</span>
-                </a>
+                </button>
+            </div>
+
+            <!-- strip: unmapped lines -->
+            <div id="strip-unmapped" class="d-none border-top px-3 px-md-4 py-3">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <i class="bi bi-inboxes text-secondary"></i>
+                    <span class="fw-semibold small" data-i18n="unmapped.title">Lines kept from the source (4)</span>
+                </div>
+                <ul class="list-unstyled mb-1 small">
+                    <li class="py-2 border-top"><div class="text-muted">october-visits.xlsx · row 12</div>التحصيل: ٢٥٠ — تم</li>
+                    <li class="py-2 border-top"><div class="text-muted">october-visits.xlsx · footer</div>إجمالي اليوم ١٤ حالة</li>
+                    <li class="py-2 border-top"><div class="text-muted">notes-scan.pdf · p.1</div>يُستكمل: العنوان بجوار مسجد النور</li>
+                    <li class="py-2 border-top"><div class="text-muted">notes-scan.pdf · p.2</div>الحضور: بعد صلاة الجمعة</li>
+                </ul>
+                <div class="form-text" data-i18n="unmapped.help">Nothing was dropped — they stay with the import report.</div>
+            </div>
+
+            <!-- strip: removed rows -->
+            <div id="strip-removed" class="d-none border-top px-3 px-md-4 py-3">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <i class="bi bi-trash text-secondary"></i>
+                    <span class="fw-semibold small" data-i18n="removed.title">Removed rows (1)</span>
+                </div>
+                <div class="d-flex flex-wrap align-items-center gap-2 border-top py-2 small">
+                    <span class="fw-semibold">Sherif Adel</span>
+                    <span class="text-muted">october-visits.xlsx · row 22 · <span data-i18n="removed.why">removed by you</span></span>
+                    <button class="btn btn-sm btn-outline-secondary ms-auto" id="restoreBtn">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i><span data-i18n="removed.restore">Restore</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- strip: fill blanks -->
+            <div id="strip-fill" class="d-none border-top px-3 px-md-4 py-3">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <i class="bi bi-magic text-secondary"></i>
+                    <span class="fw-semibold small" data-i18n="fill.title">Fill blanks with common values</span>
+                </div>
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1" data-i18n="fill.field">Field</label>
+                        <select class="form-select form-select-sm" id="fillField">
+                            <option value="visit" selected data-i18n="f.visit">Visit Date</option>
+                            <option value="follower" data-i18n="t.follower">Follower</option>
+                            <option value="price" data-i18n="f.price">Price (EGP)</option>
+                            <option value="section" data-i18n="f.section">Section</option>
+                            <option value="source" data-i18n="f.source">Source of Money</option>
+                            <option value="marital" data-i18n="f.marital">Marital Status</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1" data-i18n="fill.value">Value</label>
+                        <input type="date" class="form-control form-control-sm" id="fillValue" value="2026-10-12">
+                    </div>
+                    <div class="col-md-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="fillBlanks" checked>
+                            <label class="form-check-label small" for="fillBlanks" data-i18n="fill.onlyEmpty">Only fill empty cells</label>
+                        </div>
+                    </div>
+                    <div class="col-md-3 text-md-end">
+                        <button class="btn btn-sm btn-primary" id="fillApply"><i class="bi bi-magic me-1"></i><span data-i18n="fill.apply">Apply</span></button>
+                    </div>
+                </div>
+                <div class="form-text mt-1" data-i18n="fill.hint">Fills 12 empty cells — existing values stay untouched.</div>
             </div>
         </div>
     </div>
@@ -474,7 +536,7 @@
 <div class="toast-layer d-none" id="toastLayer">
     <div class="d-flex justify-content-center">
         <div class="bg-success text-white rounded-3 shadow px-3 py-2 small">
-            <i class="bi bi-check-circle-fill me-2"></i><span data-i18n="toast.done">14 patients imported successfully</span>
+            <i class="bi bi-check-circle-fill me-2"></i><span id="toastText" data-i18n="toast.done">14 patients imported successfully</span>
         </div>
     </div>
 </div>
@@ -521,10 +583,6 @@
             'import.rows82': '82 KB · 46 rows',
             'import.handwriting': '2 pages look like handwriting',
             'import.analyze': 'Analyze files',
-            'import.whileTitle': 'While it works',
-            'import.stored': 'Files are stored privately and deleted after 30 days.',
-            'import.keepsRunning': 'Extraction keeps running if you close the page — resume from',
-            'import.rowsAppear': "Rows appear in the table below as soon as they're ready — you can start reviewing while it still works.",
             'review.meta': '18 rows from 3 files · finished 2 min ago',
             'review.saved': 'All changes saved',
             'review.simple': 'Simple',
@@ -547,9 +605,27 @@
             'dup.skip': 'Skip this one',
             'dup.compare': 'Compare',
             'problem.nid': 'National ID is 14 digits. Fix it or remove the row — problem rows are skipped.',
-            'strips.unmapped': "4 lines couldn't be mapped — show",
-            'strips.removed': '1 row removed — show',
+            'strips.unmapped': "4 lines couldn't be mapped",
+            'strips.removed': '1 row removed',
             'strips.fill': 'Fill blanks with common values (visit date, follower…)',
+            'strips.show': 'show',
+            'strips.hide': 'hide',
+            'unmapped.title': 'Lines kept from the source (4)',
+            'unmapped.help': 'Nothing was dropped — they stay with the import report.',
+            'removed.title': 'Removed rows (1)',
+            'removed.why': 'removed by you',
+            'removed.restore': 'Restore',
+            'removed.restored': 'Restored',
+            'fill.title': 'Fill blanks with common values',
+            'fill.field': 'Field',
+            'fill.value': 'Value',
+            'fill.onlyEmpty': 'Only fill empty cells',
+            'fill.apply': 'Apply',
+            'fill.hint': 'Fills 12 empty cells — existing values stay untouched.',
+            'att.counter.initial': '3 issues',
+            'att.counter.fmt': '{i} of {n}',
+            'toast.filled': '12 cells filled',
+            'toast.restored': 'Row restored',
             'bar.ready': '14 ready to import',
             'bar.detail': '· 3 need a check · 1 duplicate — skipped unless resolved',
             'bar.sectionLabel': 'Section for 4 rows without one',
@@ -642,10 +718,6 @@
             'import.rows82': '82 ك.ب · 46 صفًا',
             'import.handwriting': 'صفحتان تبدوان بخط اليد',
             'import.analyze': 'تحليل الملفات',
-            'import.whileTitle': 'أثناء العمل',
-            'import.stored': 'تُحفظ الملفات بشكل خاص وتُحذف بعد 30 يومًا.',
-            'import.keepsRunning': 'يستمر الاستخراج إذا أغلقت الصفحة — استأنف من',
-            'import.rowsAppear': 'تظهر الصفوف في الجدول بمجرد جهوزيتها — يمكنك بدء المراجعة أثناء العمل.',
             'review.meta': '18 صفًا من 3 ملفات · انتهى قبل دقيقتين',
             'review.saved': 'تم حفظ كل التغييرات',
             'review.simple': 'بسيط',
@@ -668,9 +740,27 @@
             'dup.skip': 'تخطي هذا',
             'dup.compare': 'مقارنة',
             'problem.nid': 'الرقم القومي يجب أن يكون 14 رقمًا. صحّحه أو احذف الصف — الصفوف ذات المشكلة تُتخطى.',
-            'strips.unmapped': '4 أسطر تعذّر ربطها — عرض',
-            'strips.removed': 'صف واحد محذوف — عرض',
+            'strips.unmapped': '4 أسطر تعذّر ربطها',
+            'strips.removed': 'صف واحد محذوف',
             'strips.fill': 'تعبئة الفراغات بقيم شائعة (تاريخ الزيارة، المتابع…)',
+            'strips.show': 'عرض',
+            'strips.hide': 'إخفاء',
+            'unmapped.title': 'أسطر محفوظة من المصدر (4)',
+            'unmapped.help': 'لم يُفقد أي شيء — تبقى هذه الأسطر مع تقرير الاستيراد.',
+            'removed.title': 'الصفوف المحذوفة (1)',
+            'removed.why': 'حذفتَه أنت',
+            'removed.restore': 'استعادة',
+            'removed.restored': 'تمت الاستعادة',
+            'fill.title': 'تعبئة الفراغات بقيم شائعة',
+            'fill.field': 'الحقل',
+            'fill.value': 'القيمة',
+            'fill.onlyEmpty': 'تعبئة الخلايا الفارغة فقط',
+            'fill.apply': 'تطبيق',
+            'fill.hint': 'سيملأ 12 خانة فارغة — القيم الموجودة لا تتغيّر.',
+            'att.counter.initial': '3 مشكلات',
+            'att.counter.fmt': '{i} من {n}',
+            'toast.filled': 'تمت تعبئة 12 خانة',
+            'toast.restored': 'تمت استعادة الصف',
             'bar.ready': '14 جاهزًا للاستيراد',
             'bar.detail': '· 3 بحاجة لتحقق · 1 مكرر — يُتخطى إن لم يُحل',
             'bar.sectionLabel': 'القسم لـ4 صفوف بدون قسم',
@@ -733,6 +823,8 @@
     function applyI18n() {
         document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
         document.querySelectorAll('[data-i18n-ph]').forEach((el) => { el.placeholder = t(el.dataset.i18nPh); });
+        refreshStrips();
+        refreshIssueStep();
     }
 
     // ------------------------------------------------------- record panel
@@ -968,9 +1060,94 @@
     });
     document.getElementById('confirmGo').addEventListener('click', () => {
         document.getElementById('confirmStrip').classList.add('d-none');
-        const toast = document.getElementById('toastLayer');
-        toast.classList.remove('d-none');
-        setTimeout(() => toast.classList.add('d-none'), 2600);
+        showToast('toast.done');
+    });
+
+    // ------------------------------------------------------- toast
+    let toastTimer = null;
+    function showToast(key) {
+        const layer = document.getElementById('toastLayer');
+        document.getElementById('toastText').textContent = t(key);
+        layer.classList.remove('d-none');
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => layer.classList.add('d-none'), 2600);
+    }
+
+    // ------------------------------------------------------- strips
+    function refreshStrips() {
+        document.querySelectorAll('[data-strip]').forEach((btn) => {
+            const panel = document.getElementById(btn.dataset.strip);
+            const state = btn.querySelector('.strip-state');
+            if (state) state.textContent = panel.classList.contains('d-none') ? t('strips.show') : t('strips.hide');
+        });
+    }
+
+    document.querySelectorAll('[data-strip]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            document.getElementById(btn.dataset.strip).classList.toggle('d-none');
+            refreshStrips();
+        });
+    });
+
+    document.getElementById('restoreBtn').addEventListener('click', (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        btn.querySelector('i').className = 'bi bi-check2 me-1';
+        btn.querySelector('span').textContent = t('removed.restored');
+        btn.querySelector('span').removeAttribute('data-i18n');
+        showToast('toast.restored');
+    });
+
+    const fillValue = document.getElementById('fillValue');
+    document.getElementById('fillField').addEventListener('change', (e) => {
+        const field = e.currentTarget.value;
+        fillValue.type = field === 'visit' ? 'date' : field === 'price' ? 'number' : 'text';
+        fillValue.value = field === 'visit' ? '2026-10-12' : field === 'price' ? '150' : '';
+        fillValue.placeholder = t('fill.value');
+    });
+    document.getElementById('fillApply').addEventListener('click', () => {
+        document.getElementById('strip-fill').classList.add('d-none');
+        refreshStrips();
+        showToast('toast.filled');
+    });
+
+    // ------------------------------------------------------- next issue
+    const issueTargets = ['dup-adv-wrap', 'problem-adv-wrap', 'record-adv-wrap'];
+    let issueIndex = 0;
+
+    function setPanelOpen(id, open) {
+        document.getElementById(id).classList.toggle('d-none', !open);
+        const btn = document.querySelector('[data-toggle="' + id + '"]');
+        const icon = btn && btn.querySelector('i');
+        if (icon) {
+            icon.classList.toggle('bi-chevron-down', !open);
+            icon.classList.toggle('bi-chevron-up', open);
+        }
+    }
+
+    function flashPanel(id) {
+        const host = document.getElementById(id);
+        const target = host.querySelector('.record-panel, .border-bottom') || host;
+        target.classList.remove('flash');
+        void target.offsetWidth;
+        target.classList.add('flash');
+        setTimeout(() => target.classList.remove('flash'), 1500);
+    }
+
+    function refreshIssueStep() {
+        document.getElementById('issueStep').textContent = issueIndex === 0
+            ? t('att.counter.initial')
+            : t('att.counter.fmt').replace('{i}', String(((issueIndex - 1) % issueTargets.length) + 1)).replace('{n}', String(issueTargets.length));
+    }
+
+    document.getElementById('nextIssue').addEventListener('click', () => {
+        const i = issueIndex % issueTargets.length;
+        const target = issueTargets[i];
+        issueTargets.forEach((id) => setPanelOpen(id, id === target));
+        flashPanel(target);
+        document.getElementById(target).scrollIntoView({ behavior: 'smooth', block: 'center' });
+        issueIndex = i + 1;
+        refreshIssueStep();
     });
 
     // ------------------------------------------------------- language

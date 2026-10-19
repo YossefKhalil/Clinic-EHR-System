@@ -47,11 +47,12 @@ everything behind `review.js`/`api.js`, all 351 tests) and replaces the entire s
    Advanced toggle in the review header. The choice is remembered per user. Nothing
    auto-switches modes.
 5. **Problems first.** In Advanced, rows sort by severity; one filter toolbar (chips
-   with counts) plus a "Next issue" action walks the reviewer through problems. Issue
-   state = marker + tint + badge, never tooltip-only, and never extra helper rows in
-   the table — duplicate resolution and problem guidance open inside the row's own
-   expanded panel. In Simple, flagged rows keep their amber/red cell tints and badges
-   so the eye finds them without machinery.
+   with counts) plus a "Next issue" action walks the reviewer through problems in
+   that order (`riskSort`): each step opens the row's panel, flashes it, and the
+   button carries an "i of n" counter. Issue state = marker + tint + badge, never
+   tooltip-only, and never extra helper rows in the table — duplicate resolution and
+   problem guidance open inside the row's own expanded panel. In Simple, flagged rows
+   keep their amber/red cell tints and badges so the eye finds them without machinery.
 6. **Source on demand.** The original text for a row is one expansion away in Advanced
    (right side on desktop, stacked below on phones) — not a separate drawer.
 7. **Quiet by default.** No alerts on entry, no resume banner, no autosave noise.
@@ -72,6 +73,9 @@ everything behind `review.js`/`api.js`, all 351 tests) and replaces the entire s
 
 ## Screen notes
 
+- **Start is one card.** The drop zone (dashed frame), paste box, "More options" and
+  the picked-file list share a single full-width card. There is no side reassurance
+  panel — the "While it works" card was removed (owner).
 - **Review modes.** A small segmented toggle in the review header: `Simple` (default) /
   `Advanced`, remembered per user. Simple renders five columns — name, national ID,
   mobile, governorate, status — at the patients-page width, no checkboxes or chips;
@@ -103,8 +107,10 @@ everything behind `review.js`/`api.js`, all 351 tests) and replaces the entire s
 - **Source images are attached automatically** (owner decision, see engine deltas):
   when a row's source is an image, that image is saved with the patient at import — an
   additive extra, never a requirement. The record panel shows the attachment chip.
-- **Collapsed strips** under the table replace the trays: unmapped lines, removed rows,
-  and the bulk "fill blanks with common values" panel (defaults, re-housed inline).
+- **Collapsed strips** under the table replace the trays; each opens an inline panel:
+  the unmapped lines kept from the source (file/page + raw text — nothing is dropped),
+  removed rows with a Restore action, and the bulk "fill blanks with common values"
+  controls (field, value, only-empty-cells, count hint) — defaults re-housed inline.
 - **Extraction strip**: while the job runs, a thin progress line with `done/total` and
   the current source — the page stays usable; failures surface as one inline line with
   a retry action.
