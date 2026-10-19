@@ -738,7 +738,7 @@
                                 <button type="button" class="btn btn-sm" role="tab"
                                     :class="filter === pill ? 'btn-primary' : 'btn-outline-secondary'"
                                     :aria-selected="filter === pill ? 'true' : 'false'"
-                                    @click="filter = pill; selected = []"
+                                    @click="changeFilter(pill)"
                                     x-text="t('importAgent.review.pill.' + pill) + ' (' + counts[pill] + ')'"></button>
                             </template>
                         </div>
@@ -1193,7 +1193,7 @@
                     <div class="modal-dialog modal-dialog-centered">
                         <div class="modal-content">
                             <div class="modal-header">
-                                <h5 class="modal-title" x-text="t('importAgent.review.bulk.title', { count: selectedCount })"></h5>
+                                <h5 class="modal-title" x-text="t('importAgent.review.bulk.title', { count: bulkCount })"></h5>
                                 <button type="button" class="btn-close" @click="bulkOpen = false" :aria-label="t('Cancel')"></button>
                             </div>
                             <div class="modal-body">

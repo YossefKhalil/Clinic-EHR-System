@@ -140,6 +140,7 @@ export function importAgentWizard() {
         showDefaults: false,
         defaultsDraft: {},
         bulkOpen: false,
+        bulkCount: 0,
         bulkField: '',
         bulkValue: '',
         bulkMode: 'blanks',
@@ -574,6 +575,7 @@ export function importAgentWizard() {
                 // re-run everything once and persist the diffs (spec 10.2).
                 const changes = review.revalidate(this.reviewState);
                 this.selected = [];
+                this.bulkOpen = false;
                 this.step = 'review';
                 this.$nextTick(() => this.measureGrid());
 
@@ -975,14 +977,25 @@ export function importAgentWizard() {
 
         openBulk() {
             if (this.selected.length === 0) return;
+            this.bulkCount = this.selected.length;
             this.bulkField = '';
             this.bulkValue = '';
             this.bulkMode = 'blanks';
             this.bulkOpen = true;
         },
 
+        /** Filter chips reset the selection; the bulk modal must close with it. */
+        changeFilter(pill) {
+            this.filter = pill;
+            this.selected = [];
+            this.bulkOpen = false;
+        },
+
         async applyBulk() {
-            if (!this.bulkField) return;
+            if (!this.bulkField || this.selected.length === 0) {
+                this.bulkOpen = false;
+                return;
+            }
             const raw = this.bulkValue;
             const changes = review.setValueForRows(this.reviewState, {
                 ids: this.selected,
