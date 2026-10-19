@@ -1,11 +1,15 @@
 # AI Import — UX rebuild brief (Step 0, proposed)
 
 Status: **proposed — pending review**. Companion artifact:
-`public/mockups/import-ux.html` — mock v2 (open `/mockups/import-ux` on the branch preview).
+`public/mockups/import-ux.html` — mock v3 (open `/mockups/import-ux` on the branch preview).
 
 v2 revision (from owner feedback on v1): the mock now runs at the full container width
 of the patients page (v1 squeezed itself to 1080px), and review has two modes —
 Simple (default) and Advanced.
+
+v3 revision (from owner feedback on v2): every review row opens the **complete extracted
+record** — all 17 registry fields, grouped like the intake form — not just the five scan
+columns; the import bar carries the one field the AI never extracts (section).
 
 ## Why
 
@@ -53,7 +57,7 @@ everything behind `review.js`/`api.js`, all 351 tests) and replaces the entire s
 | Entry | Patients toolbar → Add New Patient ▾ → Import from file or paste |
 | Add | Drop zone + paste box + "More options" (section, hints) — one card |
 | Working | Rows appear in the table as chunks finish; a slim progress strip sits above |
-| Review | Draft rows in patients-table style; Simple mode by default (five columns, click to fix), Advanced toggle for issues/duplicates/source |
+| Review | Draft rows in patients-table style; Simple mode by default (five-column scan; every row opens its full 17-field record); Advanced toggle for issues/duplicates/source |
 | Import | Sticky bottom bar → inline confirm strip → toast; lands back on Patients |
 | Resume | Dropdown item "Continue import · N rows ready" (only when a job is unfinished) |
 
@@ -70,8 +74,17 @@ everything behind `review.js`/`api.js`, all 351 tests) and replaces the entire s
   `Problem` (danger, skipped unless fixed), `Duplicate` (info, resolved in Advanced —
   skipped if left unresolved), `Removed` (secondary). Counts live in filter chips
   (Advanced) styled like the patients filters.
-- **Row expansion** replaces the old drawer: remaining registry fields + source quote +
-  row actions (row looks good / remove). One row expanded at a time on phones.
+- **Row expansion is the full record.** Every row — in both modes — opens the complete
+  extracted record: all 17 registry fields in intake-form groups (personal, demographics,
+  address, visit data, notes), each editable in place. The table columns are only the
+  scanning surface; nothing the AI extracted is unreachable. In Advanced the panel adds
+  the source quote and row actions (row looks good / remove). One row expanded at a time
+  on phones.
+- **Section picker.** The AI never extracts `section` (it is authorization-relevant);
+  the import bar carries one picker that applies a section to every row, and the row
+  record has a per-row select. Import rejects rows without a section.
+- **Attachments are out of scope**: they are Cloudinary uploads on the patient page,
+  not extractable data; the record panel says so.
 - **Collapsed strips** under the table replace the trays: unmapped lines, removed rows,
   and the bulk "fill blanks with common values" panel (defaults, re-housed inline).
 - **Extraction strip**: while the job runs, a thin progress line with `done/total` and
@@ -97,8 +110,8 @@ same review state; no rule changes are part of the UX rebuild.
    import page shell with the start card; delete the navbar item.
 2. **Review table I (Simple)** — five-column patients-style table, read-only, wired to
    `review.js`; mode toggle in place (Advanced shows an empty state until step 4).
-3. **Review table II (Simple, editable)** — click-to-edit cells, issue tints/badges,
-   autosave.
+3. **Review table II (Simple, editable)** — click-to-edit cells, the row Details panel
+   with the complete 17-field record, issue tints/badges, autosave.
 4. **Advanced mode + import** — attention strip, "Next issue", filter chips, duplicate
    resolution, row expansion with source, collapsed strips, bulk fill; sticky import
    bar with inline confirm (wired to the real commit endpoint when M6 lands — M6 stays

@@ -1,26 +1,30 @@
 <!DOCTYPE html>
 <!--
-  AI Import — Step 0 clickable mock, v2 (UX rebuild, proposed).
+  AI Import — Step 0 clickable mock, v3 (UX rebuild, proposed).
   Static artifact for design review: no app code, no data, no network.
   Open: /mockups/import-ux on the branch preview.
 
-  v2 changes (owner feedback):
-    - full container width, same as the patients page — nothing squeezed
-    - review has two modes: Simple (default, by-eye review, click-to-edit)
-      and Advanced (issues, duplicates, source, filters) — toggled, remembered
+  v2 changes (owner feedback): full container width, same as the patients page;
+  review split into Simple (default) and Advanced modes.
+
+  v3 changes (owner feedback): every row opens the COMPLETE extracted record —
+  all 17 registry fields, grouped like the intake form — in both modes, not
+  just the five scan columns; the import bar carries the one field the AI
+  never extracts (section).
 
   The mock argues:
     1. The entry is the patients toolbar dropdown — no navbar item.
     2. One screen that grows: drop / paste -> rows appear -> review -> import.
        No wizard steps, no mandatory popups, no modal confirmations.
-    3. The review table is the patients table — same width, same badges —
-       editable in place; Simple by default, Advanced on demand.
+    3. The review table is the patients table — same width, same badges.
+       The columns are the scanning surface; Details opens the whole record.
+       Simple by default, Advanced on demand.
 -->
 <html lang="en" dir="ltr">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Import UX — Step 0 mock (v2)</title>
+<title>Import UX — Step 0 mock (v3)</title>
 <link id="bsLtr" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
 <link id="bsRtl" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" disabled>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
@@ -47,8 +51,9 @@
     .sticky-import { position: sticky; bottom: 0; z-index: 50; }
     .dot-col { width: 28px; }
     .expand-col { width: 34px; }
-    /* simple mode: roomy, calm cells */
     .simple-table td, .simple-table th { padding-top: .7rem; padding-bottom: .7rem; }
+    .record-group { font-size: .72rem; letter-spacing: .04em; }
+    .record-panel { background: #fffdf5; }
 </style>
 </head>
 <body>
@@ -56,7 +61,7 @@
 <!-- ============ mock chrome (not part of the design) ============ -->
 <div class="mock-chrome bg-dark">
     <div class="container py-2 d-flex flex-wrap align-items-center gap-2">
-        <span class="text-white fw-semibold me-2"><i class="bi bi-stars me-1"></i>Import UX — Step 0 mock <span class="badge text-bg-secondary">v2</span></span>
+        <span class="text-white fw-semibold me-2"><i class="bi bi-stars me-1"></i>Import UX — Step 0 mock <span class="badge text-bg-secondary">v3</span></span>
         <div class="btn-group btn-group-sm" role="group">
             <button type="button" class="btn btn-outline-light mock-tab active" data-view="entry">1 · Entry</button>
             <button type="button" class="btn btn-outline-light mock-tab" data-view="start">2 · Start</button>
@@ -255,9 +260,9 @@
     <!-- ================= SIMPLE (default) ================= -->
     <div id="reviewSimple">
         <div class="mock-note mb-2"><span class="mock-num">6</span>
-            Simple keeps only five columns — name, national ID, mobile, governorate, status — at the
+            Simple keeps a five-column scan — name, national ID, mobile, governorate, status — at the
             same full width as the patients page, so nothing is squeezed. Amber = worth a look,
-            red = must fix (the row is skipped otherwise).
+            red = must fix (the row is skipped otherwise). <strong>Details</strong> opens the rest.
         </div>
 
         <div class="card shadow-sm">
@@ -269,47 +274,172 @@
                             <th>National ID</th>
                             <th>Mobile No.</th>
                             <th>Governorate</th>
-                            <th class="pe-4">Status</th>
+                            <th>Status</th>
+                            <th class="pe-4" style="width:130px"></th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
                             <td class="ps-4 fw-bold text-dark">Mona Mahmoud Saleh</td>
                             <td><code>29104011204567</code></td>
-                            <!-- click-to-edit state -->
-                            <td><input class="form-control form-control-sm border-primary shadow-sm" style="max-width:10rem" value="01098765432" aria-label="Mobile"></td>
+                            <td>01098765432</td>
                             <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Alexandria</span></td>
-                            <td class="pe-4"><span class="badge text-bg-success">Ready</span></td>
+                            <td><span class="badge text-bg-success">Ready</span></td>
+                            <td class="pe-4 text-end"><button class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-down me-1"></i>Details</button></td>
                         </tr>
                         <tr>
                             <td class="ps-4 fw-bold text-dark">Ahmed Samir Hassan</td>
                             <td><code>29511150102345</code></td>
                             <td>01234567890</td>
                             <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Cairo</span></td>
-                            <td class="pe-4"><span class="badge text-bg-info">Duplicate</span></td>
+                            <td><span class="badge text-bg-info">Duplicate</span></td>
+                            <td class="pe-4 text-end"><button class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-down me-1"></i>Details</button></td>
                         </tr>
-                        <tr>
+
+                        <!-- Fatma: flagged row, expanded -->
+                        <tr style="--bs-table-bg:#fff8e6">
                             <td class="ps-4 fw-bold text-dark">Fatma Ibrahim Ali</td>
                             <td><code>28811220501187</code></td>
                             <td class="cell-check">0112 street 9, camp Caesar
                                 <i class="bi bi-question-circle text-warning ms-1" title="Looks like an address"></i></td>
                             <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Alexandria</span></td>
-                            <td class="pe-4"><span class="badge text-bg-warning">Check</span></td>
+                            <td><span class="badge text-bg-warning">Check</span></td>
+                            <td class="pe-4 text-end"><button class="btn btn-sm btn-primary"><i class="bi bi-chevron-up me-1"></i>Details</button></td>
                         </tr>
+                        <tr>
+                            <td colspan="6" class="p-0">
+                                <div class="record-panel border-top border-bottom px-3 px-md-4 py-3">
+                                    <div class="row g-3">
+                                        <div class="col-12">
+                                            <div class="record-group fw-semibold text-muted text-uppercase mb-1">
+                                                <i class="bi bi-person-vcard me-1"></i>Personal identification
+                                            </div>
+                                            <div class="row g-2">
+                                                <div class="col-md-6">
+                                                    <label class="form-label small mb-1">Patient Name <span class="text-danger">*</span></label>
+                                                    <input class="form-control form-control-sm" value="Fatma Ibrahim Ali" aria-label="Patient name">
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label small mb-1">National ID <span class="text-danger">*</span></label>
+                                                    <input class="form-control form-control-sm" value="28811220501187" aria-label="National ID">
+                                                </div>
+                                            </div>
+
+                                            <div class="record-group fw-semibold text-muted text-uppercase mt-3 mb-1">
+                                                <i class="bi bi-telephone me-1"></i>Demographics &amp; contact info
+                                            </div>
+                                            <div class="row g-2">
+                                                <div class="col-md-4">
+                                                    <label class="form-label small mb-1">Mobile Phone <i class="bi bi-question-circle text-warning"></i></label>
+                                                    <input class="form-control form-control-sm border-warning" value="0112 street 9, camp Caesar" aria-label="Mobile phone">
+                                                    <div class="form-text text-warning-emphasis">This looks like part of an address, not a phone number.</div>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label small mb-1">Date of Birth</label>
+                                                    <input type="date" class="form-control form-control-sm" value="1988-11-05" aria-label="Date of birth">
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label small mb-1">Age</label>
+                                                    <input type="number" class="form-control form-control-sm" value="37" aria-label="Age">
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label small mb-1">Marital Status</label>
+                                                    <select class="form-select form-select-sm" aria-label="Marital status">
+                                                        <option selected>Married</option><option>Single</option><option>Divorced</option><option>Widowed</option>
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label small mb-1">Number of Children</label>
+                                                    <input type="number" class="form-control form-control-sm" value="2" aria-label="Number of children">
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label small mb-1">Governorate</label>
+                                                    <select class="form-select form-select-sm" aria-label="Governorate">
+                                                        <option selected>Alexandria</option><option>Cairo</option><option>Giza</option><option>Beheira</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            <div class="record-group fw-semibold text-muted text-uppercase mt-3 mb-1">
+                                                <i class="bi bi-geo-alt me-1"></i>Full residential address
+                                            </div>
+                                            <textarea class="form-control form-control-sm" rows="2" aria-label="Address">Camp Caesar, street 9, building 4 — Alexandria</textarea>
+
+                                            <div class="record-group fw-semibold text-muted text-uppercase mt-3 mb-1">
+                                                <i class="bi bi-clipboard2-pulse me-1"></i>Consultation / visit data
+                                            </div>
+                                            <div class="row g-2">
+                                                <div class="col-12">
+                                                    <label class="form-label small mb-1">Presented Symptoms / Problem</label>
+                                                    <textarea class="form-control form-control-sm" rows="2" aria-label="Problem">Recurring headache and dizziness for two weeks.</textarea>
+                                                </div>
+                                                <div class="col-12">
+                                                    <label class="form-label small mb-1">Diagnosis &amp; Treatment Plan</label>
+                                                    <textarea class="form-control form-control-sm" rows="2" aria-label="Solution">Tension headache — magnesium supplement, follow-up in two weeks.</textarea>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label small mb-1">Visit Date</label>
+                                                    <input type="date" class="form-control form-control-sm" value="2026-10-02" aria-label="Visit date">
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label small mb-1">Price (EGP)</label>
+                                                    <input type="number" class="form-control form-control-sm" value="150" aria-label="Price">
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label small mb-1">Follower</label>
+                                                    <select class="form-select form-select-sm" aria-label="Follower">
+                                                        <option>— Select —</option><option>Nour</option><option>Dr. Hala</option><option>Mariam</option>
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label small mb-1">Section <span class="text-danger">*</span></label>
+                                                    <select class="form-select form-select-sm border-warning" aria-label="Section">
+                                                        <option selected>— Select —</option><option>Agamy</option><option>Dekhila</option><option>Smouha</option>
+                                                    </select>
+                                                    <div class="form-text">Never guessed by the AI.</div>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label small mb-1">Source of Money</label>
+                                                    <select class="form-select form-select-sm" aria-label="Source of money">
+                                                        <option>— Select —</option><option selected>Cash</option><option>Insurance</option><option>Charity</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            <div class="record-group fw-semibold text-muted text-uppercase mt-3 mb-1">
+                                                <i class="bi bi-journal-text me-1"></i>Internal clinic notes
+                                            </div>
+                                            <div class="d-flex flex-wrap gap-2 align-items-center">
+                                                <span class="badge text-bg-light border">Allergic to penicillin</span>
+                                                <span class="badge text-bg-light border">Prefers evening appointments</span>
+                                                <input class="form-control form-control-sm" style="max-width:14rem" placeholder="Add a note…" aria-label="Add a note">
+                                            </div>
+
+                                            <div class="form-text mt-3">
+                                                <i class="bi bi-paperclip me-1"></i>Attachments aren't part of import — they're added on the patient page after import.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+
                         <tr>
                             <td class="ps-4 fw-bold text-dark">Youssef Karim</td>
                             <td class="cell-bad"><code>3010</code>
                                 <i class="bi bi-x-octagon-fill text-danger ms-1"></i></td>
                             <td>01055566677</td>
                             <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Giza</span></td>
-                            <td class="pe-4"><span class="badge text-bg-danger">Problem</span></td>
+                            <td><span class="badge text-bg-danger">Problem</span></td>
+                            <td class="pe-4 text-end"><button class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-down me-1"></i>Details</button></td>
                         </tr>
                         <tr>
                             <td class="ps-4 fw-bold text-dark">Sara Hassan Ali</td>
                             <td><code>29805121201234</code></td>
                             <td>01001234567</td>
                             <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Alexandria</span></td>
-                            <td class="pe-4"><span class="badge text-bg-success">Ready</span></td>
+                            <td><span class="badge text-bg-success">Ready</span></td>
+                            <td class="pe-4 text-end"><button class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-down me-1"></i>Details</button></td>
                         </tr>
                     </tbody>
                 </table>
@@ -317,15 +447,21 @@
         </div>
 
         <div class="mock-note mt-3 mb-3"><span class="mock-num">7</span>
-            That's the whole simple workflow: read down the list, click a field to edit it right
-            there, import. Problems are still flagged — choosing what to do about a duplicate or
-            checking against the original is what Advanced is for.
+            <strong>Details opens the complete extracted record</strong> — all 17 fields the AI fills
+            (every registry field except Section), grouped exactly like the intake form, every one
+            editable. The five columns are just the scanning surface; nothing extracted is hidden.
+        </div>
+
+        <div class="mock-note mb-3"><span class="mock-num">8</span>
+            That's the whole simple workflow: read down the list, open Details when something looks
+            off, fix it there or right in the row, import. Duplicates and source checks are what
+            Advanced is for.
         </div>
     </div>
 
     <!-- ================= ADVANCED ================= -->
     <div id="reviewAdvanced" class="d-none">
-        <div class="mock-note mb-2"><span class="mock-num">8</span>
+        <div class="mock-note mb-2"><span class="mock-num">9</span>
             Advanced = the messy-data machinery: attention strip with "Next issue", filters,
             duplicate resolution, source expansion, unmapped and removed lines. Same table, more
             detail — reachable in one click, never in the way.
@@ -354,7 +490,7 @@
                 <table class="table table-hover align-middle mb-0">
                     <thead class="table-light border-bottom text-muted">
                         <tr>
-                            <th class="ps-3" style="width:36px"><input class="form-check-input" type="checkbox"></th>
+                            <th class="ps-3" style="width:36px"><input class="form-check-input" type="checkbox" aria-label="Select all"></th>
                             <th class="dot-col"></th>
                             <th>Patient Name</th><th>National ID</th><th>Mobile No.</th>
                             <th>Governorate</th><th>Status</th><th>Follower</th><th>Source</th>
@@ -364,7 +500,7 @@
                     <tbody>
                         <!-- ready row -->
                         <tr>
-                            <td class="ps-3"><input class="form-check-input" type="checkbox"></td>
+                            <td class="ps-3"><input class="form-check-input" type="checkbox" aria-label="Select row"></td>
                             <td><i class="bi bi-check-circle text-success opacity-50"></i></td>
                             <td class="fw-bold text-dark">Mona Mahmoud Saleh</td>
                             <td><code>29104011204567</code></td>
@@ -375,12 +511,12 @@
                             <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i>Cash</span></td>
                             <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Agamy</span></td>
                             <td class="text-muted small">12 Oct 2026</td>
-                            <td><button class="btn btn-sm btn-link text-secondary p-0"><i class="bi bi-chevron-expand"></i></button></td>
+                            <td><button class="btn btn-sm btn-link text-secondary p-0" aria-label="Expand"><i class="bi bi-chevron-expand"></i></button></td>
                         </tr>
 
                         <!-- duplicate row -->
                         <tr>
-                            <td class="ps-3"><input class="form-check-input" type="checkbox" checked></td>
+                            <td class="ps-3"><input class="form-check-input" type="checkbox" checked aria-label="Select row"></td>
                             <td><i class="bi bi-files text-info"></i></td>
                             <td class="fw-bold text-dark">Ahmed Samir Hassan</td>
                             <td><code>29511150102345</code></td>
@@ -391,7 +527,7 @@
                             <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i>Insurance</span></td>
                             <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Dekhila</span></td>
                             <td class="text-muted small">05 Oct 2026</td>
-                            <td><button class="btn btn-sm btn-link text-secondary p-0"><i class="bi bi-chevron-expand"></i></button></td>
+                            <td><button class="btn btn-sm btn-link text-secondary p-0" aria-label="Expand"><i class="bi bi-chevron-expand"></i></button></td>
                         </tr>
                         <tr class="small">
                             <td></td>
@@ -406,11 +542,11 @@
 
                         <!-- needs-attention row, expanded -->
                         <tr style="--bs-table-bg:#fff8e6">
-                            <td class="ps-3"><input class="form-check-input" type="checkbox"></td>
+                            <td class="ps-3"><input class="form-check-input" type="checkbox" aria-label="Select row"></td>
                             <td><i class="bi bi-exclamation-triangle-fill text-warning"></i></td>
                             <td class="fw-bold text-dark">Fatma Ibrahim Ali</td>
                             <td><code>28811220501187</code></td>
-                            <td class="cell-check"><span class="text-body">0112 street 9, camp Caesar</span>
+                            <td class="cell-check">0112 street 9, camp Caesar
                                 <i class="bi bi-question-circle text-warning ms-1" title="Looks like an address"></i></td>
                             <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Alexandria</span></td>
                             <td><span class="badge text-bg-warning">Check</span></td>
@@ -418,31 +554,42 @@
                             <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i>Cash</span></td>
                             <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Agamy</span></td>
                             <td class="text-muted small">02 Oct 2026</td>
-                            <td><button class="btn btn-sm btn-link text-secondary p-0"><i class="bi bi-chevron-contract"></i></button></td>
+                            <td><button class="btn btn-sm btn-link text-secondary p-0" aria-label="Collapse"><i class="bi bi-chevron-contract"></i></button></td>
                         </tr>
                         <!-- expanded details row -->
                         <tr>
                             <td></td>
-                            <td colspan="11" style="background:#fffdf5">
-                                <div class="row g-3 p-1">
-                                    <div class="col-lg-7">
-                                        <div class="small fw-semibold mb-2 text-muted text-uppercase">More details</div>
+                            <td colspan="11" class="record-panel">
+                                <div class="row g-3 p-3">
+                                    <div class="col-lg-8">
+                                        <div class="record-group fw-semibold text-muted text-uppercase mb-1">The complete record</div>
                                         <div class="row g-2 small">
-                                            <div class="col-6"><span class="text-muted d-block">Date of birth</span>05/11/1988</div>
-                                            <div class="col-6"><span class="text-muted d-block">Age</span>37</div>
-                                            <div class="col-6"><span class="text-muted d-block">Marital status</span>Married</div>
-                                            <div class="col-6"><span class="text-muted d-block">Children</span>2</div>
-                                            <div class="col-6"><span class="text-muted d-block">Price</span>150 EGP</div>
-                                            <div class="col-6"><span class="text-muted d-block">Notes</span><span class="badge text-bg-light border">2 notes</span></div>
-                                            <div class="col-12"><span class="text-muted d-block">Address</span>Camp Caesar, street 9, building 4 — Alexandria</div>
+                                            <div class="col-md-6"><span class="text-muted d-block">Patient Name</span>Fatma Ibrahim Ali</div>
+                                            <div class="col-md-6"><span class="text-muted d-block">National ID</span><code>28811220501187</code></div>
+                                            <div class="col-md-4"><span class="text-muted d-block">Mobile Phone <i class="bi bi-question-circle text-warning"></i></span>0112 street 9, camp Caesar</div>
+                                            <div class="col-md-4"><span class="text-muted d-block">Date of Birth / Age</span>05/11/1988 · 37</div>
+                                            <div class="col-md-4"><span class="text-muted d-block">Marital status / Children</span>Married · 2</div>
+                                            <div class="col-md-4"><span class="text-muted d-block">Governorate</span>Alexandria</div>
+                                            <div class="col-md-8"><span class="text-muted d-block">Address</span>Camp Caesar, street 9, building 4 — Alexandria</div>
+                                            <div class="col-12"><span class="text-muted d-block">Problem</span>Recurring headache and dizziness for two weeks.</div>
+                                            <div class="col-12"><span class="text-muted d-block">Diagnosis &amp; Treatment Plan</span>Tension headache — magnesium supplement, follow-up in two weeks.</div>
+                                            <div class="col-md-3"><span class="text-muted d-block">Visit Date</span>02/10/2026</div>
+                                            <div class="col-md-3"><span class="text-muted d-block">Price</span>150 EGP</div>
+                                            <div class="col-md-3"><span class="text-muted d-block">Follower</span>—</div>
+                                            <div class="col-md-3"><span class="text-muted d-block">Section</span>—</div>
+                                            <div class="col-md-3"><span class="text-muted d-block">Source of Money</span>Cash</div>
+                                            <div class="col-md-9"><span class="text-muted d-block">Notes</span>
+                                                <span class="badge text-bg-light border">Allergic to penicillin</span>
+                                                <span class="badge text-bg-light border">Prefers evening appointments</span></div>
                                         </div>
                                         <div class="d-flex gap-2 mt-3">
                                             <button class="btn btn-sm btn-success"><i class="bi bi-check2 me-1"></i>Row looks good</button>
                                             <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>Remove row</button>
+                                            <span class="text-muted small align-self-center">Every field above is editable right here.</span>
                                         </div>
                                     </div>
-                                    <div class="col-lg-5">
-                                        <div class="small fw-semibold mb-2 text-muted text-uppercase">From the source</div>
+                                    <div class="col-lg-4">
+                                        <div class="record-group fw-semibold text-muted text-uppercase mb-1">From the source</div>
                                         <div class="quote-box rounded p-2">
                                             <div class="text-muted mb-1"><i class="bi bi-file-earmark-text me-1"></i>notes-scan.pdf · page 2</div>
                                             Fatma Ibrahim Ali — ID 28811220501187 —
@@ -459,7 +606,7 @@
 
                         <!-- problem row -->
                         <tr>
-                            <td class="ps-3"><input class="form-check-input" type="checkbox"></td>
+                            <td class="ps-3"><input class="form-check-input" type="checkbox" aria-label="Select row"></td>
                             <td><i class="bi bi-x-octagon-fill text-danger"></i></td>
                             <td class="fw-bold text-dark">Youssef Karim</td>
                             <td class="cell-bad"><code>3010</code>
@@ -471,7 +618,7 @@
                             <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i>Cash</span></td>
                             <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Dekhila</span></td>
                             <td class="text-muted small">28 Sep 2026</td>
-                            <td><button class="btn btn-sm btn-link text-secondary p-0"><i class="bi bi-chevron-expand"></i></button></td>
+                            <td><button class="btn btn-sm btn-link text-secondary p-0" aria-label="Expand"><i class="bi bi-chevron-expand"></i></button></td>
                         </tr>
                         <tr class="small">
                             <td></td>
@@ -497,7 +644,7 @@
             </div>
         </div>
 
-        <div class="mock-note mt-3 mb-3"><span class="mock-num">9</span>
+        <div class="mock-note mt-3 mb-3"><span class="mock-num">10</span>
             Everything here exists only for messy imports. In simple mode none of it is rendered —
             flagged rows still show their badges, and the same fixes stay one click away.
         </div>
@@ -509,9 +656,20 @@
             <div class="d-flex flex-wrap align-items-center gap-2">
                 <span class="small"><strong>14 ready to import</strong>
                     <span class="text-muted">· 3 need a check · 1 duplicate — skipped unless resolved</span></span>
-                <button class="btn btn-primary ms-auto" onclick="document.getElementById('confirmStrip').classList.toggle('d-none')">
-                    <i class="bi bi-box-arrow-down me-1"></i>Import 14 patients
-                </button>
+                <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
+                    <label class="small mb-0" for="sectionPicker">
+                        <i class="bi bi-exclamation-circle text-warning me-1"></i>Section for all rows
+                    </label>
+                    <select id="sectionPicker" class="form-select form-select-sm border-warning" style="width:10rem">
+                        <option selected>— Choose —</option>
+                        <option>Agamy</option>
+                        <option>Dekhila</option>
+                        <option>Smouha</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="document.getElementById('confirmStrip').classList.toggle('d-none')">
+                        <i class="bi bi-box-arrow-down me-1"></i>Import 14 patients
+                    </button>
+                </div>
             </div>
             <div id="confirmStrip" class="d-none">
                 <div class="border-top mt-2 pt-2 d-flex flex-wrap align-items-center gap-2">
@@ -525,15 +683,16 @@
             </div>
         </div>
     </div>
-    <div class="mock-note mt-2 mb-4"><span class="mock-num">10</span>
-        Confirmation is <strong>inline</strong>, right where you clicked — never a modal. After
-        import: back to Patients with a toast and the new rows highlighted.
+    <div class="mock-note mt-2 mb-4"><span class="mock-num">11</span>
+        Section is the one field the AI never guesses (it decides who can see the patient), so the
+        bar asks once for all rows — a per-row picker also lives in Details. Import stays disabled
+        until it's set. Confirmation is <strong>inline</strong>, never a modal.
     </div>
 </section>
 
 <footer class="text-muted small pb-5">
     <hr>
-    Static mock v2 for design review — proposed direction, not final. Arabic/RTL toggle is a rough
+    Static mock v3 for design review — proposed direction, not final. Arabic/RTL toggle is a rough
     preview. The real screen keeps the same engine already tested (rules, validation, dedupe);
     only the surface changes.
 </footer>
