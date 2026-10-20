@@ -6,7 +6,8 @@ import {
     LlmError, LlmProvider, LlmRequest, LlmResult, withRetries,
 } from './provider.ts';
 import { isReasoningModel, openAiErrorFor, timeoutSignal } from './openai-compatible.ts';
-import { choiceText, contentText } from './content-text.ts';
+import { answerText, contentText, reasoningText } from './content-text.ts';
+import { LIMITS } from '../import-core/limits.js';
 
 export interface CloudflareOptions {
     accountId: string;
@@ -42,8 +43,9 @@ export function buildCloudflareBody(request: LlmRequest, model = '') {
         // reasoning effort. For structured extraction that can spend the whole
         // completion budget on hidden reasoning and return `content: null`.
         // Low effort is plenty for copying rows into YAML and leaves room for
-        // the answer.
-        body.max_completion_tokens = request.maxTokens;
+        // the answer - and the floor keeps a small chunk from spending its
+        // whole budget on reasoning before it answers.
+        body.max_completion_tokens = Math.max(request.maxTokens, LIMITS.REASONING_MIN_TOKENS);
         body.reasoning_effort = 'low';
     } else {
         body.max_tokens = request.maxTokens;
@@ -135,10 +137,16 @@ export function mapCloudflareResult(json: unknown, fallbackModel: string): LlmRe
 
         if (text == null && Array.isArray(body.choices) && body.choices.length > 0) {
             const choice = body.choices[0];
-            text = choiceText(choice);
             if (choice && typeof choice === 'object') {
                 finish = (choice as CloudflareChoice).finish_reason ?? finish;
             }
+            // The answer and the reasoning are different things. When the
+            // model ran out of its completion budget, reasoning_content holds
+            // only its thinking - parsing that as data would invent rows, so
+            // it is only used when the model stopped normally.
+            const answer = answerText(choice);
+            const reasoning = reasoningText(choice);
+            text = answer ?? (finish === 'length' ? null : reasoning);
         }
     }
 
@@ -152,6 +160,17 @@ export function mapCloudflareResult(json: unknown, fallbackModel: string): LlmRe
         const message = first && typeof first === 'object' ? (first as CloudflareChoice).message : null;
         const messageKeys = message && typeof message === 'object' ? Object.keys(message as object).join(', ') : 'none';
         const finish = first && typeof first === 'object' ? String((first as CloudflareChoice).finish_reason ?? 'none') : 'none';
+        if (finish === 'length') {
+            // The model reasoned through the whole completion budget and
+            // stopped before it wrote the answer. A retry does not help: the
+            // model needs a bigger budget or a different one.
+            throw new LlmError(
+                'OUTPUT_TRUNCATED',
+                'The model used its whole completion budget on reasoning and produced no answer '
+                + `(result keys: ${keys}; message: ${messageKeys}; finish: ${finish})`,
+                { retryable: false },
+            );
+        }
         throw new LlmError(
             'PROVIDER_BAD_RESPONSE',
             `Cloudflare Workers AI returned no text (result keys: ${keys}; choices: ${choices?.length ?? 'none'}; first choice: ${firstKeys}; message: ${messageKeys}; finish: ${finish})`,

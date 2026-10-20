@@ -542,7 +542,9 @@
 
             <!-- AI IMPORT AGENT (spec 10): files → extract → review -->
             <div x-show="currentPage === 'import'" x-cloak x-data="importAgentWizard()">
-                <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
+                <!-- The review step has its own header row (mockup screen 3):
+                     the page title would be a second title for the same screen. -->
+                <div class="d-flex align-items-center flex-wrap gap-2 mb-3" x-show="step !== 'review'">
                     <button type="button" class="btn btn-sm btn-outline-secondary" @click="navigate('patients')">
                         <i class="bi bi-arrow-left me-1"></i><span x-text="t('Patients')"></span>
                     </button>
@@ -651,7 +653,7 @@
                                 <div class="progress-bar progress-bar-striped progress-bar-animated" :style="'width:' + (progress.total > 0 ? Math.round(100 * progress.done / progress.total) : 0) + '%'"></div>
                             </div>
                             <p class="small text-muted mb-2" x-show="progress.nextLabel" x-text="t('importAgent.progress.next', { label: progress.nextLabel })"></p>
-                            <div class="alert alert-warning py-2 small" role="alert" x-show="banners.length > 0">
+                            <div class="alert alert-warning py-2 small" role="alert" x-show="banners.some(b => b.code !== 'CHUNKS_FAILED' || failedChunks.length === 0)">
                                 <template x-for="(banner, bIndex) in banners" :key="bIndex">
                                     <div>
                                         <div x-text="bannerText(banner)"></div>
@@ -705,16 +707,22 @@
                                     <li class="d-flex flex-wrap align-items-center gap-2">
                                         <span class="text-nowrap" x-text="'#' + chunk.idx"></span>
                                         <span x-text="chunkErrorLabel(chunk.error_code)"></span>
-                                        <button type="button" class="btn btn-sm btn-link p-0" @click="retryChunk(job.id, chunk.id)"
-                                            x-text="t('importAgent.review.retryChunk')"></button>
                                     </li>
                                 </template>
                             </ul>
+                            <div class="small text-muted" x-show="providerFailure?.model" x-text="providerFailure?.model"></div>
+                            <div class="font-monospace text-break" x-show="providerFailure?.detail" x-text="providerFailure?.detail"></div>
+                            <div class="mt-2 d-flex flex-wrap gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-danger" @click="retryFailed()"
+                                    x-text="t('importAgent.review.retryChunk')"></button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" @click="navigate('settings')"
+                                    x-text="t('importAgent.warn.openSettings')"></button>
+                            </div>
                         </div>
                         <div class="alert alert-danger py-2 small" role="alert" x-show="saveState === 'failed'" x-cloak x-text="t('importAgent.review.autosave.failed')"></div>
-                        <div class="alert alert-warning py-2 small" role="alert" x-show="banners.length > 0">
+                        <div class="alert alert-warning py-2 small" role="alert" x-show="banners.some(b => b.code !== 'CHUNKS_FAILED' || failedChunks.length === 0)">
                             <template x-for="(banner, bIndex) in banners" :key="bIndex">
-                                <div>
+                                <div x-show="banner.code !== 'CHUNKS_FAILED' || failedChunks.length === 0">
                                     <div x-text="bannerText(banner)"></div>
                                     <div class="small text-muted mt-1" x-show="banner.model" x-text="banner.model"></div>
                                     <div class="font-monospace text-break mt-1" x-show="banner.detail" x-text="banner.detail"></div>
@@ -723,9 +731,9 @@
                                         x-show="banner.freeDaily" x-text="bannerQuotaText(banner)"></div>
                                 </div>
                             </template>
-                            <button type="button" class="btn btn-sm btn-outline-warning mt-2 me-2" @click="retryFailed()" x-show="hasFailedChunks"
+                            <button type="button" class="btn btn-sm btn-outline-warning mt-2 me-2" @click="retryFailed()" x-show="hasFailedChunks && failedChunks.length === 0"
                                 x-text="t('importAgent.review.retryChunk')"></button>
-                            <button type="button" class="btn btn-sm btn-outline-warning mt-2" x-show="banners.some(b => b.code === 'CHUNKS_RATE_LIMITED' || b.code === 'DATA_POLICY_BLOCKED' || b.code === 'CHUNKS_FAILED')"
+                            <button type="button" class="btn btn-sm btn-outline-warning mt-2" x-show="banners.some(b => b.code === 'CHUNKS_RATE_LIMITED' || b.code === 'DATA_POLICY_BLOCKED')"
                                 @click="navigate('settings')" x-text="t('importAgent.warn.openSettings')"></button>
                         </div>
 

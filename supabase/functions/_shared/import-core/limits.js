@@ -48,6 +48,11 @@ export const LIMITS = {
     MAX_TOKENS_CEILING: 16_000,
     PROVIDER_TIMEOUT_MS: 120_000,
     PROVIDER_MAX_ATTEMPTS: 3, // total attempts per call (spec §7.1: max 3)
+    // A reasoning model spends part of `max_completion_tokens` on its hidden
+    // reasoning before it writes the answer. With the row-based budget a
+    // small sheet (2 rows → 1 000 tokens) can be spent entirely on reasoning
+    // and the model returns no answer at all.
+    REASONING_MIN_TOKENS: 4_000,
 
     // ---- Verification and normalization (spec §8, Appendix B) ----
     SNAP_DISTANCE_ID: 2,

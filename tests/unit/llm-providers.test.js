@@ -7,6 +7,7 @@ import {
 } from '../../supabase/functions/_shared/llm/openai-compatible.ts';
 import { createOpenRouterProvider, modelList, OPENROUTER_PROVIDER_PREFS } from '../../supabase/functions/_shared/llm/openrouter.ts';
 import { buildCloudflareBody, createCloudflareProvider, mapCloudflareResult } from '../../supabase/functions/_shared/llm/cloudflare.ts';
+import { LIMITS } from '../../supabase/functions/_shared/import-core/limits.js';
 
 const REQUEST = { system: 'sys', user: [{ type: 'text', text: 'hi' }], maxTokens: 100, temperature: 0 };
 
@@ -153,7 +154,7 @@ describe('openai-compatible adapter', () => {
 
         // A reasoning model rejects `temperature` and needs the effort.
         const reasoning = buildOpenAiBody('deepseek-r1-distill-llama-70b', REQUEST);
-        expect(reasoning.max_completion_tokens).toBe(100);
+        expect(reasoning.max_completion_tokens).toBe(LIMITS.REASONING_MIN_TOKENS);
         expect(reasoning.max_tokens).toBeUndefined();
         expect(reasoning.temperature).toBeUndefined();
         expect(reasoning.reasoning_effort).toBe('low');
@@ -348,10 +349,52 @@ describe('cloudflare adapter (spec §7.1)', () => {
         expect(result.text).toBe('answer from reasoning');
     });
 
+    it('reads the answer of a reasoning model on Workers AI (content is null)', () => {
+        // The shape Cloudflare returned for @cf/qwen/qwen3.8-27b: an
+        // OpenAI-style answer whose `content` is null because the model spent
+        // its budget on reasoning. The old code reported "returned no text".
+        const reasoningAnswer = {
+            id: 'chat-1',
+            object: 'chat.completion',
+            created: 1,
+            model: '@cf/qwen/qwen3.8-27b',
+            choices: [{
+                index: 0,
+                finish_reason: 'stop',
+                message: { role: 'assistant', content: null, reasoning_content: '---\nname: "Youssef"\n' },
+            }],
+            service_tier: 'default',
+            usage: { prompt_tokens: 100, completion_tokens: 50 },
+        };
+        const result = mapCloudflareResult({ success: true, result: reasoningAnswer }, '@cf/qwen/qwen3.8-27b');
+        expect(result.text).toContain('Youssef');
+        expect(result.model).toBe('@cf/qwen/qwen3.8-27b');
+
+        // The same answer without the envelope.
+        expect(mapCloudflareResult(reasoningAnswer, 'm').text).toContain('Youssef');
+    });
+
+    it('names an exhausted completion budget instead of "no text"', () => {
+        const truncated = {
+            choices: [{
+                finish_reason: 'length',
+                message: { content: null, reasoning_content: 'thinking...' },
+            }],
+        };
+        // The reasoning is only the model's thinking when it ran out of
+        // budget: it must not be parsed as data.
+        expect(() => mapCloudflareResult({ success: true, result: truncated }, 'm'))
+            .toThrowError(/completion budget/);
+        expect(() => mapOpenAiResult(truncated, 'm')).toThrowError(/completion budget/);
+    });
+
     it('gives Qwen 3.8 a low reasoning budget and the completion-token field', () => {
         const body = buildCloudflareBody(REQUEST, '@cf/qwen/qwen3.8-27b');
         expect(body).toMatchObject({
-            max_completion_tokens: 100,
+            // The reasoning floor: the hidden reasoning is billed against the
+            // same budget, so a small chunk must not be spent on reasoning
+            // alone (the model then answers nothing).
+            max_completion_tokens: LIMITS.REASONING_MIN_TOKENS,
             reasoning_effort: 'low',
         });
         expect(body.max_tokens).toBeUndefined();

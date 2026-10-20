@@ -600,5 +600,6 @@
   "importAgent.chunkError.PERSIST_FAILED": "تعذّر حفظ الصفوف المستخرجة.",
   "importAgent.chunkError.INTERNAL": "حدث خطأ أثناء حفظ النتيجة.",
   "importAgent.review.chunksFailed": "فشل استخراج :count جزء",
-  "importAgent.reject.PARSE_FAILED": "تعذّرت قراءة هذا الملف كبيانات مرضى."
+  "importAgent.reject.PARSE_FAILED": "تعذّرت قراءة هذا الملف كبيانات مرضى.",
+  "importAgent.chunkError.OUTPUT_TRUNCATED": "استهلك النموذج كامل ميزانية الإجابة وتوقف قبل أن يكمل."
 }

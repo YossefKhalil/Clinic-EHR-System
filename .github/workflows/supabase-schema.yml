@@ -14,7 +14,7 @@ name: Supabase Schema
 
 on:
   push:
-    branches: [master]
+    branches: [master, ai-import-rebuild]
     paths:
       - 'supabase/schema.sql'
       - '.github/workflows/supabase-schema.yml'

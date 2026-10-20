@@ -5,7 +5,8 @@
 import {
     LlmError, LlmProvider, LlmRequest, LlmResult, parseRetryAfter, withRetries,
 } from './provider.ts';
-import { choiceText } from './content-text.ts';
+import { answerText, reasoningText } from './content-text.ts';
+import { LIMITS } from '../import-core/limits.js';
 
 export interface OpenAiCompatibleOptions {
     /** Base URL without the trailing /chat/completions, e.g. https://openrouter.ai/api/v1 */
@@ -75,7 +76,10 @@ export function buildOpenAiBody(
     };
     if (reasoning) {
         // Reasoning models only accept temperature 1 and reject `max_tokens`.
-        body.max_completion_tokens = request.maxTokens;
+        // Their hidden reasoning is billed against the same budget, so a
+        // small chunk needs a floor - otherwise the model reasons through the
+        // whole budget and answers nothing.
+        body.max_completion_tokens = Math.max(request.maxTokens, LIMITS.REASONING_MIN_TOKENS);
         body.reasoning_effort = policy.reasoningEffort ?? 'low';
     } else {
         body.temperature = 0;
@@ -92,15 +96,30 @@ export function mapOpenAiResult(json: unknown, fallbackModel: string): LlmResult
         model?: string;
     };
     const choice = data?.choices?.[0];
-    // Reasoning models leave `content` null and put the answer in
+    const finish = choice?.finish_reason;
+    // Reasoning models leave `content` null and put the generated text in
     // `reasoning_content` / `reasoning`; a streaming answer arrives as
     // `delta`. Accept every shape the providers use instead of reporting
     // "no text" for a perfectly good answer.
-    const text = choiceText(choice);
+    //
+    // The answer and the reasoning are kept apart: when the model ran out of
+    // its completion budget, the reasoning holds only its thinking, which is
+    // not an answer and must never be parsed as one.
+    const answer = answerText(choice);
+    const reasoning = reasoningText(choice);
+    const text = answer ?? (finish === 'length' ? null : reasoning);
     if (text == null) {
         const message = (choice as { message?: Record<string, unknown> } | undefined)?.message;
         const messageKeys = message && typeof message === 'object' ? Object.keys(message).join(', ') || 'none' : 'none';
         const choiceKeys = choice && typeof choice === 'object' ? Object.keys(choice).join(', ') || 'none' : 'none';
+        if (finish === 'length') {
+            throw new LlmError(
+                'OUTPUT_TRUNCATED',
+                'The model used its whole completion budget on reasoning and produced no answer '
+                + `(choices: ${data?.choices?.length ?? 'none'}; choice: ${choiceKeys}; message: ${messageKeys}; finish: ${finish})`,
+                { retryable: false },
+            );
+        }
         throw new LlmError(
             'PROVIDER_BAD_RESPONSE',
             `Provider returned no message content (choices: ${data?.choices?.length ?? 'none'}; choice: ${choiceKeys}; message: ${messageKeys})`,

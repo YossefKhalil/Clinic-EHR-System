@@ -735,6 +735,14 @@ export function importAgentWizard() {
             return (this.chunks ?? []).filter((chunk) => chunk.status === 'failed');
         },
 
+        /** The provider failure behind the failed chunks (model + reason). */
+        get providerFailure() {
+            const banners = this.banners ?? [];
+            return banners.find((banner) => banner.code === 'CHUNKS_RATE_LIMITED')
+                ?? banners.find((banner) => banner.code === 'CHUNKS_FAILED')
+                ?? null;
+        },
+
         /** The chunk's failure reason, translated (the raw code as fallback). */
         chunkErrorLabel(code) {
             if (!code) return this.t('importAgent.chunkError.PROVIDER_ERROR');

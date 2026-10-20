@@ -12,7 +12,7 @@ name: Deploy Edge Functions
 on:
   workflow_dispatch:
   push:
-    branches: [master]
+    branches: [master, ai-import-rebuild]
     paths:
       - 'supabase/functions/**'
 
