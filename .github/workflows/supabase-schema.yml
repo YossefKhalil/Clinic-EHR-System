@@ -12,12 +12,10 @@ name: Supabase Schema
 #   Use the shared *session* pooler on port 5432 (or the direct connection).
 #   Do not use the transaction pooler on port 6543: it cannot run DDL reliably.
 
+# Manual only: the deploy workflow applies the schema before it deploys
+# the functions. Two workflows applying the same DDL at the same time fail
+# with "tuple concurrently updated".
 on:
-  push:
-    branches: [master, ai-import-rebuild]
-    paths:
-      - 'supabase/schema.sql'
-      - '.github/workflows/supabase-schema.yml'
   workflow_dispatch:
 
 jobs:
