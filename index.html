@@ -580,9 +580,9 @@
                                 </button>
                                 <div x-show="showMore" x-cloak class="row g-2 mt-2">
                                     <div class="col-md-5">
-                                        <label class="form-label small mb-1 fw-semibold" x-text="t('Section')"></label>
+                                        <label class="form-label small mb-1 fw-semibold" x-text="t('importAgent.start.sectionLabel')"></label>
                                         <select class="form-select form-select-sm" x-model="section">
-                                            <option value="" x-text="t('-- All Sections --')"></option>
+                                            <option value="" x-text="t('importAgent.start.sectionNone')"></option>
                                             <template x-for="option in sectionOptions" :key="option.key">
                                                 <option :value="option.key" x-text="optionDisplay(option)"></option>
                                             </template>

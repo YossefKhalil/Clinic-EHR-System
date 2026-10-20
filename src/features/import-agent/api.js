@@ -61,10 +61,11 @@ export async function callJob(action, payload = {}) {
 }
 
 /** Per-file signed upload; mirrors the create step's `upload_urls`. */
-export async function uploadToSignedCell(url, token, file) {
+export async function uploadToSignedCell(path, token, file) {
     const client = supabase();
     if (!client) throw new ImportApiError('OFFLINE', 'importAgent.error.OFFLINE');
-    const result = await client.storage.from('import-staging').uploadToSignedUrl(url, token, file);
+    // uploadToSignedUrl takes the bucket-relative path, not the signed URL.
+    const result = await client.storage.from('import-staging').uploadToSignedUrl(path, token, file);
     if (result.error) {
         throw new ImportApiError('UPLOAD_FAILED', 'importAgent.error.UPLOAD_FAILED', {
             message: result.error.message,

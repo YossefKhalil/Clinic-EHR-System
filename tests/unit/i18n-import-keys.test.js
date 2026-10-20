@@ -92,6 +92,7 @@ const UI_KEYS = [
     'importAgent.start.drop', 'importAgent.start.types',
     'importAgent.start.choose', 'importAgent.start.pasteLabel',
     'importAgent.start.pastePh', 'importAgent.start.more',
+    'importAgent.start.sectionLabel', 'importAgent.start.sectionNone',
     'importAgent.start.sectionHint', 'importAgent.start.hints',
     'importAgent.start.hintsHint', 'importAgent.start.analyze',
 ];

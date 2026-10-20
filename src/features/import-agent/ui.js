@@ -328,8 +328,8 @@ export function importAgentWizard() {
                 let index = 0;
                 for (const file of this.usableFiles) {
                     const upload = created.upload_urls?.[index];
-                    if (!upload?.url || !upload?.token) throw new api.ImportApiError('UPLOAD_FAILED');
-                    await api.uploadToSignedCell(upload.url, upload.token, file.file);
+                    if (!upload?.path || !upload?.token) throw new api.ImportApiError('UPLOAD_FAILED');
+                    await api.uploadToSignedCell(upload.path, upload.token, file.file);
 
                     const prepared = prepareSources(file.sources, LIMITS);
                     // The server numbers sources by add order (its `idx` runs
