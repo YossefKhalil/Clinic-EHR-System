@@ -19,6 +19,11 @@ on:
       - 'supabase/schema.sql'
       - '.github/workflows/supabase-schema.yml'
   workflow_dispatch:
+    inputs:
+      debug_import:
+        description: Print recent import metadata (no patient values)
+        type: boolean
+        default: false
 
 jobs:
   migrate:
@@ -57,3 +62,29 @@ jobs:
               AND column_name IN ('age', 'mobile')
             ORDER BY column_name;
           "
+
+      - name: Debug recent import metadata
+        if: ${{ inputs.debug_import == true }}
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          psql "$SUPABASE_DB_URL" --set ON_ERROR_STOP=1 --no-psqlrc <<'SQL'
+          \pset pager off
+          SELECT id, status, created_at, tokens_in, tokens_out, error_code,
+                 config->>'provider' AS provider,
+                 config->>'model' AS model,
+                 token_cap
+          FROM public.import_jobs
+          ORDER BY created_at DESC
+          LIMIT 5;
+
+          WITH latest AS (
+              SELECT id FROM public.import_jobs ORDER BY created_at DESC LIMIT 1
+          )
+          SELECT c.idx, c.status, c.attempts, c.error_code, c.model,
+                 c.tokens_in, c.tokens_out,
+                 COALESCE(length(c.payload::text), 0) AS payload_bytes
+          FROM public.import_chunks c
+          JOIN latest ON latest.id = c.job_id
+          ORDER BY c.idx;
+          SQL
