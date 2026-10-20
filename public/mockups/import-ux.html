@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  Import UX — final preview mock (v5). Same URL: /mockups/import-ux.
+  Import UX — final preview mock (v6). Same URL: /mockups/import-ux.
 
   This is the live-feel version: no design annotations. It carries every owner
   decision so far:
@@ -12,6 +12,11 @@
     - Section may now be read from the file by the AI; the bar picker fills
       the rows that still have none
     - a source image is attached to the patient automatically
+    - the drop zone is the hero of the start card (dashed panel, icon, CTA)
+    - bulk fill is type-aware: dates get a date picker, numbers a number field,
+      every enum its allowed dropdown (all eight bulk-fill registry fields)
+    - counts follow the engine: All excludes removed; an unresolved duplicate
+      is an attention row and is skipped; the bar/confirm read as 15 importable
     - full Arabic / RTL via the preview bar
 
   Limited interaction: dropdown, screens, Simple/Advanced, every row's Details panel,
@@ -41,6 +46,9 @@
     .record-panel { background: #fff; }
     .record-panel h6 { font-size: .95rem; }
     .border-dashed { border-style: dashed !important; border-color: #c3cbd3; }
+    .dropzone-hero { background: radial-gradient(120% 120% at 50% 0%, #e8f1ff 0%, #f7faff 45%, #fff 100%); transition: border-color .15s ease, background .15s ease; }
+    .dropzone-hero:hover { border-color: #6ea8fe !important; }
+    .dropzone-icon { width: 4rem; height: 4rem; }
     .flash { animation: flashPulse 1.4s ease; }
     @keyframes flashPulse {
         0%, 100% { box-shadow: 0 0 0 0 rgba(13, 110, 253, 0); }
@@ -154,10 +162,13 @@
         <div class="col-12">
             <div class="card shadow-sm border-0">
                 <div class="card-body">
-                    <label class="d-block border border-2 border-dashed rounded-3 p-4 p-md-5 text-center" style="cursor:pointer">
-                        <i class="bi bi-cloud-arrow-up fs-2 d-block text-primary mb-2"></i>
-                        <span class="fw-semibold d-block" data-i18n="import.drop">Drag files here or click to choose</span>
-                        <span class="small text-muted" data-i18n="import.types">PDF · Word · Excel · CSV · photos of notes — up to 5 files</span>
+                    <label class="dropzone-hero d-block border border-2 border-dashed rounded-4 text-center px-4 py-5" style="cursor:pointer">
+                        <span class="dropzone-icon d-inline-flex align-items-center justify-content-center rounded-circle bg-primary-subtle text-primary mb-3">
+                            <i class="bi bi-cloud-arrow-up fs-2"></i>
+                        </span>
+                        <span class="d-block fs-4 fw-semibold" data-i18n="import.drop">Drag files here or click to choose</span>
+                        <span class="d-block text-muted mt-1" data-i18n="import.types">PDF · Word · Excel · CSV · photos of notes — up to 5 files</span>
+                        <span class="btn btn-primary mt-3 px-4"><i class="bi bi-folder2-open me-2"></i><span data-i18n="import.choose">Choose files</span></span>
                     </label>
 
                     <div class="mt-3">
@@ -181,6 +192,12 @@
                             <span class="fw-semibold">notes-scan.pdf</span>
                             <span class="text-muted small">1.2 MB</span>
                             <span class="badge text-bg-warning-subtle border border-warning-subtle text-body fw-normal" data-i18n="import.handwriting">2 pages look like handwriting</span>
+                            <button class="btn btn-sm btn-link text-danger ms-auto p-0"><i class="bi bi-x-lg"></i></button>
+                        </li>
+                        <li class="d-flex align-items-center gap-2 py-1 border-top">
+                            <i class="bi bi-image text-primary"></i>
+                            <span class="fw-semibold">notes-photo.jpg</span>
+                            <span class="text-muted small" data-i18n="import.photoMeta">640 KB · a photo of a note</span>
                             <button class="btn btn-sm btn-link text-danger ms-auto p-0"><i class="bi bi-x-lg"></i></button>
                         </li>
                     </ul>
@@ -277,11 +294,11 @@
     <!-- ================= ADVANCED ================= -->
     <div id="reviewAdvanced" class="d-none">
         <div class="d-flex flex-wrap align-items-center gap-2 mb-2 small">
-            <button class="btn btn-sm btn-primary" data-i18n="chips.all">All (18)</button>
+            <button class="btn btn-sm btn-primary" data-i18n="chips.all">All (17)</button>
             <button class="btn btn-sm btn-outline-secondary" data-i18n="chips.attention">Needs attention (3)</button>
             <button class="btn btn-sm btn-outline-secondary" data-i18n="chips.dups">Duplicates (1)</button>
             <button class="btn btn-sm btn-outline-secondary" data-i18n="chips.ready">Ready (14)</button>
-            <button class="btn btn-sm btn-outline-secondary" data-i18n="chips.removed">Removed (0)</button>
+            <button class="btn btn-sm btn-outline-secondary" data-i18n="chips.removed">Removed (1)</button>
             <span class="text-muted ms-auto" id="issueStep" data-i18n="att.counter.initial">3 issues</span>
             <button class="btn btn-sm btn-warning" id="nextIssue"><i class="bi bi-arrow-down-short me-1"></i><span data-i18n="att.next">Next issue</span></button>
         </div>
@@ -335,7 +352,7 @@
                                     <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
                                         <i class="bi bi-files text-info fs-5"></i>
                                         <span class="fw-semibold" data-i18n="dup.title">Possible duplicate</span>
-                                        <span class="small text-muted" data-i18n="dup.same">Same national ID as row 7 (in this batch).</span>
+                                        <span class="small text-muted" data-i18n="dup.same">Same national ID as Rania Samir — also in this import.</span>
                                     </div>
                                     <div class="table-responsive mb-3" style="max-width:720px">
                                         <table class="table table-sm align-middle mb-0 bg-white">
@@ -343,7 +360,7 @@
                                                 <tr>
                                                     <th style="width:10rem"></th>
                                                     <th data-i18n="dup.thisRow">This row</th>
-                                                    <th data-i18n="dup.row7">Row 7</th>
+                                                    <th data-i18n="dup.partner">Rania Samir</th>
                                                 </tr>
                                             </thead>
                                             <tbody class="small">
@@ -356,8 +373,9 @@
                                         </table>
                                     </div>
                                     <div class="d-flex flex-wrap align-items-center gap-2">
-                                        <button class="btn btn-sm btn-success"><i class="bi bi-check2 me-1"></i><span data-i18n="dup.keep">Keep this one</span></button>
-                                        <button class="btn btn-sm btn-outline-secondary" data-i18n="dup.skip">Skip this one</button>
+                                        <button class="btn btn-sm btn-success"><i class="bi bi-arrow-down-square me-1"></i><span data-i18n="dup.fill">Fill missing fields only</span></button>
+                                        <button class="btn btn-sm btn-outline-secondary" data-i18n="dup.keep">Keep as new</button>
+                                        <button class="btn btn-sm btn-outline-secondary" data-i18n="dup.skip">Skip</button>
                                         <button class="btn btn-sm btn-link px-1" data-i18n="dup.compare">Compare</button>
                                         <span class="small text-muted ms-md-2" data-i18n="dup.note"></span>
                                     </div>
@@ -473,17 +491,21 @@
                     <div class="col-md-3">
                         <label class="form-label small mb-1" data-i18n="fill.field">Field</label>
                         <select class="form-select form-select-sm" id="fillField">
-                            <option value="visit" selected data-i18n="f.visit">Visit Date</option>
-                            <option value="follower" data-i18n="t.follower">Follower</option>
+                            <option value="visit_date" selected data-i18n="f.visit">Visit Date</option>
                             <option value="price" data-i18n="f.price">Price (EGP)</option>
+                            <option value="marital_status" data-i18n="f.marital">Marital Status</option>
+                            <option value="children_count" data-i18n="f.children">Number of Children</option>
+                            <option value="governorate" data-i18n="f.gov">Governorate</option>
+                            <option value="follower" data-i18n="t.follower">Follower</option>
                             <option value="section" data-i18n="f.section">Section</option>
-                            <option value="source" data-i18n="f.source">Source of Money</option>
-                            <option value="marital" data-i18n="f.marital">Marital Status</option>
+                            <option value="source_of_money" data-i18n="f.source">Source of Money</option>
                         </select>
                     </div>
                     <div class="col-md-3">
                         <label class="form-label small mb-1" data-i18n="fill.value">Value</label>
-                        <input type="date" class="form-control form-control-sm" id="fillValue" value="2026-10-12">
+                        <div id="fillValueCell">
+                            <input type="date" class="form-control form-control-sm" id="fillValue" value="2026-10-12">
+                        </div>
                     </div>
                     <div class="col-md-3">
                         <div class="form-check">
@@ -504,23 +526,23 @@
     <div class="card shadow sticky-import border-0 mt-3">
         <div class="card-body py-2">
             <div class="d-flex flex-wrap align-items-center gap-2">
-                <span class="small"><strong data-i18n="bar.ready">14 ready to import</strong>
-                    <span class="text-muted" data-i18n="bar.detail">· 3 need a check · 1 duplicate — skipped unless resolved</span></span>
+                <span class="small"><strong data-i18n="bar.ready">15 ready to import</strong>
+                    <span class="text-muted" data-i18n="bar.detail">· 1 problem and 1 duplicate will be skipped</span></span>
                 <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
-                    <label class="small mb-0" for="sectionPicker" data-i18n="bar.sectionLabel">Section for 4 rows without one</label>
+                    <label class="small mb-0" for="sectionPicker" data-i18n="bar.sectionLabel">Rows with no section will use</label>
                     <select id="sectionPicker" class="form-select form-select-sm" style="width:10rem">
                         <option selected>Agamy</option>
                         <option>Dekhila</option>
                         <option>Smouha</option>
                     </select>
                     <button class="btn btn-primary" id="importBtn">
-                        <i class="bi bi-box-arrow-down me-1"></i><span data-i18n="bar.import">Import 14 patients</span>
+                        <i class="bi bi-box-arrow-down me-1"></i><span data-i18n="bar.import">Import 15 patients</span>
                     </button>
                 </div>
             </div>
             <div id="confirmStrip" class="d-none">
                 <div class="border-top mt-2 pt-2 d-flex flex-wrap align-items-center gap-2">
-                    <span class="small" data-i18n="confirm.text">Adds 14 new patients and fills missing fields of 1 existing patient. This can't be undone.</span>
+                    <span class="small" data-i18n="confirm.text">Adds 15 new patients. The problem row and the duplicate stay out. This can't be undone.</span>
                     <div class="ms-auto d-flex gap-2">
                         <button class="btn btn-sm btn-outline-secondary" id="confirmCancel" data-i18n="btn.cancel">Cancel</button>
                         <button class="btn btn-sm btn-success" id="confirmGo"><i class="bi bi-check2 me-1"></i><span data-i18n="confirm.go">Confirm import</span></button>
@@ -536,7 +558,7 @@
 <div class="toast-layer d-none" id="toastLayer">
     <div class="d-flex justify-content-center">
         <div class="bg-success text-white rounded-3 shadow px-3 py-2 small">
-            <i class="bi bi-check-circle-fill me-2"></i><span id="toastText" data-i18n="toast.done">14 patients imported successfully</span>
+            <i class="bi bi-check-circle-fill me-2"></i><span id="toastText" data-i18n="toast.done">15 patients imported successfully</span>
         </div>
     </div>
 </div>
@@ -583,26 +605,29 @@
             'import.rows82': '82 KB · 46 rows',
             'import.handwriting': '2 pages look like handwriting',
             'import.analyze': 'Analyze files',
+            'import.choose': 'Choose files',
+            'import.photoMeta': '640 KB · a photo of a note',
             'review.meta': '18 rows from 3 files · finished 2 min ago',
             'review.saved': 'All changes saved',
             'review.simple': 'Simple',
             'review.advanced': 'Advanced',
             'review.details': 'Details',
             'att.next': 'Next issue',
-            'chips.all': 'All (18)',
+            'chips.all': 'All (17)',
             'chips.attention': 'Needs attention (3)',
             'chips.dups': 'Duplicates (1)',
             'chips.ready': 'Ready (14)',
-            'chips.removed': 'Removed (0)',
+            'chips.removed': 'Removed (1)',
             'money.cash': 'Cash',
             'money.insurance': 'Insurance',
-            'dup.same': 'Same national ID as row 7 (in this batch).',
+            'dup.same': 'Same national ID as Rania Samir — also in this import.',
             'dup.title': 'Possible duplicate',
             'dup.thisRow': 'This row',
-            'dup.row7': 'Row 7',
-            'dup.note': 'Left as is, this row is skipped at import.',
-            'dup.keep': 'Keep this one',
-            'dup.skip': 'Skip this one',
+            'dup.partner': 'Rania Samir',
+            'dup.note': 'Fill missing fields updates the existing patient. Left as is, this row is skipped at import.',
+            'dup.fill': 'Fill missing fields only',
+            'dup.keep': 'Keep as new',
+            'dup.skip': 'Skip',
             'dup.compare': 'Compare',
             'problem.nid': 'National ID is 14 digits. Fix it or remove the row — problem rows are skipped.',
             'strips.unmapped': "4 lines couldn't be mapped",
@@ -626,14 +651,14 @@
             'att.counter.fmt': '{i} of {n}',
             'toast.filled': '12 cells filled',
             'toast.restored': 'Row restored',
-            'bar.ready': '14 ready to import',
-            'bar.detail': '· 3 need a check · 1 duplicate — skipped unless resolved',
-            'bar.sectionLabel': 'Section for 4 rows without one',
-            'bar.import': 'Import 14 patients',
-            'confirm.text': "Adds 14 new patients and fills missing fields of 1 existing patient. This can't be undone.",
+            'bar.ready': '15 ready to import',
+            'bar.detail': '· 1 problem and 1 duplicate will be skipped',
+            'bar.sectionLabel': 'Rows with no section will use',
+            'bar.import': 'Import 15 patients',
+            'confirm.text': "Adds 15 new patients. The problem row and the duplicate stay out. This can't be undone.",
             'btn.cancel': 'Cancel',
             'confirm.go': 'Confirm import',
-            'toast.done': '14 patients imported successfully',
+            'toast.done': '15 patients imported successfully',
             'record.title': 'Patient Record',
             'record.from': 'from',
             's1': '1. Personal Identification',
@@ -718,26 +743,29 @@
             'import.rows82': '82 ك.ب · 46 صفًا',
             'import.handwriting': 'صفحتان تبدوان بخط اليد',
             'import.analyze': 'تحليل الملفات',
+            'import.choose': 'اختيار الملفات',
+            'import.photoMeta': '640 ك.ب · صورة ملاحظة',
             'review.meta': '18 صفًا من 3 ملفات · انتهى قبل دقيقتين',
             'review.saved': 'تم حفظ كل التغييرات',
             'review.simple': 'بسيط',
             'review.advanced': 'متقدم',
             'review.details': 'التفاصيل',
             'att.next': 'المشكلة التالية',
-            'chips.all': 'الكل (18)',
+            'chips.all': 'الكل (17)',
             'chips.attention': 'تحتاج انتباهًا (3)',
             'chips.dups': 'المكررة (1)',
             'chips.ready': 'الجاهزة (14)',
-            'chips.removed': 'المحذوفة (0)',
+            'chips.removed': 'المحذوفة (1)',
             'money.cash': 'نقدي',
             'money.insurance': 'تأمين',
-            'dup.same': 'نفس الرقم القومي للصف 7 (في هذه الدفعة).',
+            'dup.same': 'نفس الرقم القومي لرانيا سمير — أيضًا في هذا الاستيراد.',
             'dup.title': 'مكرر محتمل',
             'dup.thisRow': 'هذا الصف',
-            'dup.row7': 'الصف 7',
-            'dup.note': 'إن تركته كما هو، يُتخطى هذا الصف عند الاستيراد.',
-            'dup.keep': 'الإبقاء على هذا',
-            'dup.skip': 'تخطي هذا',
+            'dup.partner': 'رانيا سمير',
+            'dup.note': 'تعبئة الحقول الناقصة تُحدّث المريض الموجود. إن تركته كما هو، يُتخطى هذا الصف عند الاستيراد.',
+            'dup.fill': 'تعبئة الحقول الناقصة فقط',
+            'dup.keep': 'الإبقاء كسجل جديد',
+            'dup.skip': 'تخطي',
             'dup.compare': 'مقارنة',
             'problem.nid': 'الرقم القومي يجب أن يكون 14 رقمًا. صحّحه أو احذف الصف — الصفوف ذات المشكلة تُتخطى.',
             'strips.unmapped': '4 أسطر تعذّر ربطها',
@@ -761,14 +789,14 @@
             'att.counter.fmt': '{i} من {n}',
             'toast.filled': 'تمت تعبئة 12 خانة',
             'toast.restored': 'تمت استعادة الصف',
-            'bar.ready': '14 جاهزًا للاستيراد',
-            'bar.detail': '· 3 بحاجة لتحقق · 1 مكرر — يُتخطى إن لم يُحل',
-            'bar.sectionLabel': 'القسم لـ4 صفوف بدون قسم',
-            'bar.import': 'استيراد 14 مريضًا',
-            'confirm.text': 'يضيف 14 مريضًا جديدًا ويُكمّل الحقول الناقصة لمريض موجود. لا يمكن التراجع عن ذلك.',
+            'bar.ready': '15 جاهزًا للاستيراد',
+            'bar.detail': '· مشكلة واحدة ومكرر واحد سيُتخطيان',
+            'bar.sectionLabel': 'الصفوف بدون قسم ستستخدم',
+            'bar.import': 'استيراد 15 مريضًا',
+            'confirm.text': 'يضيف 15 مريضًا جديدًا. صف المشكلة والمكرر يبقيان خارج الاستيراد. لا يمكن التراجع عن ذلك.',
             'btn.cancel': 'إلغاء',
             'confirm.go': 'تأكيد الاستيراد',
-            'toast.done': 'تم استيراد 14 مريضًا بنجاح',
+            'toast.done': 'تم استيراد 15 مريضًا بنجاح',
             'record.title': 'ملف المريض',
             'record.from': 'من',
             's1': '1. التعريف الشخصي',
@@ -825,6 +853,7 @@
         document.querySelectorAll('[data-i18n-ph]').forEach((el) => { el.placeholder = t(el.dataset.i18nPh); });
         refreshStrips();
         refreshIssueStep();
+        renderFillValue();
     }
 
     // ------------------------------------------------------- record panel
@@ -1098,13 +1127,56 @@
         showToast('toast.restored');
     });
 
-    const fillValue = document.getElementById('fillValue');
-    document.getElementById('fillField').addEventListener('change', (e) => {
-        const field = e.currentTarget.value;
-        fillValue.type = field === 'visit' ? 'date' : field === 'price' ? 'number' : 'text';
-        fillValue.value = field === 'visit' ? '2026-10-12' : field === 'price' ? '150' : '';
-        fillValue.placeholder = t('fill.value');
-    });
+    // ------------------------------------------------------- bulk fill
+    const FILL_FIELDS = {
+        visit_date: { kind: 'date', value: '2026-10-12' },
+        price: { kind: 'number', value: '150' },
+        marital_status: { kind: 'select', placeholder: 'opt.select', options: ['opt.single', 'opt.married', 'opt.divorced', 'opt.widowed'] },
+        children_count: { kind: 'number', value: '2' },
+        governorate: { kind: 'select', placeholder: 'opt.selectGov', options: ['Alexandria', 'Cairo', 'Giza'] },
+        follower: { kind: 'select', placeholder: 'opt.selectFollower', options: ['Nour', 'Dr. Hala', 'Mariam'] },
+        section: { kind: 'select', placeholder: 'opt.selectSection', options: ['Agamy', 'Dekhila', 'Smouha'] },
+        source_of_money: { kind: 'select', placeholder: 'opt.selectSource', options: ['money.cash', 'money.insurance'] },
+    };
+
+    function renderFillValue() {
+        const def = FILL_FIELDS[document.getElementById('fillField').value] || FILL_FIELDS.visit_date;
+        const cell = document.getElementById('fillValueCell');
+        cell.innerHTML = '';
+        let control;
+        if (def.kind === 'select') {
+            control = document.createElement('select');
+            control.className = 'form-select form-select-sm';
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = t(def.placeholder);
+            control.appendChild(placeholder);
+            def.options.forEach((option) => {
+                const node = document.createElement('option');
+                node.value = option;
+                node.textContent = I18N.en[option] ? t(option) : option;
+                control.appendChild(node);
+            });
+        } else {
+            control = document.createElement('input');
+            control.className = 'form-control form-control-sm';
+            control.type = def.kind;
+            control.value = def.value;
+            if (def.kind === 'number') control.min = '0';
+        }
+        control.id = 'fillValue';
+        cell.appendChild(control);
+        syncFillApply();
+    }
+
+    function syncFillApply() {
+        const control = document.getElementById('fillValue');
+        document.getElementById('fillApply').disabled = !control || String(control.value).trim() === '';
+    }
+
+    document.getElementById('fillField').addEventListener('change', renderFillValue);
+    document.getElementById('fillValueCell').addEventListener('change', syncFillApply);
+    document.getElementById('fillValueCell').addEventListener('input', syncFillApply);
     document.getElementById('fillApply').addEventListener('click', () => {
         document.getElementById('strip-fill').classList.add('d-none');
         refreshStrips();

@@ -1,7 +1,7 @@
 # AI Import — UX rebuild brief (Step 0, proposed)
 
 Status: **proposed — pending review**. Companion artifact:
-`public/mockups/import-ux.html` — v4, the live-feel preview (open `/mockups/import-ux` on
+`public/mockups/import-ux.html` — v6, the live-feel preview (open `/mockups/import-ux` on
 the branch preview; full EN/AR toggle, no design annotations).
 
 v2 revision (from owner feedback on v1): the mock now runs at the full container width
@@ -17,6 +17,18 @@ Patient Intake Registry exactly (same numbered blue section headers, icons, colo
 field order — muscle memory); Section is now read from the file when present; a source
 image is attached to the patient automatically; the mock is bilingual EN/AR and
 annotation-free.
+
+v5 revision (from owner feedback on v4): the start screen is one full-width card (the
+"While it works" side card is gone); "Next issue" walks the flagged rows in severity
+order with an "i of n" counter and a flash on each row's panel; the three strips open
+inline panels (unmapped lines, removed rows with Restore, bulk fill).
+
+v6 revision (owner's final consistency pass): the drop zone is the hero of the start
+card; bulk fill is type-aware — dates and numbers get matching inputs, every enum gets
+its allowed dropdown, and all eight registry bulk-fill fields are offered; duplicate
+actions mirror the engine (fill missing fields / keep as new / skip) and name the
+partner instead of a row number; the counts now agree with `review.js` (All excludes
+removed; an unresolved duplicate is an attention row and is skipped).
 
 ## Why
 
@@ -73,9 +85,11 @@ everything behind `review.js`/`api.js`, all 351 tests) and replaces the entire s
 
 ## Screen notes
 
-- **Start is one card.** The drop zone (dashed frame), paste box, "More options" and
-  the picked-file list share a single full-width card. There is no side reassurance
-  panel — the "While it works" card was removed (owner).
+- **Start is one card, with a hero drop zone.** The dashed drop zone is the hero:
+  soft-tinted panel, large cloud icon in a circle, a full-size headline, the formats
+  line and a "Choose files" button; the paste box, "More options" and the picked-file
+  list sit below in the same full-width card. There is no side reassurance panel — the
+  "While it works" card was removed (owner).
 - **Review modes.** A small segmented toggle in the review header: `Simple` (default) /
   `Advanced`, remembered per user. Simple renders five columns — name, national ID,
   mobile, governorate, status — at the patients-page width, no checkboxes or chips;
@@ -86,8 +100,15 @@ everything behind `review.js`/`api.js`, all 351 tests) and replaces the entire s
 - **Issues live in the row, not in the table.** The table never grows helper rows for
   duplicates or problems. A row's issue opens inside its expanded panel: a compact
   banner at the top of the record (with "Row looks good" / "Remove row"), a comparison
-  card for duplicates ("This row" vs the partner, keep/skip/compare) and a one-line
-  fix-or-remove banner for blocked rows.
+  card for duplicates ("This row" vs the partner by name, with fill missing fields /
+  keep as new / skip / compare) and a one-line fix-or-remove banner for blocked rows.
+- **Counts mirror the engine.** The chips are `filterCounts` — `All` excludes removed
+  rows and `Removed` counts them separately; an unresolved duplicate is an attention
+  row (its error code) and is skipped at import, so the bar's importable count excludes
+  it. The bar and confirm read from `confirmationCounts` (fresh / fill / skipped) —
+  never hardcoded. In the mock: 18 read, 1 removed → 17 active = 14 ready + 3 attention
+  (duplicate, problem, check); importable 15 (14 ready + 1 check); skipped 2 (problem +
+  unresolved duplicate).
 - **Status vocabulary** (patients-style badges): `Ready` (success), `Check` (warning),
   `Problem` (danger, skipped unless fixed), `Duplicate` (info, resolved in Advanced —
   skipped if left unresolved), `Removed` (secondary). Counts live in filter chips
@@ -110,7 +131,11 @@ everything behind `review.js`/`api.js`, all 351 tests) and replaces the entire s
 - **Collapsed strips** under the table replace the trays; each opens an inline panel:
   the unmapped lines kept from the source (file/page + raw text — nothing is dropped),
   removed rows with a Restore action, and the bulk "fill blanks with common values"
-  controls (field, value, only-empty-cells, count hint) — defaults re-housed inline.
+  controls — defaults re-housed inline. Bulk fill is type-aware: visit date gets a date
+  input, price and children a number input, and every enum (marital status, governorate,
+  follower, section, source of money) gets a dropdown of the allowed values — never a
+  free-text box for a fixed list. All eight registry bulk-fill fields are offered; Apply
+  stays disabled until a value is chosen; only blank cells are touched by default.
 - **Extraction strip**: while the job runs, a thin progress line with `done/total` and
   the current source — the page stays usable; failures surface as one inline line with
   a retry action.
