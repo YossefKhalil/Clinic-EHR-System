@@ -361,3 +361,52 @@ i.bi {
     width: 4rem;
     height: 4rem;
 }
+
+/* AI settings: one ordered chain row, provider and model side by side. */
+.ai-chain-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.ai-chain-row:last-child {
+    border-bottom: 0;
+}
+
+.ai-chain-row .ai-chain-provider {
+    width: 12.5rem;
+}
+
+.ai-chain-row .ai-chain-model {
+    flex: 1 1 15rem;
+    min-width: 12rem;
+}
+
+.ai-chain-row .ai-row-num {
+    width: 1.7rem;
+}
+
+.ai-chain-row .ai-chain-actions {
+    margin-inline-start: auto;
+}
+
+.ai-tab-ready {
+    font-size: 0.72rem;
+}
+
+@media (max-width: 575.98px) {
+    .ai-chain-row .ai-chain-provider {
+        width: 100%;
+    }
+
+    .ai-chain-row .ai-chain-model {
+        min-width: 100%;
+    }
+
+    .ai-chain-row .ai-chain-actions {
+        margin-inline-start: 0;
+    }
+}

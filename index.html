@@ -1360,6 +1360,173 @@
                     </div>
                 </div>
 
+                <!-- AI Import settings (super admin) -->
+                <div class="card shadow-sm border-0 mb-4" x-show="isSuperAdmin" x-cloak>
+                    <div class="card-header bg-white py-3 d-flex flex-wrap align-items-center gap-2">
+                        <i class="bi bi-stars text-primary fs-5"></i>
+                        <div class="me-auto">
+                            <h5 class="mb-0 fw-semibold" x-text="t('aiSettings.title')"></h5>
+                            <div class="small text-muted" x-text="t('aiSettings.subtitle')"></div>
+                        </div>
+                        <div class="form-check form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" role="switch" id="ai-import-enabled" x-model="aiSettingsForm.enabled" @change="aiClearMessage()" :disabled="aiSettingsLoading || aiSettingsSaving || aiSettingsLoadError">
+                            <label class="form-check-label small" for="ai-import-enabled" x-text="t('aiSettings.enabled')"></label>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <template x-if="aiSettingsLoading">
+                            <div class="d-flex align-items-center gap-2 text-muted small py-3">
+                                <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                                <span x-text="t('aiSettings.loading')"></span>
+                            </div>
+                        </template>
+
+                        <template x-if="!aiSettingsLoading && aiSettingsLoadError">
+                            <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2 mb-0">
+                                <span x-text="t(aiSettingsLoadError.key, aiSettingsLoadError.params)"></span>
+                                <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" @click="loadAiSettings()" x-text="t('aiSettings.retry')"></button>
+                            </div>
+                        </template>
+
+                        <template x-if="!aiSettingsLoading && !aiSettingsLoadError">
+                            <div>
+                                <div class="small text-muted mb-3">
+                                    <i class="bi bi-shield-lock me-1"></i><span x-text="t('aiSettings.encryptionNote')"></span>
+                                    <span class="d-block mt-1" x-show="!aiSettingsForm.enabled" x-text="t('aiSettings.enabledHint')"></span>
+                                </div>
+
+                                <div class="alert alert-warning py-2 px-3 small" x-show="aiSettings && aiSettings.encryptionReady === false" x-cloak x-text="t('aiSettings.encryptionMissing')"></div>
+
+                                <div class="nav nav-pills nav-fill bg-light rounded p-1 mt-3" role="tablist">
+                                    <template x-for="option in aiProviderOptions" :key="option.id">
+                                        <button type="button" class="nav-link" :class="{ active: aiSettingsProvider === option.id }" @click="aiSelectProvider(option.id)" role="tab" :aria-selected="aiSettingsProvider === option.id ? 'true' : 'false'">
+                                            <span x-text="t(option.labelKey)"></span>
+                                            <i class="bi bi-check-circle-fill text-success ms-1 ai-tab-ready" x-show="aiProviderReady(option.id)" aria-hidden="true"></i>
+                                        </button>
+                                    </template>
+                                </div>
+
+                                <div class="mt-3">
+                                    <div x-show="aiSettingsProvider === 'openrouter'" x-cloak>
+                                        <div class="row g-2 align-items-end">
+                                            <div class="col-12 col-md-8">
+                                                <label class="form-label small fw-semibold" for="ai-or-key" x-text="t('aiSettings.apiKey')"></label>
+                                                <input type="password" class="form-control" id="ai-or-key" x-model="aiSettingsForm.credentials.openrouter.apiKey" @input="aiSettingsForm.credentials.openrouter.clearKey = false; aiOnCredentialInput('openrouter')" :placeholder="aiProviderSavedKey('openrouter') ? t('aiSettings.keepKey') : t('aiSettings.pasteKey')" autocomplete="new-password" dir="ltr" :disabled="aiSettingsSaving">
+                                            </div>
+                                            <div class="col-12 col-md-4 d-flex flex-wrap align-items-center gap-2">
+                                                <button type="button" class="btn btn-outline-secondary" @click="testAiSettingsProvider('openrouter')" :disabled="aiSettingsTesting !== null || aiSettingsSaving">
+                                                    <span class="spinner-border spinner-border-sm me-1" x-show="aiSettingsTesting === 'openrouter'" x-cloak></span>
+                                                    <span x-text="aiSettingsTesting === 'openrouter' ? t('aiSettings.testing') : t('aiSettings.test')"></span>
+                                                </button>
+                                                <button type="button" class="btn btn-link btn-sm text-danger text-decoration-none p-0" x-show="aiProviderSavedKey('openrouter')" @click="aiRemoveSavedKey('openrouter')" x-text="t('aiSettings.removeKey')"></button>
+                                            </div>
+                                        </div>
+                                        <div class="small text-warning mt-1" x-show="aiSettingsForm.credentials.openrouter.clearKey" x-text="t('aiSettings.keyRemovedOnSave')"></div>
+                                        <div class="small text-warning mt-1" x-show="aiProviderWarning('openrouter')" x-text="aiProviderWarning('openrouter')"></div>
+                                        <div class="small mt-1" x-show="aiSettingsTestResults.openrouter" :class="aiTestClass('openrouter')" x-text="aiTestText('openrouter')"></div>
+                                    </div>
+
+                                    <div x-show="aiSettingsProvider === 'cloudflare'" x-cloak>
+                                        <div class="row g-2 align-items-end">
+                                            <div class="col-12 col-md-4">
+                                                <label class="form-label small fw-semibold" for="ai-cf-account" x-text="t('aiSettings.accountId')"></label>
+                                                <input type="text" class="form-control" id="ai-cf-account" x-model="aiSettingsForm.credentials.cloudflare.accountId" @input="aiOnCredentialInput('cloudflare')" :placeholder="t('aiSettings.accountId')" dir="ltr" :disabled="aiSettingsSaving">
+                                            </div>
+                                            <div class="col-12 col-md-4">
+                                                <label class="form-label small fw-semibold" for="ai-cf-token" x-text="t('aiSettings.token')"></label>
+                                                <input type="password" class="form-control" id="ai-cf-token" x-model="aiSettingsForm.credentials.cloudflare.apiToken" @input="aiSettingsForm.credentials.cloudflare.clearToken = false; aiOnCredentialInput('cloudflare')" :placeholder="aiProviderSavedKey('cloudflare') ? t('aiSettings.keepKey') : t('aiSettings.pasteToken')" autocomplete="new-password" dir="ltr" :disabled="aiSettingsSaving">
+                                            </div>
+                                            <div class="col-12 col-md-4 d-flex flex-wrap align-items-center gap-2">
+                                                <button type="button" class="btn btn-outline-secondary" @click="testAiSettingsProvider('cloudflare')" :disabled="aiSettingsTesting !== null || aiSettingsSaving">
+                                                    <span class="spinner-border spinner-border-sm me-1" x-show="aiSettingsTesting === 'cloudflare'" x-cloak></span>
+                                                    <span x-text="aiSettingsTesting === 'cloudflare' ? t('aiSettings.testing') : t('aiSettings.test')"></span>
+                                                </button>
+                                                <button type="button" class="btn btn-link btn-sm text-danger text-decoration-none p-0" x-show="aiProviderSavedKey('cloudflare')" @click="aiRemoveSavedKey('cloudflare')" x-text="t('aiSettings.removeKey')"></button>
+                                            </div>
+                                        </div>
+                                        <div class="small text-warning mt-1" x-show="aiSettingsForm.credentials.cloudflare.clearToken" x-text="t('aiSettings.keyRemovedOnSave')"></div>
+                                        <div class="small text-warning mt-1" x-show="aiProviderWarning('cloudflare')" x-text="aiProviderWarning('cloudflare')"></div>
+                                        <div class="small mt-1" x-show="aiSettingsTestResults.cloudflare" :class="aiTestClass('cloudflare')" x-text="aiTestText('cloudflare')"></div>
+                                    </div>
+
+                                    <div x-show="aiSettingsProvider === 'openai'" x-cloak>
+                                        <div class="row g-2 align-items-end">
+                                            <div class="col-12 col-md-5">
+                                                <label class="form-label small fw-semibold" for="ai-oa-base" x-text="t('aiSettings.baseUrl')"></label>
+                                                <input type="text" class="form-control" id="ai-oa-base" x-model="aiSettingsForm.credentials.openai.baseUrl" @input="aiOnCredentialInput('openai')" placeholder="https://your-endpoint/v1" dir="ltr" :disabled="aiSettingsSaving">
+                                            </div>
+                                            <div class="col-12 col-md-4">
+                                                <label class="form-label small fw-semibold" for="ai-oa-key" x-text="t('aiSettings.apiKeyOptional')"></label>
+                                                <input type="password" class="form-control" id="ai-oa-key" x-model="aiSettingsForm.credentials.openai.apiKey" @input="aiSettingsForm.credentials.openai.clearKey = false; aiOnCredentialInput('openai')" :placeholder="aiProviderSavedKey('openai') ? t('aiSettings.keepKey') : t('aiSettings.pasteKey')" autocomplete="new-password" dir="ltr" :disabled="aiSettingsSaving">
+                                                <div class="form-text" x-text="t('aiSettings.openaiKeyHint')"></div>
+                                            </div>
+                                            <div class="col-12 col-md-3 d-flex flex-wrap align-items-center gap-2">
+                                                <button type="button" class="btn btn-outline-secondary" @click="testAiSettingsProvider('openai')" :disabled="aiSettingsTesting !== null || aiSettingsSaving">
+                                                    <span class="spinner-border spinner-border-sm me-1" x-show="aiSettingsTesting === 'openai'" x-cloak></span>
+                                                    <span x-text="aiSettingsTesting === 'openai' ? t('aiSettings.testing') : t('aiSettings.test')"></span>
+                                                </button>
+                                                <button type="button" class="btn btn-link btn-sm text-danger text-decoration-none p-0" x-show="aiProviderSavedKey('openai')" @click="aiRemoveSavedKey('openai')" x-text="t('aiSettings.removeKey')"></button>
+                                            </div>
+                                        </div>
+                                        <div class="small text-warning mt-1" x-show="aiSettingsForm.credentials.openai.clearKey" x-text="t('aiSettings.keyRemovedOnSave')"></div>
+                                        <div class="small text-warning mt-1" x-show="aiProviderWarning('openai')" x-text="aiProviderWarning('openai')"></div>
+                                        <div class="small mt-1" x-show="aiSettingsTestResults.openai" :class="aiTestClass('openai')" x-text="aiTestText('openai')"></div>
+                                    </div>
+                                </div>
+
+                                <hr class="my-4">
+
+                                <div class="d-flex flex-wrap align-items-start gap-2">
+                                    <div>
+                                        <h5 class="mb-1" x-text="t('aiSettings.modelChain')"></h5>
+                                        <div class="small text-muted" x-text="t('aiSettings.modelChainHint')"></div>
+                                    </div>
+                                    <div class="small text-muted ms-auto" x-text="t('aiSettings.maxModels', { max: aiSettingsMaxModels })"></div>
+                                </div>
+
+                                <div class="mt-2">
+                                    <template x-for="(row, index) in aiSettingsForm.chain" :key="row._key">
+                                        <div class="ai-chain-row">
+                                            <span class="badge rounded-pill text-bg-light border ai-row-num" x-text="index + 1"></span>
+                                            <select class="form-select form-select-sm ai-chain-provider" x-model="row.provider" @change="aiOnChainInput(index, 'provider')" :class="{ 'is-invalid': aiIsInvalid(index, 'provider') }" :aria-label="t('aiSettings.providerLabel')" :disabled="aiSettingsSaving">
+                                                <option value="" x-text="t('aiSettings.selectProvider')"></option>
+                                                <option value="openrouter" x-text="t('aiSettings.provider.openrouter')"></option>
+                                                <option value="cloudflare" x-text="t('aiSettings.provider.cloudflare')"></option>
+                                                <option value="openai" x-text="t('aiSettings.provider.openai')"></option>
+                                            </select>
+                                            <input type="text" class="form-control form-control-sm font-monospace ai-chain-model" x-model="row.model" @input="aiOnChainInput(index, 'model')" :class="{ 'is-invalid': aiIsInvalid(index, 'model') }" :placeholder="t('aiSettings.modelPlaceholder')" :aria-label="t('aiSettings.modelLabel')" autocomplete="off" spellcheck="false" dir="ltr" :disabled="aiSettingsSaving">
+                                            <span class="badge rounded-pill text-bg-light border" x-show="index === 0" x-text="t('aiSettings.primary')"></span>
+                                            <div class="btn-group btn-group-sm ai-chain-actions" role="group">
+                                                <button type="button" class="btn btn-outline-secondary" @click="aiMoveChainRow(index, -1)" :disabled="index === 0 || aiSettingsSaving" :title="t('aiSettings.moveUp')" :aria-label="t('aiSettings.moveUp')"><i class="bi bi-arrow-up"></i></button>
+                                                <button type="button" class="btn btn-outline-secondary" @click="aiMoveChainRow(index, 1)" :disabled="index === aiSettingsForm.chain.length - 1 || aiSettingsSaving" :title="t('aiSettings.moveDown')" :aria-label="t('aiSettings.moveDown')"><i class="bi bi-arrow-down"></i></button>
+                                                <button type="button" class="btn btn-outline-danger" @click="aiRemoveChainRow(index)" :disabled="aiSettingsSaving" :title="t('aiSettings.removeModel')" :aria-label="t('aiSettings.removeModel')"><i class="bi bi-trash"></i></button>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+
+                                <button type="button" class="btn btn-sm btn-outline-secondary mt-2" @click="aiAddChainRow()" :disabled="aiSettingsSaving || aiSettingsForm.chain.length >= aiSettingsMaxModels">
+                                    <i class="bi bi-plus-lg me-1"></i><span x-text="t('aiSettings.addModel')"></span>
+                                </button>
+
+                                <hr class="my-4">
+
+                                <div class="d-flex flex-wrap align-items-center justify-content-end gap-2">
+                                    <button type="button" class="btn btn-link text-secondary text-decoration-none" @click="aiDiscardChanges()" :disabled="aiSettingsSaving" x-text="t('aiSettings.discard')"></button>
+                                    <button type="button" class="btn btn-primary" @click="saveAiSettings()" :disabled="aiSettingsSaving || aiSettingsLoading">
+                                        <span class="spinner-border spinner-border-sm me-1" x-show="aiSettingsSaving" x-cloak></span>
+                                        <i class="bi bi-save me-1" x-show="!aiSettingsSaving"></i>
+                                        <span x-text="t('aiSettings.save')"></span>
+                                    </button>
+                                </div>
+                                <div class="alert py-2 px-3 mt-3 mb-0" x-show="aiSettingsMessage" x-cloak :class="'alert-' + (aiSettingsMessage?.type || 'info')">
+                                    <span x-text="aiSettingsMessage ? t(aiSettingsMessage.key, aiSettingsMessage.params) : ''"></span>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
                 <!-- Editable option lists -->
                 <template x-for="kind in optionKinds" :key="kind">
                     <div class="card shadow-sm border-0 mb-4">

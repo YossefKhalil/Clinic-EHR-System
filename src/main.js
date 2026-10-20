@@ -5,7 +5,8 @@ import bootstrapBundle from 'bootstrap/dist/js/bootstrap.bundle.min.js';
 import Alpine from 'alpinejs';
 import { initI18n, t, setLocale, getLocale } from './services/i18n.js';
 import { initSupabase, supabase, getCurrentUser, signIn, signOut } from './services/supabase.js';
-import { loadImportEnabled } from './services/import-flag.js';
+import { loadImportEnabled, clearImportFlagCache } from './services/import-flag.js';
+import { loadAiSettings as loadAiSettingsApi, saveAiSettings as saveAiSettingsApi, testAiProvider as testAiProviderApi } from './services/ai-settings.js';
 import { initCloudinary, getImageUrl, isImageAttachment } from './services/cloudinary.js';
 import { getDashboardStats, getRecentPatients } from './services/dashboard.js';
 import { getPatients, deletePatient, togglePatientStatus, GOVERNORATES } from './services/patients.js';
@@ -152,6 +153,36 @@ function app() {
             follower: { label_en: '', label_ar: '' },
             section: { label_en: '', label_ar: '' },
             source: { label_en: '', label_ar: '' },
+        },
+
+        // AI Import settings (super admin). `aiSettings` is the last server
+        // view; the form is the editable draft. Secrets are never returned,
+        // so secret inputs always start blank. A blank input keeps the saved
+        // key; the clear flag removes it on save.
+        aiSettings: null,
+        aiSettingsLoading: false,
+        aiSettingsLoadError: null,
+        aiSettingsSaving: false,
+        aiSettingsProvider: 'openrouter',
+        aiSettingsTesting: null,
+        aiSettingsTestResults: { openrouter: null, cloudflare: null, openai: null },
+        aiSettingsMessage: null,
+        aiSettingsInvalid: {},
+        aiSettingsRowSeq: 0,
+        aiSettingsMaxModels: 8,
+        aiProviderOptions: [
+            { id: 'openrouter', labelKey: 'aiSettings.provider.openrouter' },
+            { id: 'cloudflare', labelKey: 'aiSettings.provider.cloudflare' },
+            { id: 'openai', labelKey: 'aiSettings.provider.openai' },
+        ],
+        aiSettingsForm: {
+            enabled: false,
+            chain: [],
+            credentials: {
+                openrouter: { apiKey: '', clearKey: false },
+                cloudflare: { accountId: '', apiToken: '', clearToken: false },
+                openai: { baseUrl: '', apiKey: '', clearKey: false },
+            },
         },
         
         // Patient form
@@ -459,8 +490,14 @@ function app() {
         // ---- Settings page ---------------------------------------------------
         
         async showSettings() {
-            await this.refreshOptions();
-            this.resetSettingsOptions();
+            try {
+                await this.refreshOptions();
+                this.resetSettingsOptions();
+            } finally {
+                // Options and AI settings are independent: a failed option
+                // load must not leave the AI card silently empty.
+                await this.loadAiSettings();
+            }
         },
         
         // Editable working copies so typing never writes through until Save.
@@ -472,7 +509,439 @@ function app() {
                 source: clone(allOptions('source')),
             };
         },
-        
+
+        // ---- AI Import settings ---------------------------------------------
+
+        async loadAiSettings() {
+            if (!this.isSuperAdmin) return;
+            this.aiSettingsLoading = true;
+            this.aiSettingsLoadError = null;
+            try {
+                const data = await loadAiSettingsApi();
+                this.applyAiSettings(data);
+            } catch (error) {
+                console.error('AI settings load failed:', error);
+                const view = this.aiErrorView(error, 'aiSettings.loadFailed');
+                this.aiSettingsLoadError = view;
+                this.aiSettings = null;
+            } finally {
+                this.aiSettingsLoading = false;
+            }
+        },
+
+        applyAiSettings(data) {
+            const firstLoad = this.aiSettings === null;
+            this.aiSettings = data;
+            this.aiSettingsForm.enabled = data.enabled === true;
+            const chain = Array.isArray(data.chain) ? data.chain : [];
+            this.aiSettingsForm.chain = chain.map((row) => this.aiChainRow(row.provider, row.model));
+            if (this.aiSettingsForm.chain.length === 0) {
+                this.aiSettingsForm.chain = [this.aiChainRow(), this.aiChainRow()];
+            }
+            const cloudflare = data.providers?.cloudflare ?? {};
+            const openai = data.providers?.openai ?? {};
+            this.aiSettingsForm.credentials = {
+                openrouter: { apiKey: '', clearKey: false },
+                cloudflare: {
+                    accountId: cloudflare.accountId ?? '',
+                    apiToken: '',
+                    clearToken: false,
+                },
+                openai: {
+                    baseUrl: openai.baseUrl ?? '',
+                    apiKey: '',
+                    clearKey: false,
+                },
+            };
+            if (firstLoad) {
+                const primary = this.aiSettingsForm.chain.find((row) => row.provider);
+                if (primary?.provider) this.aiSettingsProvider = primary.provider;
+            }
+            this.aiSettingsTestResults = { openrouter: null, cloudflare: null, openai: null };
+            this.aiSettingsInvalid = {};
+            this.aiSettingsMessage = null;
+        },
+
+        aiChainRow(provider = '', model = '') {
+            this.aiSettingsRowSeq += 1;
+            return {
+                _key: `ai-chain-${this.aiSettingsRowSeq}`,
+                provider,
+                model,
+            };
+        },
+
+        aiProviderLabel(provider) {
+            const option = this.aiProviderOptions.find((entry) => entry.id === provider);
+            return option ? this.t(option.labelKey) : String(provider || '');
+        },
+
+        aiSavedProvider(provider) {
+            return this.aiSettings?.providers?.[provider] ?? {};
+        },
+
+        /** Ready for a chain row, including credentials typed but not saved. */
+        aiProviderConfigured(provider) {
+            const credentials = this.aiSettingsForm.credentials;
+            const saved = this.aiSavedProvider(provider);
+            if (provider === 'openrouter') {
+                return Boolean(credentials.openrouter.apiKey.trim())
+                    || (saved.configured === true && !credentials.openrouter.clearKey);
+            }
+            if (provider === 'cloudflare') {
+                if (!credentials.cloudflare.accountId.trim()) return false;
+                return Boolean(credentials.cloudflare.apiToken.trim())
+                    || (saved.configured === true && !credentials.cloudflare.clearToken);
+            }
+            if (provider === 'openai') {
+                return Boolean(credentials.openai.baseUrl.trim());
+            }
+            return false;
+        },
+
+        aiProviderHasSavedKey(provider) {
+            return this.aiSavedProvider(provider).hasKey === true;
+        },
+
+        aiProviderSavedKey(provider) {
+            if (!this.aiProviderHasSavedKey(provider)) return false;
+            if (provider === 'cloudflare') return !this.aiSettingsForm.credentials.cloudflare.clearToken;
+            return !this.aiSettingsForm.credentials[provider].clearKey;
+        },
+
+        aiProviderInChain(provider) {
+            return this.aiSettingsForm.chain.some((row) => row.provider === provider);
+        },
+
+        aiDraftSecret(provider) {
+            if (provider === 'openrouter') return Boolean(this.aiSettingsForm.credentials.openrouter.apiKey.trim());
+            if (provider === 'cloudflare') return Boolean(this.aiSettingsForm.credentials.cloudflare.apiToken.trim());
+            if (provider === 'openai') return Boolean(this.aiSettingsForm.credentials.openai.apiKey.trim());
+            return false;
+        },
+
+        aiProviderWarning(provider) {
+            const saved = this.aiSavedProvider(provider);
+            if (!saved.configured || saved.healthy !== false) return '';
+            if (!this.aiProviderConfigured(provider)) return '';
+            if (this.aiDraftSecret(provider)) return '';
+            return this.t(saved.code === 'ENCRYPTION_KEY_MISSING'
+                ? 'aiSettings.encryptionMissing'
+                : 'aiSettings.keyUnreadable');
+        },
+
+        aiProviderReady(provider) {
+            return this.aiProviderConfigured(provider) && !this.aiProviderWarning(provider);
+        },
+
+        aiProviderStatusText(provider) {
+            if (!this.aiProviderConfigured(provider)) return this.t('aiSettings.notConfigured');
+            if (this.aiProviderWarning(provider)) return this.t('aiSettings.healthWarning');
+            return this.t('aiSettings.configured');
+        },
+
+        aiSelectProvider(provider) {
+            this.aiSettingsProvider = provider;
+            this.aiClearMessage();
+        },
+
+        aiOnCredentialInput(provider) {
+            this.aiClearTest(provider);
+            this.aiClearMessage();
+        },
+
+        aiOnChainInput(index, field) {
+            this.aiClearInvalid(index, field);
+            this.aiClearMessage();
+        },
+
+        aiAddChainRow() {
+            if (this.aiSettingsForm.chain.length >= this.aiSettingsMaxModels) {
+                this.aiNotify('warning', 'aiSettings.chainTooLong', { max: this.aiSettingsMaxModels });
+                return;
+            }
+            this.aiSettingsForm.chain.push(this.aiChainRow());
+            this.aiClearMessage();
+        },
+
+        aiRemoveChainRow(index) {
+            this.aiSettingsForm.chain.splice(index, 1);
+            this.aiSettingsInvalid = {};
+            this.aiClearMessage();
+        },
+
+        aiMoveChainRow(index, delta) {
+            const target = index + delta;
+            if (target < 0 || target >= this.aiSettingsForm.chain.length) return;
+            const [row] = this.aiSettingsForm.chain.splice(index, 1);
+            this.aiSettingsForm.chain.splice(target, 0, row);
+            this.aiSettingsInvalid = {};
+            this.aiClearMessage();
+        },
+
+        aiClearInvalid(index, field) {
+            const key = `${index}:${field}`;
+            if (!(key in this.aiSettingsInvalid)) return;
+            const next = { ...this.aiSettingsInvalid };
+            delete next[key];
+            this.aiSettingsInvalid = next;
+        },
+
+        aiIsInvalid(index, field) {
+            return this.aiSettingsInvalid[`${index}:${field}`] === true;
+        },
+
+        aiClearAllInvalid() {
+            this.aiSettingsInvalid = {};
+        },
+
+        aiClearTest(provider) {
+            if (!this.aiSettingsTestResults[provider]) return;
+            this.aiSettingsTestResults = { ...this.aiSettingsTestResults, [provider]: null };
+        },
+
+        aiTestText(provider) {
+            const result = this.aiSettingsTestResults[provider];
+            return result ? this.t(result.key, result.params) : '';
+        },
+
+        aiTestClass(provider) {
+            const result = this.aiSettingsTestResults[provider];
+            if (!result) return '';
+            if (result.type === 'success') return 'text-success';
+            if (result.type === 'warning') return 'text-warning';
+            return 'text-danger';
+        },
+
+        aiClearMessage() {
+            if (this.aiSettingsMessage) this.aiSettingsMessage = null;
+        },
+
+        aiNotify(type, key, params = {}) {
+            this.aiSettingsMessage = { type, key, params };
+        },
+
+        aiValidateSettings() {
+            this.aiClearAllInvalid();
+            const chain = this.aiSettingsForm.chain;
+            const touched = [];
+            chain.forEach((row, index) => {
+                const provider = String(row.provider ?? '');
+                const model = String(row.model ?? '').trim();
+                if (!provider && !model) return;
+                touched.push({ index, provider, model });
+            });
+
+            if (this.aiSettingsForm.enabled && touched.length === 0) {
+                this.aiNotify('warning', 'aiSettings.chainEmpty');
+                return false;
+            }
+            if (touched.length > this.aiSettingsMaxModels) {
+                this.aiNotify('warning', 'aiSettings.chainTooLong', { max: this.aiSettingsMaxModels });
+                return false;
+            }
+
+            const seen = new Set();
+            for (const item of touched) {
+                if (!item.provider || !item.model) {
+                    this.aiSettingsInvalid = {
+                        ...this.aiSettingsInvalid,
+                        [`${item.index}:provider`]: !item.provider,
+                        [`${item.index}:model`]: !item.model,
+                    };
+                    this.aiNotify('warning', 'aiSettings.chainIncomplete');
+                    return false;
+                }
+                if (item.model.length > 160) {
+                    this.aiSettingsInvalid = { ...this.aiSettingsInvalid, [`${item.index}:model`]: true };
+                    this.aiNotify('warning', 'aiSettings.modelTooLong');
+                    return false;
+                }
+                if (!this.aiProviderReady(item.provider)) {
+                    this.aiSettingsInvalid = { ...this.aiSettingsInvalid, [`${item.index}:provider`]: true };
+                    this.aiNotify('warning', 'aiSettings.providerNotReady', {
+                        provider: this.aiProviderLabel(item.provider),
+                    });
+                    return false;
+                }
+                const key = `${item.provider}:${item.model.toLowerCase()}`;
+                if (seen.has(key)) {
+                    this.aiSettingsInvalid = { ...this.aiSettingsInvalid, [`${item.index}:model`]: true };
+                    this.aiNotify('warning', 'aiSettings.chainDuplicate');
+                    return false;
+                }
+                seen.add(key);
+            }
+            return true;
+        },
+
+        aiSavePayload() {
+            const credentials = this.aiSettingsForm.credentials;
+            const chain = this.aiSettingsForm.chain
+                .filter((row) => row.provider || String(row.model ?? '').trim())
+                .map((row) => ({ provider: row.provider, model: String(row.model ?? '').trim() }));
+            return {
+                enabled: this.aiSettingsForm.enabled,
+                chain,
+                credentials: {
+                    openrouter: {
+                        apiKey: credentials.openrouter.apiKey.trim(),
+                        clearKey: credentials.openrouter.clearKey === true,
+                    },
+                    cloudflare: {
+                        accountId: credentials.cloudflare.accountId.trim(),
+                        apiToken: credentials.cloudflare.apiToken.trim(),
+                        clearToken: credentials.cloudflare.clearToken === true,
+                    },
+                    openai: {
+                        baseUrl: credentials.openai.baseUrl.trim(),
+                        apiKey: credentials.openai.apiKey.trim(),
+                        clearKey: credentials.openai.clearKey === true,
+                    },
+                },
+            };
+        },
+
+        async saveAiSettings() {
+            if (this.aiSettingsSaving) return;
+            if (!this.aiValidateSettings()) return;
+            this.aiSettingsSaving = true;
+            try {
+                const data = await saveAiSettingsApi(this.aiSavePayload());
+                this.applyAiSettings(data);
+                clearImportFlagCache();
+                this.importEnabled = data.enabled === true;
+                if (!this.importEnabled) {
+                    this.importResumable = null;
+                } else {
+                    this.refreshImportResume();
+                }
+                this.aiNotify('success', 'aiSettings.saved');
+            } catch (error) {
+                console.error('AI settings save failed:', error);
+                const view = this.aiErrorView(error, 'aiSettings.saveFailed');
+                this.aiNotify('danger', view.key, view.params);
+            } finally {
+                this.aiSettingsSaving = false;
+            }
+        },
+
+        aiTestPayload(provider) {
+            const credentials = this.aiSettingsForm.credentials;
+            if (provider === 'openrouter') {
+                return { apiKey: credentials.openrouter.apiKey.trim() };
+            }
+            if (provider === 'cloudflare') {
+                return {
+                    accountId: credentials.cloudflare.accountId.trim(),
+                    apiToken: credentials.cloudflare.apiToken.trim(),
+                };
+            }
+            return {
+                baseUrl: credentials.openai.baseUrl.trim(),
+                apiKey: credentials.openai.apiKey.trim(),
+            };
+        },
+
+        async testAiSettingsProvider(provider) {
+            if (this.aiSettingsTesting) return;
+            this.aiSettingsTesting = provider;
+            this.aiClearTest(provider);
+            this.aiClearMessage();
+            try {
+                await testAiProviderApi(provider, this.aiTestPayload(provider));
+                this.aiSettingsTestResults = {
+                    ...this.aiSettingsTestResults,
+                    [provider]: { type: 'success', key: 'aiSettings.testOk', params: {} },
+                };
+            } catch (error) {
+                console.error('AI provider test failed:', provider, error?.code);
+                this.aiSettingsTestResults = {
+                    ...this.aiSettingsTestResults,
+                    [provider]: this.aiTestErrorView(error),
+                };
+            } finally {
+                this.aiSettingsTesting = null;
+            }
+        },
+
+        aiRemoveSavedKey(provider) {
+            if (!this.aiProviderSavedKey(provider)) return;
+            if (provider !== 'openai' && this.aiProviderInChain(provider)) {
+                this.aiNotify('warning', 'aiSettings.providerInUse');
+                return;
+            }
+            if (!confirm(this.t('aiSettings.removeKeyConfirm', { provider: this.aiProviderLabel(provider) }))) {
+                return;
+            }
+            if (provider === 'openrouter') {
+                this.aiSettingsForm.credentials.openrouter.apiKey = '';
+                this.aiSettingsForm.credentials.openrouter.clearKey = true;
+            } else if (provider === 'cloudflare') {
+                this.aiSettingsForm.credentials.cloudflare.apiToken = '';
+                this.aiSettingsForm.credentials.cloudflare.clearToken = true;
+            } else {
+                this.aiSettingsForm.credentials.openai.apiKey = '';
+                this.aiSettingsForm.credentials.openai.clearKey = true;
+            }
+            this.aiClearTest(provider);
+            this.aiNotify('warning', 'aiSettings.keyRemovedOnSave');
+        },
+
+        aiDiscardChanges() {
+            if (!this.aiSettings) {
+                this.loadAiSettings();
+                return;
+            }
+            this.applyAiSettings(this.aiSettings);
+            this.aiNotify('info', 'aiSettings.discarded');
+        },
+
+        aiErrorView(error, fallbackKey) {
+            const code = String(error?.code ?? '');
+            const provider = error?.details?.provider
+                ? this.aiProviderLabel(error.details.provider)
+                : this.t('aiSettings.providerLabel');
+            if (code === 'OFFLINE') return { key: 'aiSettings.offline', params: {} };
+            if (code === 'FORBIDDEN' || code === 'UNAUTHORIZED') return { key: 'aiSettings.forbidden', params: {} };
+            if (code === 'ENCRYPTION_KEY_MISSING') return { key: 'aiSettings.encryptionMissing', params: {} };
+            if (code === 'PROVIDER_IN_USE') return { key: 'aiSettings.providerInUse', params: {} };
+            if (code === 'PROVIDER_NOT_READY') return { key: 'aiSettings.providerNotReady', params: { provider } };
+            if (code === 'CHAIN_EMPTY') return { key: 'aiSettings.chainEmpty', params: {} };
+            if (code === 'CHAIN_INCOMPLETE') return { key: 'aiSettings.chainIncomplete', params: {} };
+            if (code === 'CHAIN_TOO_LONG') {
+                return { key: 'aiSettings.chainTooLong', params: { max: this.aiSettingsMaxModels } };
+            }
+            if (code === 'CHAIN_DUPLICATE') return { key: 'aiSettings.chainDuplicate', params: {} };
+            if (code === 'MODEL_TOO_LONG') return { key: 'aiSettings.modelTooLong', params: {} };
+            if (code === 'INVALID_ACCOUNT_ID') return { key: 'aiSettings.invalidAccountId', params: {} };
+            if (code === 'INVALID_BASE_URL') return { key: 'aiSettings.invalidBaseUrl', params: {} };
+            if (code === 'INVALID_SECRET') return { key: 'aiSettings.invalidSecret', params: {} };
+            if (code === 'BAD_REQUEST') return { key: 'aiSettings.badRequest', params: {} };
+            if (code === 'SAVE_FAILED') return { key: 'aiSettings.saveFailed', params: {} };
+            if (code === 'DECRYPT_FAILED') return { key: 'aiSettings.keyUnreadable', params: {} };
+            return { key: fallbackKey, params: {} };
+        },
+
+        aiTestErrorView(error) {
+            const code = String(error?.code ?? '');
+            if (code === 'NOT_CONFIGURED') {
+                return { type: 'warning', key: 'aiSettings.testNeedsCredentials', params: {} };
+            }
+            if (code === 'TEST_FAILED') {
+                const status = error?.details?.upstreamStatus;
+                if (!status) {
+                    return { type: 'danger', key: 'aiSettings.testUnreachable', params: {} };
+                }
+                if (status === 401 || status === 403) {
+                    return { type: 'danger', key: 'aiSettings.testRejected', params: { status } };
+                }
+                return { type: 'danger', key: 'aiSettings.testRequestRejected', params: { status } };
+            }
+            const view = this.aiErrorView(error, 'aiSettings.couldNotTest');
+            return { type: 'danger', key: view.key, params: view.params };
+        },
+
         optionKindLabel(kind) {
             if (kind === 'follower') return this.t('Followers');
             if (kind === 'section') return this.t('Sections');

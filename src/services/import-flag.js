@@ -9,6 +9,11 @@ import { supabase, getCurrentUser } from './supabase.js';
 
 let cached = null;
 
+/** Forget the session cache after an admin changes the enable switch. */
+export function clearImportFlagCache() {
+    cached = null;
+}
+
 /**
  * True/false when the server answered; null when the check could not run.
  * The answer is cached for the session, so page navigation stays cheap.
