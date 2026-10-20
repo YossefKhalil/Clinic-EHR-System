@@ -50,3 +50,9 @@ jobs:
       # ai_settings (encrypted with the AI_SETTINGS_ENC_KEY project secret).
       - name: Deploy import-job
         run: supabase functions deploy import-job --project-ref "$PROJECT_REF"
+
+      # Super-admin-only: owns the encrypted ai_settings row. It verifies the
+      # caller and checks users.is_admin itself, so the default JWT check stays
+      # on and anon callers are rejected before the handler runs.
+      - name: Deploy ai-settings
+        run: supabase functions deploy ai-settings --project-ref "$PROJECT_REF"
