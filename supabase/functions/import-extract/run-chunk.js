@@ -102,14 +102,22 @@ export async function runChunk({
         result = await provider.complete(request);
     } catch (err) {
         if (aborted()) return { ...base, status: 'cancelled' };
+        const detail = String(err?.message ?? '').slice(0, 500) || null;
+        // OpenRouter returns 404 (not 403) when the request's data policy
+        // filters out every endpoint. Free models require "free model
+        // training"; this app sends data_collection: 'deny', so free models
+        // can never satisfy it. Name the real cause instead of showing only
+        // PROVIDER_REJECTED and making the owner try every free model.
+        const dataPolicyBlocked = err?.code === 'PROVIDER_REJECTED'
+            && /No endpoints found matching your data policy/i.test(detail ?? '');
         return {
             ...base,
             status: 'failed',
-            errorCode: err?.code || 'PROVIDER_ERROR',
+            errorCode: dataPolicyBlocked ? 'DATA_POLICY_BLOCKED' : (err?.code || 'PROVIDER_ERROR'),
             // The provider map already puts the upstream status and a short
             // response body in the message. Keep it so the review banner can
             // say *why* the call failed instead of only "PROVIDER_ERROR".
-            errorDetail: String(err?.message ?? '').slice(0, 500) || null,
+            errorDetail: detail,
             retryAfterMs: err?.retryAfterMs ?? null,
         };
     }

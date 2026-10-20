@@ -879,7 +879,17 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
     } | undefined;
     const banners: unknown[] = [];
     if (progress.queued === 0 && progress.running === 0) {
-        if (progress.failed > 0) banners.push({ code: 'CHUNKS_FAILED', params: { count: progress.failed } });
+        if (progress.failed > 0) {
+            const dataPolicyBlocked = providerError?.code === 'DATA_POLICY_BLOCKED'
+                || /No endpoints found matching your data policy/i.test(providerError?.detail ?? '');
+            banners.push({
+                code: dataPolicyBlocked ? 'DATA_POLICY_BLOCKED' : 'CHUNKS_FAILED',
+                params: { count: progress.failed },
+                model: providerError?.model ?? chain[0]?.model ?? null,
+                detail: providerError?.detail ?? null,
+                retryAfterMs: providerError?.retryAfterMs ?? null,
+            });
+        }
         if (progress.rate_limited > 0) {
             banners.push({
                 code: 'CHUNKS_RATE_LIMITED',
@@ -1010,12 +1020,23 @@ async function actionStatus(body: Record<string, unknown>, ctx: Context) {
     if (job.token_cap && caps >= job.token_cap) banners.push({ code: 'JOB_TOKEN_CAP', params: { limit: job.token_cap } });
     const progress = await chunkProgress(service, job.id);
     const providerError = (job.config as Record<string, unknown> | null)?.last_provider_error as {
+        code?: string;
         detail?: string | null;
         retryAfterMs?: number | null;
         model?: string | null;
         freeDaily?: OpenRouterFreeQuota | null;
     } | undefined;
-    if (progress.failed > 0) banners.push({ code: 'CHUNKS_FAILED', params: { count: progress.failed } });
+    if (progress.failed > 0) {
+        const dataPolicyBlocked = providerError?.code === 'DATA_POLICY_BLOCKED'
+            || /No endpoints found matching your data policy/i.test(providerError?.detail ?? '');
+        banners.push({
+            code: dataPolicyBlocked ? 'DATA_POLICY_BLOCKED' : 'CHUNKS_FAILED',
+            params: { count: progress.failed },
+            model: providerError?.model ?? null,
+            detail: providerError?.detail ?? null,
+            retryAfterMs: providerError?.retryAfterMs ?? null,
+        });
+    }
     if (progress.rate_limited > 0) {
         banners.push({
             code: 'CHUNKS_RATE_LIMITED',

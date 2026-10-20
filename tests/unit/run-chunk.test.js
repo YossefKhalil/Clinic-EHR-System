@@ -140,6 +140,15 @@ describe('runChunk', () => {
         expect(result.errorCode).toBe('PROVIDER_RATE_LIMITED');
     });
 
+    it('names the OpenRouter data-policy block instead of a generic rejection', async () => {
+        const detail = 'Provider rejected the request (404): {"error":{"message":"No endpoints found matching your data policy (Free model training). Configure: https://openrouter.ai/settings/privacy"}}';
+        const provider = fakeProvider([new LlmError('PROVIDER_REJECTED', detail, { status: 404 })]);
+        const result = await run(provider);
+        expect(result.status).toBe('failed');
+        expect(result.errorCode).toBe('DATA_POLICY_BLOCKED');
+        expect(result.errorDetail).toContain('No endpoints found matching your data policy');
+    });
+
     it('never calls the provider when the job is already cancelled', async () => {
         const provider = fakeProvider([{ text: DOC }]);
         const result = await run(provider, { signal: AbortSignal.abort() });

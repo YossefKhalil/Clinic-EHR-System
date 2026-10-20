@@ -660,7 +660,7 @@
                                             x-show="banner.freeDaily" x-text="bannerQuotaText(banner)"></div>
                                     </div>
                                 </template>
-                                <button type="button" class="btn btn-sm btn-outline-warning mt-2" x-show="banners.some(b => b.code === 'CHUNKS_RATE_LIMITED')"
+                                <button type="button" class="btn btn-sm btn-outline-warning mt-2" x-show="banners.some(b => b.code === 'CHUNKS_RATE_LIMITED' || b.code === 'DATA_POLICY_BLOCKED' || b.code === 'CHUNKS_FAILED')"
                                     @click="$root.navigate('settings')" x-text="t('importAgent.warn.openSettings')"></button>
                             </div>
                             <button type="button" class="btn btn-sm btn-outline-warning" @click="retryFailed()" x-show="progress.failed > 0"
@@ -695,7 +695,7 @@
                             </template>
                             <button type="button" class="btn btn-sm btn-outline-warning mt-2 me-2" @click="retryFailed()" x-show="hasFailedChunks"
                                 x-text="t('importAgent.review.retryChunk')"></button>
-                            <button type="button" class="btn btn-sm btn-outline-warning mt-2" x-show="banners.some(b => b.code === 'CHUNKS_RATE_LIMITED')"
+                            <button type="button" class="btn btn-sm btn-outline-warning mt-2" x-show="banners.some(b => b.code === 'CHUNKS_RATE_LIMITED' || b.code === 'DATA_POLICY_BLOCKED' || b.code === 'CHUNKS_FAILED')"
                                 @click="$root.navigate('settings')" x-text="t('importAgent.warn.openSettings')"></button>
                         </div>
 
@@ -1554,6 +1554,7 @@
                                     <div>
                                         <h5 class="mb-1" x-text="t('aiSettings.modelChain')"></h5>
                                         <div class="small text-muted" x-text="t('aiSettings.modelChainHint')"></div>
+                                        <div class="small text-warning mt-1" x-show="aiHasFreeOpenRouter()" x-text="t('aiSettings.freeModelWarning')"></div>
                                     </div>
                                     <div class="small text-muted ms-auto" x-text="t('aiSettings.maxModels', { max: aiSettingsMaxModels })"></div>
                                 </div>

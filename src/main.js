@@ -655,6 +655,13 @@ function app() {
             this.aiClearMessage();
         },
 
+        aiHasFreeOpenRouter() {
+            return (this.aiSettingsForm?.chain ?? []).some((row) => (
+                row.provider === 'openrouter'
+                && String(row.model ?? '').trim().toLowerCase().endsWith(':free')
+            ));
+        },
+
         aiAddChainRow() {
             if (this.aiSettingsForm.chain.length >= this.aiSettingsMaxModels) {
                 this.aiNotify('warning', 'aiSettings.chainTooLong', { max: this.aiSettingsMaxModels });
