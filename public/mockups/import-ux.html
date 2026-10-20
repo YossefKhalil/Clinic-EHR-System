@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  Import UX — final preview mock (v6). Same URL: /mockups/import-ux.
+  Import UX: final preview mock (v6). Same URL: /mockups/import-ux.
 
   This is the live-feel version: no design annotations. It carries every owner
   decision so far:
@@ -28,7 +28,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Import UX — preview</title>
+<title>Import UX: preview</title>
 <link id="bsLtr" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
 <link id="bsRtl" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" disabled>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
@@ -167,17 +167,17 @@
                             <i class="bi bi-cloud-arrow-up fs-2"></i>
                         </span>
                         <span class="d-block fs-4 fw-semibold" data-i18n="import.drop">Drag files here or click to choose</span>
-                        <span class="d-block text-muted mt-1" data-i18n="import.types">PDF · Word · Excel · CSV · photos of notes — up to 5 files</span>
+                        <span class="d-block text-muted mt-1" data-i18n="import.types">PDF · Word · Excel · CSV · photos of notes, up to 10 files</span>
                         <span class="btn btn-primary mt-3 px-4"><i class="bi bi-folder2-open me-2"></i><span data-i18n="import.choose">Choose files</span></span>
                     </label>
 
                     <div class="mt-3">
                         <label class="form-label small text-muted mb-1" data-i18n="import.pasteLabel">…or paste text (WhatsApp messages, notes, a list)</label>
-                        <textarea class="form-control" rows="2" data-i18n-ph="import.pastePh" placeholder="Paste anything — one patient per line or free text."></textarea>
+                        <textarea class="form-control" rows="2" data-i18n-ph="import.pastePh" placeholder="Paste anything, one patient per line or free text."></textarea>
                     </div>
 
                     <div class="d-flex flex-wrap align-items-center gap-3 mt-3">
-                        <a href="#" class="small text-decoration-none" onclick="return false"><i class="bi bi-chevron-down me-1"></i><span data-i18n="import.more">More options — section, hints for the AI</span></a>
+                        <a href="#" class="small text-decoration-none" onclick="return false"><i class="bi bi-chevron-down me-1"></i><span data-i18n="import.more">More options (section, hints for the AI)</span></a>
                     </div>
 
                     <ul class="list-unstyled mb-0 mt-3">
@@ -339,7 +339,7 @@
                             <td>01234567890</td>
                             <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Cairo</span></td>
                             <td><span class="badge text-bg-info" data-i18n="status.duplicate">Duplicate</span></td>
-                            <td><span class="text-muted">—</span></td>
+                            <td><span class="text-muted"></span></td>
                             <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i><span data-i18n="money.insurance">Insurance</span></span></td>
                             <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Dekhila</span></td>
                             <td class="text-muted small">05 Oct 2026</td>
@@ -352,7 +352,7 @@
                                     <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
                                         <i class="bi bi-files text-info fs-5"></i>
                                         <span class="fw-semibold" data-i18n="dup.title">Possible duplicate</span>
-                                        <span class="small text-muted" data-i18n="dup.same">Same national ID as Rania Samir — also in this import.</span>
+                                        <span class="small text-muted" data-i18n="dup.same">Same national ID as Rania Samir, also in this import.</span>
                                     </div>
                                     <div class="table-responsive mb-3" style="max-width:720px">
                                         <table class="table table-sm align-middle mb-0 bg-white">
@@ -392,7 +392,7 @@
                                 <i class="bi bi-question-circle text-warning ms-1" title="Looks like an address"></i></td>
                             <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Alexandria</span></td>
                             <td><span class="badge text-bg-warning" data-i18n="status.check">Check</span></td>
-                            <td><span class="text-muted">—</span></td>
+                            <td><span class="text-muted"></span></td>
                             <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i><span data-i18n="money.cash">Cash</span></span></td>
                             <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Agamy</span></td>
                             <td class="text-muted small">02 Oct 2026</td>
@@ -412,7 +412,7 @@
                             <td>01055566677</td>
                             <td><span class="badge bg-light text-dark border"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Giza</span></td>
                             <td><span class="badge text-bg-danger" data-i18n="status.problem">Problem</span></td>
-                            <td><span class="text-muted">—</span></td>
+                            <td><span class="text-muted"></span></td>
                             <td><span class="text-secondary"><i class="bi bi-cash-coin me-1"></i><span data-i18n="money.cash">Cash</span></span></td>
                             <td><span class="text-secondary"><i class="bi bi-building me-1"></i>Dekhila</span></td>
                             <td class="text-muted small">28 Sep 2026</td>
@@ -424,7 +424,7 @@
                                 <div class="border-bottom px-3 px-md-4 py-3" style="background:#fdf0ef">
                                     <div class="d-flex flex-wrap align-items-center gap-2">
                                         <i class="bi bi-x-octagon-fill text-danger fs-5"></i>
-                                        <span class="small text-danger" data-i18n="problem.nid">National ID is 14 digits. Fix it or remove the row — problem rows are skipped.</span>
+                                        <span class="small text-danger" data-i18n="problem.nid">National ID is 14 digits. Fix it or remove the row, problem rows are skipped.</span>
                                         <div class="ms-auto d-flex gap-2">
                                             <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil-square me-1"></i><span data-i18n="actions.fix">Fix it</span></button>
                                             <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i><span data-i18n="actions.remove">Remove row</span></button>
@@ -440,11 +440,11 @@
             <div class="card-body border-top py-2 d-flex flex-wrap gap-3 small">
                 <button class="btn btn-link p-0 text-secondary text-decoration-none" data-strip="strip-unmapped">
                     <i class="bi bi-inboxes me-1"></i><span data-i18n="strips.unmapped">4 lines couldn't be mapped</span>
-                    — <span class="strip-state text-decoration-underline"></span>
+                    <span class="strip-state text-decoration-underline"></span>
                 </button>
                 <button class="btn btn-link p-0 text-secondary text-decoration-none" data-strip="strip-removed">
                     <i class="bi bi-trash me-1"></i><span data-i18n="strips.removed">1 row removed</span>
-                    — <span class="strip-state text-decoration-underline"></span>
+                    <span class="strip-state text-decoration-underline"></span>
                 </button>
                 <button class="btn btn-link p-0 text-secondary text-decoration-none" data-strip="strip-fill">
                     <i class="bi bi-magic me-1"></i><span data-i18n="strips.fill">Fill blanks with common values (visit date, follower…)</span>
@@ -458,12 +458,12 @@
                     <span class="fw-semibold small" data-i18n="unmapped.title">Lines kept from the source (4)</span>
                 </div>
                 <ul class="list-unstyled mb-1 small">
-                    <li class="py-2 border-top"><div class="text-muted">october-visits.xlsx · row 12</div>التحصيل: ٢٥٠ — تم</li>
+                    <li class="py-2 border-top"><div class="text-muted">october-visits.xlsx · row 12</div>التحصيل: ٢٥٠، تم</li>
                     <li class="py-2 border-top"><div class="text-muted">october-visits.xlsx · footer</div>إجمالي اليوم ١٤ حالة</li>
                     <li class="py-2 border-top"><div class="text-muted">notes-scan.pdf · p.1</div>يُستكمل: العنوان بجوار مسجد النور</li>
                     <li class="py-2 border-top"><div class="text-muted">notes-scan.pdf · p.2</div>الحضور: بعد صلاة الجمعة</li>
                 </ul>
-                <div class="form-text" data-i18n="unmapped.help">Nothing was dropped — they stay with the import report.</div>
+                <div class="form-text" data-i18n="unmapped.help">Nothing was dropped, they stay with the import report.</div>
             </div>
 
             <!-- strip: removed rows -->
@@ -517,7 +517,7 @@
                         <button class="btn btn-sm btn-primary" id="fillApply"><i class="bi bi-magic me-1"></i><span data-i18n="fill.apply">Apply</span></button>
                     </div>
                 </div>
-                <div class="form-text mt-1" data-i18n="fill.hint">Fills 12 empty cells — existing values stay untouched.</div>
+                <div class="form-text mt-1" data-i18n="fill.hint">Fills 12 empty cells, existing values stay untouched.</div>
             </div>
         </div>
     </div>
@@ -598,10 +598,10 @@
             'date.11oct': '11 Oct 2026',
             'import.title': 'Import patients',
             'import.drop': 'Drag files here or click to choose',
-            'import.types': 'PDF · Word · Excel · CSV · photos of notes — up to 5 files',
+            'import.types': 'PDF · Word · Excel · CSV · photos of notes, up to 10 files',
             'import.pasteLabel': '…or paste text (WhatsApp messages, notes, a list)',
-            'import.pastePh': 'Paste anything — one patient per line or free text.',
-            'import.more': 'More options — section, hints for the AI',
+            'import.pastePh': 'Paste anything, one patient per line or free text.',
+            'import.more': 'More options (section, hints for the AI)',
             'import.rows82': '82 KB · 46 rows',
             'import.handwriting': '2 pages look like handwriting',
             'import.analyze': 'Analyze files',
@@ -620,7 +620,7 @@
             'chips.removed': 'Removed (1)',
             'money.cash': 'Cash',
             'money.insurance': 'Insurance',
-            'dup.same': 'Same national ID as Rania Samir — also in this import.',
+            'dup.same': 'Same national ID as Rania Samir, also in this import.',
             'dup.title': 'Possible duplicate',
             'dup.thisRow': 'This row',
             'dup.partner': 'Rania Samir',
@@ -629,14 +629,14 @@
             'dup.keep': 'Keep as new',
             'dup.skip': 'Skip',
             'dup.compare': 'Compare',
-            'problem.nid': 'National ID is 14 digits. Fix it or remove the row — problem rows are skipped.',
+            'problem.nid': 'National ID is 14 digits. Fix it or remove the row, problem rows are skipped.',
             'strips.unmapped': "4 lines couldn't be mapped",
             'strips.removed': '1 row removed',
             'strips.fill': 'Fill blanks with common values (visit date, follower…)',
             'strips.show': 'show',
             'strips.hide': 'hide',
             'unmapped.title': 'Lines kept from the source (4)',
-            'unmapped.help': 'Nothing was dropped — they stay with the import report.',
+            'unmapped.help': 'Nothing was dropped, they stay with the import report.',
             'removed.title': 'Removed rows (1)',
             'removed.why': 'removed by you',
             'removed.restore': 'Restore',
@@ -646,7 +646,7 @@
             'fill.value': 'Value',
             'fill.onlyEmpty': 'Only fill empty cells',
             'fill.apply': 'Apply',
-            'fill.hint': 'Fills 12 empty cells — existing values stay untouched.',
+            'fill.hint': 'Fills 12 empty cells, existing values stay untouched.',
             'att.counter.initial': '3 issues',
             'att.counter.fmt': '{i} of {n}',
             'toast.filled': '12 cells filled',
@@ -688,17 +688,17 @@
             'f.attachHelp': 'Images and PDF files, up to 10 MB each. Files upload immediately and are saved with the patient.',
             'f.autoAttached': 'attached automatically',
             'f.autoAttachHelp': 'Source images are attached to the patient automatically.',
-            'opt.select': '— Select —',
+            'opt.select': 'Select',
             'opt.single': 'Single',
             'opt.married': 'Married',
             'opt.divorced': 'Divorced',
             'opt.widowed': 'Widowed',
-            'opt.selectGov': '— Select Governorate —',
-            'opt.selectFollower': '— Select Follower —',
-            'opt.selectSection': '— Select Section —',
-            'opt.selectSource': '— Select Source —',
+            'opt.selectGov': 'Select Governorate',
+            'opt.selectFollower': 'Select Follower',
+            'opt.selectSection': 'Select Section',
+            'opt.selectSource': 'Select Source',
             'hint.mobile': 'This looks like part of an address, not a phone number.',
-            'banner.check': '1 field to check — the highlighted field below is worth a look.',
+            'banner.check': '1 field to check, the highlighted field below is worth a look.',
             'src.title': 'From the source',
             'src.help': 'The phone column may have picked up an address. Type the real number, or clear the cell.',
             'actions.good': 'Row looks good',
@@ -736,10 +736,10 @@
             'date.11oct': '11 أكتوبر 2026',
             'import.title': 'استيراد المرضى',
             'import.drop': 'اسحب الملفات هنا أو اضغط للاختيار',
-            'import.types': 'PDF · Word · Excel · CSV · صور الملاحظات — حتى 5 ملفات',
+            'import.types': 'PDF · Word · Excel · CSV · صور الملاحظات، حتى 10 ملفات',
             'import.pasteLabel': '…أو الصق نصًا (رسائل واتساب، ملاحظات، قائمة)',
-            'import.pastePh': 'الصق أي شيء — مريض في كل سطر أو نص حر.',
-            'import.more': 'خيارات أكثر — القسم، تلميحات للذكاء الاصطناعي',
+            'import.pastePh': 'الصق أي شيء، مريض في كل سطر أو نص حر.',
+            'import.more': 'خيارات أكثر (القسم، تلميحات للذكاء الاصطناعي)',
             'import.rows82': '82 ك.ب · 46 صفًا',
             'import.handwriting': 'صفحتان تبدوان بخط اليد',
             'import.analyze': 'تحليل الملفات',
@@ -758,7 +758,7 @@
             'chips.removed': 'المحذوفة (1)',
             'money.cash': 'نقدي',
             'money.insurance': 'تأمين',
-            'dup.same': 'نفس الرقم القومي لرانيا سمير — أيضًا في هذا الاستيراد.',
+            'dup.same': 'نفس الرقم القومي لرانيا سمير، أيضًا في هذا الاستيراد.',
             'dup.title': 'مكرر محتمل',
             'dup.thisRow': 'هذا الصف',
             'dup.partner': 'رانيا سمير',
@@ -767,14 +767,14 @@
             'dup.keep': 'الإبقاء كسجل جديد',
             'dup.skip': 'تخطي',
             'dup.compare': 'مقارنة',
-            'problem.nid': 'الرقم القومي يجب أن يكون 14 رقمًا. صحّحه أو احذف الصف — الصفوف ذات المشكلة تُتخطى.',
+            'problem.nid': 'الرقم القومي يجب أن يكون 14 رقمًا. صحّحه أو احذف الصف، الصفوف ذات المشكلة تُتخطى.',
             'strips.unmapped': '4 أسطر تعذّر ربطها',
             'strips.removed': 'صف واحد محذوف',
             'strips.fill': 'تعبئة الفراغات بقيم شائعة (تاريخ الزيارة، المتابع…)',
             'strips.show': 'عرض',
             'strips.hide': 'إخفاء',
             'unmapped.title': 'أسطر محفوظة من المصدر (4)',
-            'unmapped.help': 'لم يُفقد أي شيء — تبقى هذه الأسطر مع تقرير الاستيراد.',
+            'unmapped.help': 'لم يُفقد أي شيء، تبقى هذه الأسطر مع تقرير الاستيراد.',
             'removed.title': 'الصفوف المحذوفة (1)',
             'removed.why': 'حذفتَه أنت',
             'removed.restore': 'استعادة',
@@ -784,7 +784,7 @@
             'fill.value': 'القيمة',
             'fill.onlyEmpty': 'تعبئة الخلايا الفارغة فقط',
             'fill.apply': 'تطبيق',
-            'fill.hint': 'سيملأ 12 خانة فارغة — القيم الموجودة لا تتغيّر.',
+            'fill.hint': 'سيملأ 12 خانة فارغة، القيم الموجودة لا تتغيّر.',
             'att.counter.initial': '3 مشكلات',
             'att.counter.fmt': '{i} من {n}',
             'toast.filled': 'تمت تعبئة 12 خانة',
@@ -826,17 +826,17 @@
             'f.attachHelp': 'صور وملفات PDF حتى 10 م.ب لكل ملف. تُحفظ الملفات مع المريض مباشرة.',
             'f.autoAttached': 'مرفق تلقائيًا',
             'f.autoAttachHelp': 'تُرفق صور المصدر مع المريض تلقائيًا.',
-            'opt.select': '— اختر —',
+            'opt.select': 'اختر',
             'opt.single': 'أعزب',
             'opt.married': 'متزوج',
             'opt.divorced': 'مطلق',
             'opt.widowed': 'أرمل',
-            'opt.selectGov': '— اختر المحافظة —',
-            'opt.selectFollower': '— اختر المتابع —',
-            'opt.selectSection': '— اختر القسم —',
-            'opt.selectSource': '— اختر المصدر —',
+            'opt.selectGov': 'اختر المحافظة',
+            'opt.selectFollower': 'اختر المتابع',
+            'opt.selectSection': 'اختر القسم',
+            'opt.selectSource': 'اختر المصدر',
             'hint.mobile': 'يبدو هذا جزءًا من عنوان وليس رقم هاتف.',
-            'banner.check': 'حقل واحد بحاجة للتحقق — الحقل المظلل أدناه يستحق نظرة.',
+            'banner.check': 'حقل واحد بحاجة للتحقق، الحقل المظلل أدناه يستحق نظرة.',
             'src.title': 'من المصدر',
             'src.help': 'يبدو أن خانة الهاتف التقطت جزءًا من العنوان. اكتب الرقم الصحيح أو امسح الخانة.',
             'actions.good': 'الصف سليم',
@@ -915,7 +915,7 @@
         </div>
         <div class="mb-4">
             <h6 class="text-primary border-bottom pb-2 fw-bold"><i class="bi bi-geo-alt me-2"></i><span data-i18n="s3"></span></h6>
-            <textarea rows="3" class="form-control">Camp Caesar, street 9, building 4 — Alexandria</textarea>
+            <textarea rows="3" class="form-control">Camp Caesar, street 9, building 4, Alexandria</textarea>
         </div>
         <div class="mb-4">
             <h6 class="text-primary border-bottom pb-2 fw-bold"><i class="bi bi-clipboard2-pulse me-2"></i><span data-i18n="s4"></span></h6>
@@ -926,7 +926,7 @@
                 </div>
                 <div class="col-12">
                     <label class="form-label fw-semibold text-success"><i class="bi bi-prescription me-1"></i><span data-i18n="f.solution"></span></label>
-                    <textarea rows="3" class="form-control">Tension headache — magnesium supplement, follow-up in two weeks.</textarea>
+                    <textarea rows="3" class="form-control">Tension headache, magnesium supplement, follow-up in two weeks.</textarea>
                 </div>
                 <div class="col-md-5">
                     <label class="form-label fw-semibold"><i class="bi bi-calendar-check-fill text-primary me-1"></i><span data-i18n="f.visit"></span></label>
@@ -1034,8 +1034,8 @@
                         <div class="small fw-bold text-muted text-uppercase mb-2"><span data-i18n="src.title"></span></div>
                         <div class="quote-box rounded p-2">
                             <div class="text-muted mb-1"><i class="bi bi-file-earmark-text me-1"></i>notes-scan.pdf · p.2</div>
-                            Fatma Ibrahim Ali — ID 28811220501187 —
-                            <mark>0112 street 9, camp Caesar</mark> — first visit 02/10
+                            Fatma Ibrahim Ali, ID 28811220501187,
+                            <mark>0112 street 9, camp Caesar</mark>, first visit 02/10
                         </div>
                         <div class="small text-muted mt-2"><i class="bi bi-info-circle me-1"></i><span data-i18n="src.help"></span></div>
                     </div>

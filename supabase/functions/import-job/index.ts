@@ -1,7 +1,7 @@
 // import-job — the extraction pump (design spec §9.5, §14.3).
 //
 // Actions: create | add_source | start | pump | cancel | status | retry_chunk |
-// add_row. The browser calls `pump` in a loop; each call claims chunks under a
+// add_row | enabled. The browser calls `pump` in a loop; each call claims chunks under a
 // lease (import_claim_chunks), runs them through the provider in parallel,
 // writes rows through the shared import-core pipeline, and returns progress.
 //
@@ -773,6 +773,11 @@ async function actionAddRow(body: Record<string, unknown>, ctx: Context) {
     return json({ ok: true, row: inserted });
 }
 
+/** Feature flag read: any signed-in user may ask; it exposes only the switch. */
+function actionEnabled(ctx: Context) {
+    return json({ enabled: ctx.settingsRow?.enabled === true });
+}
+
 async function actionStatus(body: Record<string, unknown>, ctx: Context) {
     const { user, service } = ctx;
     const loaded = await loadJobForUser(service, user.id, String(body.job_id ?? ''));
@@ -834,6 +839,7 @@ Deno.serve(async (req) => {
             case 'status': return await actionStatus(body, ctx);
             case 'retry_chunk': return await actionRetryChunk(body, ctx);
             case 'add_row': return await actionAddRow(body, ctx);
+            case 'enabled': return actionEnabled(ctx);
             default: return fail('BAD_REQUEST');
         }
     } catch (err) {

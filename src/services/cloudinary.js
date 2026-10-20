@@ -83,7 +83,7 @@ export function uploadAttachment(file, { folder = '', onProgress = null } = {}) 
             }
         };
 
-        xhr.onerror = () => reject(new Error('Upload failed — check your connection'));
+        xhr.onerror = () => reject(new Error('Upload failed, check your connection'));
         xhr.ontimeout = () => reject(new Error('Upload timed out'));
         xhr.send(formData);
     });

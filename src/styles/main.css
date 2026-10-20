@@ -340,3 +340,24 @@ i.bi {
 .table-responsive th:first-child {
     z-index: 2;
 }
+
+/* Import start card: dashed hero drop zone (the mock's look). */
+.border-dashed,
+.dropzone-hero.border-dashed {
+    border-style: dashed !important;
+    border-color: #c3cbd3 !important;
+}
+
+.dropzone-hero {
+    background: radial-gradient(120% 120% at 50% 0%, #e8f1ff 0%, #f7faff 45%, #fff 100%);
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.dropzone-hero:hover {
+    border-color: #6ea8fe !important;
+}
+
+.dropzone-icon {
+    width: 4rem;
+    height: 4rem;
+}

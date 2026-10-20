@@ -1,5 +1,5 @@
-// Alpine component for the AI Import wizard (spec 10): add data → preview →
-// extract → review → (commit, next milestone).
+// Alpine component for the AI Import wizard (spec 10): add data → extract →
+// review → (commit, next milestone).
 //
 // The component holds only reactive state and glue. Every review rule —
 // filters, edits, revalidation, statuses, counts — lives in the pure model
@@ -12,9 +12,8 @@
 // this page, which is the only trigger for the resumable-job lookup — no
 // network happens at app boot.
 
-import { readFile, readPastedText } from './readers/index.js';
+import { readFile } from './readers/index.js';
 import { analyzeFile } from './intake.js';
-import { buildPreview } from './preview.js';
 import { prepareSources, shiftSourceIds } from '@import-core/chunker.js';
 import { FIELDS, BULK_FILL_FIELDS, fieldByKey } from '@import-core/field-registry.js';
 import { LIMITS } from '@import-core/limits.js';
@@ -106,7 +105,7 @@ export function importAgentWizard() {
         },
 
         // ------------------------------------------------------ step state
-        step: 'add', // add | preview | extracting | review
+        step: 'add', // add | extracting | review
         busy: false,
         busyLabel: '',
 
@@ -115,10 +114,8 @@ export function importAgentWizard() {
         pastedText: '',
         hints: '',
         section: '',
+        showMore: false,
         resumable: null,
-
-        // preview step
-        preview: null,
 
         // extraction
         job: null,
@@ -240,6 +237,20 @@ export function importAgentWizard() {
             return false;
         },
 
+        fileIcon(file) {
+            if (file.error) return 'bi-exclamation-circle text-danger';
+            if (file.kind === 'image') return 'bi-image text-primary';
+            if (file.kind === 'pdf') return 'bi-file-earmark-pdf text-danger';
+            if (['xlsx', 'xls', 'sheet', 'csv'].includes(file.kind)) return 'bi-file-earmark-spreadsheet text-success';
+            if (['docx', 'doc', 'text'].includes(file.kind)) return 'bi-file-earmark-text text-secondary';
+            return 'bi-file-earmark text-secondary';
+        },
+
+        async analyze() {
+            if (this.addBlocked) return;
+            await this.extract();
+        },
+
         async onFilesPicked(event) {
             const picked = [...(event.target?.files ?? [])];
             if (event.target) event.target.value = '';
@@ -247,7 +258,6 @@ export function importAgentWizard() {
                 if (this.files.length >= LIMITS.MAX_FILES) break;
                 await this.addOneFile(file);
             }
-            await this.refreshPreview();
         },
 
         async addOneFile(file) {
@@ -263,89 +273,34 @@ export function importAgentWizard() {
                 error: null,
             };
             this.files.push(entry);
+            // Mutate the reactive copy, not the raw object: Alpine's proxy wraps
+            // the entry on push, and raw writes would leave the row and the
+            // Analyze button stuck at their initial state.
+            const stored = this.files[this.files.length - 1];
             try {
-                const bytes = await file.arrayBuffer();
+                const bytes = new Uint8Array(await file.arrayBuffer());
                 const verdict = await analyzeFile({ bytes, name: file.name });
                 if (!verdict.ok) {
-                    entry.error = { code: verdict.code, params: verdict.params ?? {} };
+                    stored.error = { code: verdict.code, params: verdict.params ?? {} };
                     return;
                 }
                 const read = await readFile({ bytes, name: file.name, kind: verdict.kind });
                 if (!read.ok) {
-                    entry.error = { code: read.code, params: read.params ?? {} };
+                    stored.error = { code: read.code, params: read.params ?? {} };
                     return;
                 }
-                entry.kind = read.kind ?? verdict.kind;
-                entry.sha256 = verdict.sha256 ?? null;
-                entry.sources = read.sources;
-                entry.warnings = read.warnings ?? [];
+                stored.kind = read.kind ?? verdict.kind;
+                stored.sha256 = verdict.sha256 ?? null;
+                stored.sources = read.sources;
+                stored.warnings = read.warnings ?? [];
             } catch (error) {
-                entry.error = { code: 'PARSE_FAILED', params: { name: file.name } };
+                stored.error = { code: 'PARSE_FAILED', params: { name: file.name } };
                 console.error('import agent: file read failed', error);
             }
         },
 
         removeFile(id) {
             this.files = this.files.filter((file) => file.id !== id);
-            this.refreshPreview();
-        },
-
-        onPastedInput() {
-            clearTimeout(this._pasteTimer);
-            this._pasteTimer = setTimeout(() => this.refreshPreview(), 300);
-        },
-
-        async refreshPreview() {
-            const sources = [];
-            const filesParam = [];
-            for (const file of this.usableFiles) {
-                sources.push(...file.sources);
-                filesParam.push({
-                    name: file.name,
-                    size: file.size,
-                    kind: file.kind,
-                    sha256: file.sha256,
-                    sources: file.sources,
-                    warnings: file.warnings,
-                });
-            }
-            if (this.pastedText.trim()) {
-                const pasted = readPastedText(this.pastedText.trim());
-                sources.push(...pasted.sources);
-                filesParam.push({ name: 'Typed text', kind: 'text', sources: pasted.sources, warnings: [] });
-            }
-            if (filesParam.length === 0) {
-                this.preview = null;
-                return;
-            }
-            try {
-                const seenHashes = await api.fetchSeenHashes(
-                    filesParam.filter((file) => file.sha256).map((file) => file.sha256),
-                );
-                this.preview = buildPreview({
-                    files: filesParam,
-                    provider: null,
-                    seenHashes,
-                });
-            } catch {
-                this.preview = null;
-            }
-        },
-
-        previewEntryColumnLabel(entry) {
-            if (!entry.columns) return '';
-            const headers = entry.columns.headers ?? [];
-            return headers.join(' | ');
-        },
-
-        prepare() {
-            if (this.addBlocked) return;
-            clearTimeout(this._pasteTimer);
-            this.step = 'preview';
-        },
-
-        backToAdd() {
-            this.step = 'add';
         },
 
         // ------------------------------------------------------ extract
@@ -1361,5 +1316,5 @@ export function importAgentWizard() {
  * reach into Alpine scopes; the component instance registry keeps this loose.
  */
 export function importAgentEnter() {
-    window.__iaWizard?.onEnter?.();
+    return window.__iaWizard?.onEnter?.();
 }

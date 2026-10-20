@@ -89,6 +89,11 @@ const UI_KEYS = [
     'importAgent.review.confirm.unreviewed', 'importAgent.review.confirm.import',
     'importAgent.review.confirm.reviewFirst',
     'importAgent.review.confirm.commitPlaceholder',
+    'importAgent.start.drop', 'importAgent.start.types',
+    'importAgent.start.choose', 'importAgent.start.pasteLabel',
+    'importAgent.start.pastePh', 'importAgent.start.more',
+    'importAgent.start.sectionHint', 'importAgent.start.hints',
+    'importAgent.start.hintsHint', 'importAgent.start.analyze',
 ];
 
 // DATE_RANGE's reason is part of the key (5.10.10 message policy).

@@ -5,6 +5,7 @@ import bootstrapBundle from 'bootstrap/dist/js/bootstrap.bundle.min.js';
 import Alpine from 'alpinejs';
 import { initI18n, t, setLocale, getLocale } from './services/i18n.js';
 import { initSupabase, supabase, getCurrentUser, signIn, signOut } from './services/supabase.js';
+import { loadImportEnabled } from './services/import-flag.js';
 import { initCloudinary, getImageUrl, isImageAttachment } from './services/cloudinary.js';
 import { getDashboardStats, getRecentPatients } from './services/dashboard.js';
 import { getPatients, deletePatient, togglePatientStatus, GOVERNORATES } from './services/patients.js';
@@ -128,6 +129,11 @@ function app() {
         
         // Prices
         priceStats: null,
+
+        // AI import entry: the ai_settings flag (fail open) and the job the
+        // "Continue import" dropdown item can resume.
+        importEnabled: true,
+        importResumable: null,
         
         // Users
         users: [],
@@ -230,6 +236,47 @@ function app() {
             if (this.isLoggedIn) {
                 // Fire-and-forget: failures must never block or break auth.
                 this.refreshOptions();
+                this.refreshImportState();
+            } else {
+                this.importEnabled = true;
+                this.importResumable = null;
+            }
+        },
+
+        /** Hide the import entry when ai_settings.enabled says so; fail open. */
+        async refreshImportState() {
+            if (!this.isLoggedIn) {
+                this.importEnabled = true;
+                this.importResumable = null;
+                return;
+            }
+            const enabled = await loadImportEnabled();
+            this.importEnabled = enabled !== false;
+            if (!this.importEnabled) this.importResumable = null;
+        },
+
+        /** The "Continue import" item appears only for an unfinished job. */
+        async refreshImportResume() {
+            if (!this.isLoggedIn || !this.importEnabled) {
+                this.importResumable = null;
+                return;
+            }
+            try {
+                const { latestResumableJob } = await import('./features/import-agent/api.js');
+                this.importResumable = await latestResumableJob();
+            } catch {
+                this.importResumable = null;
+            }
+        },
+
+        async continueImport() {
+            const job = this.importResumable;
+            if (!job) return;
+            await this.navigate('import');
+            const wizard = window.__iaWizard;
+            if (wizard) {
+                wizard.resumable = job;
+                await wizard.resume();
             }
         },
         
@@ -298,6 +345,8 @@ function app() {
             this.user = null;
             this.profile = null;
             this.isSuperAdmin = false;
+            this.importEnabled = true;
+            this.importResumable = null;
         },
         
         // Mobile menu: close the collapsed panel after a navigation click so
@@ -312,16 +361,21 @@ function app() {
             // Settings is super-admin-only: no nav entry is rendered for other
             // roles and this guard keeps a stale page value from reaching it.
             if (page === 'settings' && !this.isSuperAdmin) return;
+            // The import entry is hidden when the ai_settings flag is off.
+            if (page === 'import' && !this.importEnabled) return;
             if (page !== 'patients') this.closeGlobalSearch();
             this.currentPage = page;
             this.closeMobileNav();
             try {
                 if (page === 'dashboard') await this.showDashboard();
-                if (page === 'patients') await this.loadPatients();
+                if (page === 'patients') {
+                    await this.loadPatients();
+                    this.refreshImportResume();
+                }
                 if (page === 'prices') await this.showPrices();
                 if (page === 'users') await this.loadUsers();
                 if (page === 'settings') await this.showSettings();
-                if (page === 'import') importAgentEnter();
+                if (page === 'import') await importAgentEnter();
             } catch (error) {
                 console.error(error);
             }
@@ -649,7 +703,7 @@ function app() {
             return Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         },
         formatDate(dateStr) {
-            if (!dateStr) return '—';
+            if (!dateStr) return '';
             return new Date(dateStr).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
         },
         followerLabel(key) {
