@@ -49,6 +49,7 @@ describe('encryptSecret / decryptSecret', () => {
         expect(await codeOf(decryptSecret(SECRET, 'garbage'))).toBe('DECRYPT_FAILED');
         expect(await codeOf(decryptSecret(SECRET, 'v1.abc'))).toBe('DECRYPT_FAILED');
         expect(await codeOf(decryptSecret(SECRET, ''))).toBe('DECRYPT_FAILED');
+        expect(await codeOf(decryptSecret('', stored))).toBe('ENCRYPTION_KEY_MISSING');
     });
 });
 

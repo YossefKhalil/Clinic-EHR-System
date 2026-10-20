@@ -386,6 +386,9 @@ CREATE TABLE IF NOT EXISTS public.ai_settings (
     cloudflare_token_encrypted TEXT,
     openai_base_url TEXT,
     openai_key_encrypted TEXT,
+    -- Ordered [{ provider, model }] fallback chain. Empty means fall back to
+    -- the legacy provider/model columns below.
+    model_chain JSONB NOT NULL DEFAULT '[]'::jsonb,
     model TEXT DEFAULT 'google/gemini-2.5-flash-lite',
     enabled BOOLEAN NOT NULL DEFAULT FALSE,
     updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -402,6 +405,7 @@ ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS cloudflare_account_id TE
 ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS cloudflare_token_encrypted TEXT;
 ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS openai_base_url TEXT;
 ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS openai_key_encrypted TEXT;
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS model_chain JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 -- Import batch tracking (recreated from v1): every patient row written by one
 -- commit carries the batch id; M7's undo removes exactly those rows. Nullable
