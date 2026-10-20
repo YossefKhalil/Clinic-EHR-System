@@ -903,7 +903,11 @@ function app() {
                 ? this.aiProviderLabel(error.details.provider)
                 : this.t('aiSettings.providerLabel');
             if (code === 'OFFLINE') return { key: 'aiSettings.offline', params: {} };
-            if (code === 'FORBIDDEN' || code === 'UNAUTHORIZED') return { key: 'aiSettings.forbidden', params: {} };
+            if (code === 'BACKEND_OUTDATED' || code === 'NOT_FOUND') {
+                return { key: 'aiSettings.backendOutdated', params: {} };
+            }
+            if (code.startsWith('UNAUTHORIZED')) return { key: 'aiSettings.sessionExpired', params: {} };
+            if (code === 'FORBIDDEN') return { key: 'aiSettings.forbidden', params: {} };
             if (code === 'ENCRYPTION_KEY_MISSING') return { key: 'aiSettings.encryptionMissing', params: {} };
             if (code === 'PROVIDER_IN_USE') return { key: 'aiSettings.providerInUse', params: {} };
             if (code === 'PROVIDER_NOT_READY') return { key: 'aiSettings.providerNotReady', params: { provider } };

@@ -44,10 +44,15 @@ async function invoke(body) {
                 status,
             });
         }
-        throw new AiSettingsError('INTERNAL', { status });
+        throw new AiSettingsError(status === 404 ? 'NOT_FOUND' : 'INTERNAL', { status });
     }
     if (!payload || payload.ok !== true) {
-        throw new AiSettingsError(payload?.code ?? 'INTERNAL', {
+        // An older ai-settings deployment returned configured/last4/model and
+        // no ok wrapper. Say so explicitly instead of showing a generic error.
+        if (payload && payload.ok !== true && ('configured' in payload || 'last4' in payload)) {
+            throw new AiSettingsError('BACKEND_OUTDATED', { status });
+        }
+        throw new AiSettingsError(payload?.code ?? (status === 404 ? 'NOT_FOUND' : 'INTERNAL'), {
             provider: payload?.provider,
             index: payload?.index,
             upstreamStatus: payload?.upstreamStatus,

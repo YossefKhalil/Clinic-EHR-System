@@ -1360,6 +1360,62 @@
                     </div>
                 </div>
 
+                <!-- Editable option lists -->
+                <template x-for="kind in optionKinds" :key="kind">
+                    <div class="card shadow-sm border-0 mb-4">
+                        <div class="card-header bg-white py-3 d-flex align-items-center">
+                            <i class="bi me-2 text-primary fs-5" :class="optionKindIcon(kind)"></i>
+                            <h5 class="mb-0 fw-semibold" x-text="optionKindLabel(kind)"></h5>
+                        </div>
+                        <div class="card-body">
+                            <template x-if="settingsOptions[kind].length === 0">
+                                <div class="text-muted small mb-2" x-text="t('No options yet.')"></div>
+                            </template>
+                            <template x-for="row in settingsOptions[kind]" :key="row.id">
+                                <div class="row g-2 align-items-center border-bottom py-2" :class="row.active ? '' : 'opacity-50'">
+                                    <div class="col-12 col-md-4">
+                                        <input type="text" class="form-control form-control-sm" x-model="row.label_en" @input="row._dirty = true" :placeholder="t('English label')">
+                                    </div>
+                                    <div class="col-12 col-md-4">
+                                        <input type="text" class="form-control form-control-sm" dir="rtl" x-model="row.label_ar" @input="row._dirty = true" :placeholder="t('Arabic label')">
+                                    </div>
+                                    <div class="col-6 col-md-2">
+                                        <div class="form-check form-switch mb-0">
+                                            <input class="form-check-input" type="checkbox" :id="'opt-active-' + row.id" x-model="row.active" @change="row._dirty = true">
+                                            <label class="form-check-label small" :for="'opt-active-' + row.id" x-text="t('Active')"></label>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-2 text-end">
+                                        <div class="d-inline-flex gap-1">
+                                            <button type="button" class="btn btn-sm btn-primary" x-show="row._dirty" x-cloak @click="saveOption(kind, row)" :disabled="row._saving || row._removing">
+                                                <span x-show="row._saving" class="spinner-border spinner-border-sm" x-cloak></span>
+                                                <i class="bi bi-save" x-show="!row._saving"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-danger" @click="removeOption(kind, row)" :disabled="row._saving || row._removing" :title="t('Remove')" :aria-label="t('Remove')">
+                                                <span x-show="row._removing" class="spinner-border spinner-border-sm" x-cloak></span>
+                                                <i class="bi bi-trash" x-show="!row._removing"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <div class="row g-2 align-items-center mt-3">
+                                <div class="col-12 col-md-4">
+                                    <input type="text" class="form-control form-control-sm" x-model="newOption[kind].label_en" :placeholder="t('New English label')">
+                                </div>
+                                <div class="col-12 col-md-4">
+                                    <input type="text" class="form-control form-control-sm" dir="rtl" x-model="newOption[kind].label_ar" :placeholder="t('New Arabic label')">
+                                </div>
+                                <div class="col-12 col-md-4">
+                                    <button class="btn btn-sm btn-success" @click="addOption(kind)">
+                                        <i class="bi bi-plus-circle me-1"></i><span x-text="t('Add Option')"></span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
                 <!-- AI Import settings (super admin) -->
                 <div class="card shadow-sm border-0 mb-4" x-show="isSuperAdmin" x-cloak>
                     <div class="card-header bg-white py-3 d-flex flex-wrap align-items-center gap-2">
@@ -1527,62 +1583,6 @@
                     </div>
                 </div>
 
-                <!-- Editable option lists -->
-                <template x-for="kind in optionKinds" :key="kind">
-                    <div class="card shadow-sm border-0 mb-4">
-                        <div class="card-header bg-white py-3 d-flex align-items-center">
-                            <i class="bi me-2 text-primary fs-5" :class="optionKindIcon(kind)"></i>
-                            <h5 class="mb-0 fw-semibold" x-text="optionKindLabel(kind)"></h5>
-                        </div>
-                        <div class="card-body">
-                            <template x-if="settingsOptions[kind].length === 0">
-                                <div class="text-muted small mb-2" x-text="t('No options yet.')"></div>
-                            </template>
-                            <template x-for="row in settingsOptions[kind]" :key="row.id">
-                                <div class="row g-2 align-items-center border-bottom py-2" :class="row.active ? '' : 'opacity-50'">
-                                    <div class="col-12 col-md-4">
-                                        <input type="text" class="form-control form-control-sm" x-model="row.label_en" @input="row._dirty = true" :placeholder="t('English label')">
-                                    </div>
-                                    <div class="col-12 col-md-4">
-                                        <input type="text" class="form-control form-control-sm" dir="rtl" x-model="row.label_ar" @input="row._dirty = true" :placeholder="t('Arabic label')">
-                                    </div>
-                                    <div class="col-6 col-md-2">
-                                        <div class="form-check form-switch mb-0">
-                                            <input class="form-check-input" type="checkbox" :id="'opt-active-' + row.id" x-model="row.active" @change="row._dirty = true">
-                                            <label class="form-check-label small" :for="'opt-active-' + row.id" x-text="t('Active')"></label>
-                                        </div>
-                                    </div>
-                                    <div class="col-6 col-md-2 text-end">
-                                        <div class="d-inline-flex gap-1">
-                                            <button type="button" class="btn btn-sm btn-primary" x-show="row._dirty" x-cloak @click="saveOption(kind, row)" :disabled="row._saving || row._removing">
-                                                <span x-show="row._saving" class="spinner-border spinner-border-sm" x-cloak></span>
-                                                <i class="bi bi-save" x-show="!row._saving"></i>
-                                            </button>
-                                            <button type="button" class="btn btn-sm btn-outline-danger" @click="removeOption(kind, row)" :disabled="row._saving || row._removing" :title="t('Remove')" :aria-label="t('Remove')">
-                                                <span x-show="row._removing" class="spinner-border spinner-border-sm" x-cloak></span>
-                                                <i class="bi bi-trash" x-show="!row._removing"></i>
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </template>
-
-                            <div class="row g-2 align-items-center mt-3">
-                                <div class="col-12 col-md-4">
-                                    <input type="text" class="form-control form-control-sm" x-model="newOption[kind].label_en" :placeholder="t('New English label')">
-                                </div>
-                                <div class="col-12 col-md-4">
-                                    <input type="text" class="form-control form-control-sm" dir="rtl" x-model="newOption[kind].label_ar" :placeholder="t('New Arabic label')">
-                                </div>
-                                <div class="col-12 col-md-4">
-                                    <button class="btn btn-sm btn-success" @click="addOption(kind)">
-                                        <i class="bi bi-plus-circle me-1"></i><span x-text="t('Add Option')"></span>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </template>
             </div>
 
             <!-- PATIENT PROFILE PAGE -->

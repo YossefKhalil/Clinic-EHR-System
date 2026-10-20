@@ -450,6 +450,8 @@
   "aiSettings.enabledHint": "When off, the import entry is hidden and new jobs are refused.",
   "aiSettings.loading": "Loading AI settings...",
   "aiSettings.loadFailed": "Could not load AI settings.",
+  "aiSettings.sessionExpired": "Your session expired. Sign in again.",
+  "aiSettings.backendOutdated": "The AI settings backend is not up to date. Deploy the ai-settings and import-job functions, then retry.",
   "aiSettings.retry": "Retry",
   "aiSettings.discard": "Discard changes",
   "aiSettings.save": "Save AI settings",

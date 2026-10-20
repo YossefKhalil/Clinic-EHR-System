@@ -450,6 +450,8 @@
   "aiSettings.enabledHint": "عند الإيقاف يُخفى مدخل الاستيراد وتُرفض المهام الجديدة.",
   "aiSettings.loading": "جارٍ تحميل إعدادات الذكاء الاصطناعي...",
   "aiSettings.loadFailed": "تعذر تحميل إعدادات الذكاء الاصطناعي.",
+  "aiSettings.sessionExpired": "انتهت صلاحية الجلسة. سجّل الدخول مرة أخرى.",
+  "aiSettings.backendOutdated": "خدمة إعدادات الذكاء الاصطناعي غير محدّثة. انشر الدالتين ai-settings وimport-job ثم أعد المحاولة.",
   "aiSettings.retry": "إعادة المحاولة",
   "aiSettings.discard": "تجاهل التغييرات",
   "aiSettings.save": "حفظ إعدادات الذكاء الاصطناعي",
