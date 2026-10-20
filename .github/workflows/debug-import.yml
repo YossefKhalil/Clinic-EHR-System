@@ -1,0 +1,56 @@
+name: Debug Import
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query recent import metadata
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::SUPABASE_DB_URL is not configured."
+            exit 1
+          fi
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          \pset pager off
+          SELECT id, status, created_at, error_code, tokens_in, tokens_out, token_cap,
+                 config->>'provider' AS provider,
+                 config->>'model' AS model,
+                 config->'last_provider_error' AS last_provider_error
+          FROM public.import_jobs
+          ORDER BY created_at DESC
+          LIMIT 5;
+
+          WITH latest AS (
+              SELECT id FROM public.import_jobs ORDER BY created_at DESC LIMIT 1
+          )
+          SELECT c.idx, c.status, c.attempts, c.error_code, c.model,
+                 c.tokens_in, c.tokens_out, c.kind,
+                 jsonb_array_length(COALESCE(c.payload->'lines', '[]'::jsonb)) AS line_count,
+                 c.raw_response_path
+          FROM public.import_chunks c
+          JOIN latest ON latest.id = c.job_id
+          ORDER BY c.idx;
+
+          WITH latest AS (
+              SELECT id FROM public.import_jobs ORDER BY created_at DESC LIMIT 1
+          )
+          SELECT r.status, COUNT(*) AS rows
+          FROM public.import_rows r
+          JOIN latest ON latest.id = r.job_id
+          GROUP BY r.status;
+
+          WITH latest AS (
+              SELECT id FROM public.import_jobs ORDER BY created_at DESC LIMIT 1
+          )
+          SELECT x.reason, COUNT(*) AS rejects
+          FROM public.import_rejects x
+          JOIN latest ON latest.id = x.job_id
+          GROUP BY x.reason;
+
+          SELECT model_chain FROM public.ai_settings;
+          SQL
