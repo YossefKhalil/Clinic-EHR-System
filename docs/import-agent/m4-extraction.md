@@ -21,7 +21,9 @@ database and crypto edges live in `_shared/llm/`, `_shared/ai-settings.ts` and `
 | `_shared/llm/openai-compatible.ts` | Chat-completions adapter (Ollama/LM Studio/OpenAI), pure body builder, response and error mapping |
 | `_shared/llm/openrouter.ts` | OpenAI-compatible shape with `provider.data_collection: 'deny'` and the ordered model fallback |
 | `_shared/llm/cloudflare.ts` | Workers AI envelope; text-only this milestone (images → `IMAGES_UNSUPPORTED`, M8 revisits) |
-| `_shared/ai-settings.ts` | AES-GCM/HKDF encryption of the `ai_settings` secrets and per-provider validation |
+| `_shared/ai-settings.ts` | AES-GCM/HKDF encryption of the `ai_settings` secrets, ordered chain validation and per-provider decryption |
+| `_shared/llm/fallback.js` | Ordered chunk fallback across providers, with aggregate usage and cost |
+| `ai-settings/index.ts` | Super-admin `status | save | test` endpoint; never returns a secret |
 | `import-job/index.ts` | `create | add_source | start | pump | cancel | status | retry_chunk` (spec §14.3) |
 | `supabase/schema.sql` | Adds `import_bump_tokens` (atomic usage increment, service-role only) |
 
@@ -83,6 +85,13 @@ database and crypto edges live in `_shared/llm/`, `_shared/ai-settings.ts` and `
   `readAiSettings` validates the row for its active provider and decrypts exactly the one key needed;
   `enabled: false` or a missing key/model is `FEATURE_DISABLED`/`NOT_CONFIGURED`.
 - The `ai_settings` row stays service-role-only (M2), so credentials never reach the browser.
+- `readAiChain` preserves the admin-defined order across all three providers. Unready entries are
+  skipped with a code and logged; the pump fails only when no entry is ready. `readAiSettings` remains
+  for the legacy single-provider path.
+- The admin `ai-settings` function owns `status`, `save` and `test`. It returns booleans and non-secret
+  endpoint fields, keeps a submitted blank secret as the stored secret, refuses to remove a key that a
+  chain row still uses, and audits every save. The full audit is in
+  `docs/import-agent/ai-settings-chain.md`.
 
 ## 6. The `import-job` function (spec §9.5, §14.3)
 
@@ -93,8 +102,8 @@ All actions are JWT-authenticated, then use the service role; every response is 
 |---|---|
 | `create` | Feature-flag and rate-limit checks (`MAX_CONCURRENT_JOBS`, `JOBS_PER_USER_DAY`; violations → `audit_log` + `429`). Freezes the **active** `app_options` lists into `config.enum_snapshot`, the prompt ids, the resolved limits and provider/model (never secrets) into `config`; sets `token_cap` and `expires_at`; returns signed upload URLs for `<user>/<job>/<idx>-<name>` in `import-staging` |
 | `add_source` | Job must be `uploaded`. Accepts prepared chunk payloads (validated shape) or raw pasted `text`, which the server chunks with the shared chunker — pooled ids are shifted to the job's next source number (`shiftSourceIds`). Re-checks `MAX_CHUNKS` and the shared `MAX_ROWS` sheet budget server-side |
-| `start` | `uploaded` → `extracting`; requires at least one chunk |
-| `pump` | The §9.5 loop: token caps before any call; claims up to `PUMP_PARALLEL` chunks under a 90 s lease; runs them concurrently through `runChunk`; persists via `runPipeline`; returns progress |
+| `start` | `uploaded` → `extracting`; requires at least one chunk and at least one ready chain entry |
+| `pump` | The §9.5 loop: token caps before any call; claims up to `PUMP_PARALLEL` chunks under a 90 s lease; runs each chunk through `runChunkWithFallback` in chain order; persists via `runPipeline`; returns progress |
 | `cancel` | Sets `status = 'cancelled'` + `cancelled_at`; the running pump aborts in-flight provider calls within 2 s |
 | `retry_chunk` | Resets one chunk (`queued`, attempts 0) and re-opens the job for extraction |
 | `status` | Progress only — no claims, no calls |
@@ -160,12 +169,14 @@ Pump details worth naming:
 ## 10. Tests and deferred checks
 
 - Suites added: `yaml-contract` (19), `run-chunk` (10), `llm-providers` (17), `ai-settings` (7),
-  `import-core-chunker` (4) — 317 tests across 25 files, plus `check:registry`, `eslint src`,
-  `vitest run --coverage` (normalizer branch gate stays 100%) and `vite build`.
+  `ai-chain` (20), `ai-fallback` (7), `import-core-chunker` (4) - 378 tests across 30 files, plus
+  `check:registry`, `eslint src`, `vitest run --coverage` (normalizer branch gate stays 100%) and
+  `vite build`.
 - Chaos coverage with the fake provider: valid output, fence, repair merge, repair failure, still-bad
   documents, truncation drop-last, oversized output, provider error codes, cancellation before and
-  mid-chunk, retry/backoff/Retry-After, model fallback, auth stops the fallback, cloudflare envelope
-  and image rejection, key round-trips and tamper detection.
+  mid-chunk, retry/backoff/Retry-After, ordered model/provider fallback, aggregate usage and cost,
+  cancelled and truncated terminal results, cloudflare envelope and image rejection, key round-trips
+  and tamper detection.
 - **Deferred (needs the hosted project)**: the real-model run of fixture #1 through thresholds, which
   mirrors the M2 deployment checklist:
   1. Deploy: `supabase functions deploy import-job`; the worker logic is imported by `import-job`
