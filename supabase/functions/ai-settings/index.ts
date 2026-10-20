@@ -377,6 +377,25 @@ async function actionTest(body: Record<string, unknown>, service: Service) {
         return fail('TEST_FAILED', 502, { provider, upstreamStatus: response.status });
     }
 
+    let testDetails: Record<string, unknown> = {};
+    if (provider === 'openrouter') {
+        // `/key` returns the free-model daily counter, so the Settings page can
+        // say "0 of 50 left" instead of only "connection works" while every
+        // extraction call is being rate-limited.
+        try {
+            const payload = await response.json() as { data?: Record<string, unknown> };
+            const data = payload?.data ?? {};
+            testDetails = {
+                isFreeTier: data.is_free_tier ?? null,
+                freeDaily: data.free_model_daily_requests ?? null,
+                usage: data.usage ?? null,
+                limit: data.limit ?? null,
+            };
+        } catch {
+            testDetails = {};
+        }
+    }
+
     if (provider === 'cloudflare') {
         let payload: Record<string, unknown> = {};
         try { payload = await response.json(); } catch { payload = {}; }
@@ -385,7 +404,7 @@ async function actionTest(body: Record<string, unknown>, service: Service) {
         }
     }
 
-    return json({ ok: true, provider });
+    return json({ ok: true, provider, ...testDetails });
 }
 
 Deno.serve(async (req) => {

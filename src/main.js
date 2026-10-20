@@ -849,11 +849,35 @@ function app() {
             this.aiClearTest(provider);
             this.aiClearMessage();
             try {
-                await testAiProviderApi(provider, this.aiTestPayload(provider));
-                this.aiSettingsTestResults = {
-                    ...this.aiSettingsTestResults,
-                    [provider]: { type: 'success', key: 'aiSettings.testOk', params: {} },
-                };
+                const result = await testAiProviderApi(provider, this.aiTestPayload(provider));
+                const daily = result?.freeDaily;
+                const remaining = Number(daily?.remaining);
+                const limit = Number(daily?.limit);
+                const used = Number(daily?.used);
+                if (provider === 'openrouter' && daily && Number.isFinite(remaining)) {
+                    this.aiSettingsTestResults = {
+                        ...this.aiSettingsTestResults,
+                        [provider]: remaining > 0
+                            ? {
+                                type: 'success',
+                                key: 'aiSettings.testOkFreeQuota',
+                                params: { remaining, limit: Number.isFinite(limit) ? limit : 0 },
+                            }
+                            : {
+                                type: 'warning',
+                                key: 'aiSettings.testFreeQuotaExhausted',
+                                params: {
+                                    used: Number.isFinite(used) ? used : 0,
+                                    limit: Number.isFinite(limit) ? limit : 0,
+                                },
+                            },
+                    };
+                } else {
+                    this.aiSettingsTestResults = {
+                        ...this.aiSettingsTestResults,
+                        [provider]: { type: 'success', key: 'aiSettings.testOk', params: {} },
+                    };
+                }
             } catch (error) {
                 console.error('AI provider test failed:', provider, error?.code);
                 this.aiSettingsTestResults = {

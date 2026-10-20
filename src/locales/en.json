@@ -479,6 +479,8 @@
   "aiSettings.test": "Test",
   "aiSettings.testing": "Testing...",
   "aiSettings.testOk": "Connection works.",
+  "aiSettings.testOkFreeQuota": "Connection works. Free-model requests left today: :remaining of :limit.",
+  "aiSettings.testFreeQuotaExhausted": "The key works, but the free-model daily limit is used up (:used of :limit). Add credits or another provider; free models will keep returning 429 until the UTC reset.",
   "aiSettings.testFailed": "Connection failed.",
   "aiSettings.testRejected": "The provider rejected these credentials (status :status).",
   "aiSettings.testUnreachable": "Could not reach the provider.",

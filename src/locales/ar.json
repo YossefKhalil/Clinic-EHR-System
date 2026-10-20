@@ -479,6 +479,8 @@
   "aiSettings.test": "اختبار",
   "aiSettings.testing": "جارٍ الاختبار...",
   "aiSettings.testOk": "الاتصال يعمل.",
+  "aiSettings.testOkFreeQuota": "الاتصال يعمل. طلبات النماذج المجانية المتبقية اليوم: :remaining من :limit.",
+  "aiSettings.testFreeQuotaExhausted": "المفتاح يعمل، لكن الحد اليومي للنماذج المجانية استُهلك (:used من :limit). أضف رصيداً أو مزوّداً آخر؛ ستستمر النماذج المجانية في إرجاع 429 حتى إعادة ضبط اليوم بتوقيت UTC.",
   "aiSettings.testFailed": "فشل الاتصال.",
   "aiSettings.testRejected": "رفض المزود بيانات الاعتماد هذه (الحالة :status).",
   "aiSettings.testUnreachable": "تعذر الوصول إلى المزود.",
