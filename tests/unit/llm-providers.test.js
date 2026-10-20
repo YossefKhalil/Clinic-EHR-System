@@ -261,6 +261,46 @@ describe('cloudflare adapter (spec §7.1)', () => {
             .toThrowError(/nope/);
     });
 
+    it('maps the newer OpenAI-style Workers AI response', () => {
+        const result = mapCloudflareResult({
+            success: true,
+            result: {
+                model: '@cf/qwen/qwen3.8-27b',
+                choices: [{ message: { content: 'hello from qwen' }, finish_reason: 'stop' }],
+                usage: { prompt_tokens: 5, completion_tokens: 7 },
+            },
+        }, '@cf/fallback');
+        expect(result).toEqual({
+            text: 'hello from qwen',
+            finishReason: 'stop',
+            usage: { in: 5, out: 7 },
+            model: '@cf/qwen/qwen3.8-27b',
+        });
+    });
+
+    it('accepts a direct OpenAI-style body and joins content parts', () => {
+        const result = mapCloudflareResult({
+            choices: [{
+                message: { content: [{ type: 'text', text: 'part one ' }, { type: 'text', text: 'part two' }] },
+                finish_reason: 'length',
+            }],
+            usage: { input_tokens: 2, output_tokens: 3 },
+        }, '@cf/fallback');
+        expect(result).toMatchObject({
+            text: 'part one part two',
+            finishReason: 'length',
+            usage: { in: 2, out: 3 },
+            model: '@cf/fallback',
+        });
+    });
+
+    it('reports the response keys when Workers AI sends no text', () => {
+        expect(() => mapCloudflareResult({
+            success: true,
+            result: { choices: [], usage: { prompt_tokens: 1, completion_tokens: 0 } },
+        }, 'm')).toThrowError(/no text \(result keys: choices, usage\)/);
+    });
+
     it('calls the account endpoint with the model path and maps the result', async () => {
         const calls = [];
         const provider = createCloudflareProvider({

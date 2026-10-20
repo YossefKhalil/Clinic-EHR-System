@@ -39,36 +39,124 @@ export function buildCloudflareBody(request: LlmRequest) {
     };
 }
 
+type CloudflareUsage = {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+};
+
+type CloudflarePayload = {
+    response?: unknown;
+    choices?: unknown;
+    content?: unknown;
+    text?: unknown;
+    finish_reason?: unknown;
+    usage?: CloudflareUsage | null;
+    model?: unknown;
+};
+
+type CloudflareChoice = {
+    message?: { content?: unknown } | null;
+    text?: unknown;
+    finish_reason?: unknown;
+};
+
+/** OpenAI-style content may be a string or an array of text parts. */
+function contentText(value: unknown): string | null {
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value)) {
+        const joined = value.map((part) => {
+            if (typeof part === 'string') return part;
+            if (part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string') {
+                return (part as { text: string }).text;
+            }
+            return '';
+        }).join('');
+        return joined || null;
+    }
+    if (value && typeof value === 'object' && typeof (value as { text?: unknown }).text === 'string') {
+        return (value as { text: string }).text;
+    }
+    return null;
+}
+
+function usageCounts(usage: CloudflareUsage | null | undefined) {
+    return {
+        in: usage?.prompt_tokens ?? usage?.input_tokens ?? 0,
+        out: usage?.completion_tokens ?? usage?.output_tokens ?? 0,
+    };
+}
+
 export function mapCloudflareResult(json: unknown, fallbackModel: string): LlmResult {
     const data = json as {
         success?: boolean;
         errors?: { message?: string }[];
-        result?: {
-            response?: unknown;
-            finish_reason?: string;
-            usage?: { prompt_tokens?: number; completion_tokens?: number };
-        };
+        error?: { message?: string };
+        result?: CloudflarePayload | string | null;
+        choices?: unknown;
+        usage?: CloudflareUsage | null;
+        model?: unknown;
     };
-    if (data?.success === false || !data?.result) {
-        const detail = (data?.errors ?? []).map((entry) => entry?.message ?? '').filter(Boolean).join('; ');
-        throw new LlmError('PROVIDER_REJECTED', `Cloudflare Workers AI error: ${detail || 'no result'}`, {
+    const errors = (data?.errors ?? []).map((entry) => entry?.message ?? '').filter(Boolean);
+    const errorMessage = errors.join('; ') || data?.error?.message || '';
+    if (data?.success === false || errorMessage) {
+        throw new LlmError('PROVIDER_REJECTED', `Cloudflare Workers AI error: ${errorMessage || 'no result'}`, {
             retryable: false,
         });
     }
-    const text = data.result.response;
-    if (typeof text !== 'string') {
-        throw new LlmError('PROVIDER_BAD_RESPONSE', 'Cloudflare Workers AI returned no text', {
+
+    // Older Workers AI chat models wrap the answer in
+    // `{ result: { response } }`. Newer OpenAI-compatible models return
+    // `{ result: { choices: [{ message: { content } }] } }` (sometimes without
+    // the `result` envelope), so accept both shapes instead of reporting
+    // "no text" and hiding a perfectly good answer.
+    const payload = data?.result ?? data;
+    if (payload == null) {
+        throw new LlmError('PROVIDER_REJECTED', 'Cloudflare Workers AI error: no result', {
             retryable: false,
         });
     }
+
+    let text: string | null = null;
+    let finish: unknown = null;
+    let usage: CloudflareUsage | null = data?.usage ?? null;
+    let model = fallbackModel;
+
+    if (typeof payload === 'string') {
+        text = payload;
+    } else if (typeof payload === 'object') {
+        const body = payload as CloudflarePayload;
+        text = contentText(body.response) ?? contentText(body.content) ?? contentText(body.text);
+        usage = body.usage ?? usage;
+        finish = body.finish_reason;
+        if (typeof body.model === 'string') model = body.model;
+
+        if (text == null && Array.isArray(body.choices) && body.choices.length > 0) {
+            const choice = body.choices[0] as CloudflareChoice;
+            text = contentText(choice?.message?.content) ?? contentText(choice?.text);
+            finish = choice?.finish_reason ?? finish;
+        }
+    }
+
+    const trimmed = typeof text === 'string' ? text.trim() : '';
+    if (!trimmed) {
+        const keys = payload && typeof payload === 'object'
+            ? Object.keys(payload as object).join(', ') || 'none'
+            : typeof payload;
+        throw new LlmError(
+            'PROVIDER_BAD_RESPONSE',
+            `Cloudflare Workers AI returned no text (result keys: ${keys})`,
+            { retryable: false },
+        );
+    }
+
+    const counts = usageCounts(usage);
     return {
-        text,
-        finishReason: data.result.finish_reason === 'length' ? 'length' : 'stop',
-        usage: {
-            in: data.result.usage?.prompt_tokens ?? 0,
-            out: data.result.usage?.completion_tokens ?? 0,
-        },
-        model: fallbackModel,
+        text: trimmed,
+        finishReason: finish === 'length' ? 'length' : 'stop',
+        usage: counts,
+        model,
     };
 }
 
