@@ -36,6 +36,27 @@ jobs:
         with:
           version: latest
 
+      # The functions read columns the schema owns (ai_settings.groq_key_encrypted,
+      # ai_settings.model_chain, import_rows.*, ...). Applying the
+      # idempotent schema here removes the race with the separate schema
+      # workflow: a function can never be deployed before its migration
+      # exists (that failure shows up as "column does not exist" and a
+      # "SAVE_FAILED" the admin cannot act on).
+      - name: Apply schema
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::warning::SUPABASE_DB_URL is not set - skipping the schema step. Apply supabase/schema.sql before the functions."
+            exit 0
+          fi
+          psql "$SUPABASE_DB_URL" \
+            --set ON_ERROR_STOP=1 \
+            --single-transaction \
+            --no-psqlrc \
+            --file supabase/schema.sql
+          echo "Schema applied."
+
       # Provision the encryption secret once. Never rotate it automatically:
       # changing this value makes every stored provider key unreadable.
       - name: Ensure AI settings encryption secret

@@ -45,15 +45,10 @@ jobs:
             --no-psqlrc \
             --file supabase/schema.sql
 
+      # A partially applied schema must fail the job, not print a couple of
+      # rows: the functions read these columns and tables on every request.
       - name: Verify schema
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
-          psql "$SUPABASE_DB_URL" --set ON_ERROR_STOP=1 --no-psqlrc -c "
-            SELECT column_name, data_type
-            FROM information_schema.columns
-            WHERE table_schema = 'public'
-              AND table_name = 'patients'
-              AND column_name IN ('age', 'mobile')
-            ORDER BY column_name;
-          "
+          psql "$SUPABASE_DB_URL" --set ON_ERROR_STOP=1 --no-psqlrc -f supabase/verify-schema.sql

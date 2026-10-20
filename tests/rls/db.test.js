@@ -7,8 +7,11 @@
 // docs/import-agent/m2-persistence.md.
 
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createSupabaseLikeDb, runRlsScript, SCHEMA_PATH } from './harness.js';
+
+const VERIFY_PATH = fileURLToPath(new URL('../../supabase/verify-schema.sql', import.meta.url));
 
 describe('RLS / DB', () => {
     let db;
@@ -23,6 +26,12 @@ describe('RLS / DB', () => {
 
     it('supabase/schema.sql applies a second time without error (idempotent)', async () => {
         await expect(db.exec(readFileSync(SCHEMA_PATH, 'utf8'))).resolves.toBeDefined();
+    }, 60000);
+
+    it('the post-apply verification passes against the schema (nothing missing)', async () => {
+        // The same script the schema workflow runs after applying the schema:
+        // it must pass on a database created from schema.sql.
+        await expect(db.exec(readFileSync(VERIFY_PATH, 'utf8'))).resolves.toBeDefined();
     }, 60000);
 
     it('01-access: two sections plus an admin see and write exactly their own things', async () => {
