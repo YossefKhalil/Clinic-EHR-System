@@ -259,6 +259,7 @@
                                             </div>
                                         </template>
                                     </div>
+                                    <hr class="text-muted opacity-25 my-2">
                                     <div class="text-muted small" x-text="t('By Section')"></div>
                                 </div>
                             </div>
@@ -281,6 +282,7 @@
                                             </div>
                                         </template>
                                     </div>
+                                    <hr class="text-muted opacity-25 my-2">
                                     <div class="text-muted small" x-text="t('By Source of Money')"></div>
                                 </div>
                             </div>
@@ -1384,10 +1386,16 @@
                                         </div>
                                     </div>
                                     <div class="col-6 col-md-2 text-end">
-                                        <button class="btn btn-sm btn-primary" x-show="row._dirty" x-cloak @click="saveOption(kind, row)" :disabled="row._saving">
-                                            <span x-show="row._saving" class="spinner-border spinner-border-sm" x-cloak></span>
-                                            <i class="bi bi-save" x-show="!row._saving"></i>
-                                        </button>
+                                        <div class="d-inline-flex gap-1">
+                                            <button type="button" class="btn btn-sm btn-primary" x-show="row._dirty" x-cloak @click="saveOption(kind, row)" :disabled="row._saving || row._removing">
+                                                <span x-show="row._saving" class="spinner-border spinner-border-sm" x-cloak></span>
+                                                <i class="bi bi-save" x-show="!row._saving"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-danger" @click="removeOption(kind, row)" :disabled="row._saving || row._removing" :title="t('Remove')" :aria-label="t('Remove')">
+                                                <span x-show="row._removing" class="spinner-border spinner-border-sm" x-cloak></span>
+                                                <i class="bi bi-trash" x-show="!row._removing"></i>
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </template>

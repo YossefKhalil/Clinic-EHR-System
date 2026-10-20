@@ -11,7 +11,7 @@ import { getDashboardStats, getRecentPatients } from './services/dashboard.js';
 import { getPatients, deletePatient, togglePatientStatus, GOVERNORATES } from './services/patients.js';
 import { patientMatchesQuery } from './services/fuzzy.js';
 import { getPriceStats } from './services/prices.js';
-import { loadOptions as fetchOptions, allOptions, createOption, updateOption, optionLabel as lookupOptionLabel } from './services/options.js';
+import { loadOptions as fetchOptions, allOptions, createOption, updateOption, countOptionUsage, deleteOption, optionLabel as lookupOptionLabel } from './services/options.js';
 import { importAgentWizard, importAgentEnter } from './features/import-agent/ui.js';
 
 // A tab left open across a deploy still points at the previous build's
@@ -465,7 +465,7 @@ function app() {
         
         // Editable working copies so typing never writes through until Save.
         resetSettingsOptions() {
-            const clone = (list) => list.map((opt) => ({ ...opt, _dirty: false, _saving: false }));
+            const clone = (list) => list.map((opt) => ({ ...opt, _dirty: false, _saving: false, _removing: false }));
             this.settingsOptions = {
                 follower: clone(allOptions('follower')),
                 section: clone(allOptions('section')),
@@ -520,6 +520,28 @@ function app() {
                 this.showAlert(this.t('Could not save the option.') + ' ' + (error.message || ''), 'danger');
             } finally {
                 row._saving = false;
+            }
+        },
+        
+        async removeOption(kind, row) {
+            if (row._saving || row._removing) return;
+            row._removing = true;
+            try {
+                const used = await countOptionUsage(kind, row.key);
+                if (used > 0) {
+                    this.showAlert(this.t('This option is used by :count patient(s). Deactivate it instead so existing records keep their label.', { count: used }), 'warning');
+                    return;
+                }
+                if (!confirm(this.t('Remove this option permanently?'))) return;
+                await deleteOption(row.id);
+                await this.refreshOptions();
+                this.resetSettingsOptions();
+                this.showAlert(this.t('Option removed.'), 'success');
+            } catch (error) {
+                console.error(error);
+                this.showAlert(this.t('Could not remove the option.') + ' ' + (error.message || ''), 'danger');
+            } finally {
+                row._removing = false;
             }
         },
         

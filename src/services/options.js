@@ -9,6 +9,7 @@ import { supabase } from './supabase.js';
 import { getLocale } from './i18n.js';
 
 const KINDS = ['follower', 'section', 'source'];
+const USAGE_COLUMNS = { follower: 'follower', section: 'section', source: 'source_of_money' };
 const cache = { follower: [], section: [], source: [] };
 
 export async function loadOptions() {
@@ -95,9 +96,9 @@ export async function createOption(kind, { label_en = '', label_ar = '' } = {}) 
     return data;
 }
 
-// The one write path for edits: rename labels and/or flip `active`. Options
-// are never hard-deleted — deactivating hides them from new selections while
-// existing patient rows keep their key and label.
+// Editing keeps the key stable for existing patient rows. Deactivating hides
+// an option from new selections; removing it is reserved for unused options
+// so a patient never loses its label.
 export async function updateOption(id, { label_en, label_ar, active } = {}) {
     const patch = {};
     if (label_en !== undefined) patch.label_en = String(label_en).trim();
@@ -113,4 +114,24 @@ export async function updateOption(id, { label_en, label_ar, active } = {}) {
 
     if (error) throw error;
     return data;
+}
+
+/** How many patient rows still store this option's key. */
+export async function countOptionUsage(kind, key) {
+    if (!KINDS.includes(kind)) throw new Error('Unknown option kind');
+    const { count, error } = await supabase()
+        .from('patients')
+        .select('id', { count: 'exact', head: true })
+        .eq(USAGE_COLUMNS[kind], key);
+    if (error) throw error;
+    return count || 0;
+}
+
+/** Hard-delete an unused option; the Settings page checks usage first. */
+export async function deleteOption(id) {
+    const { error } = await supabase()
+        .from('app_options')
+        .delete()
+        .eq('id', id);
+    if (error) throw error;
 }
