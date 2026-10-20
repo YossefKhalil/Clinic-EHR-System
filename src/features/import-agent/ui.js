@@ -84,6 +84,7 @@ export function importAgentWizard() {
         /** Page-entry hook, driven by main.js on navigate('import'). */
         async onEnter() {
             if (!getCurrentUser() || this.busy) return;
+            this.errorBanner = null;
             if (!this.reviewState) {
                 try {
                     await loadOptions();
@@ -222,7 +223,7 @@ export function importAgentWizard() {
         // ------------------------------------------------------ errors
         showFailure(error) {
             this.errorBanner = {
-                messageKey: error?.messageKey ?? error?.message ?? 'importAgent.error.INTERNAL',
+                messageKey: error?.messageKey || error?.message || 'importAgent.error.INTERNAL',
             };
         },
 

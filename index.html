@@ -1106,7 +1106,7 @@
                 </div>
 
                 <!-- CONFIRMATION MODAL (spec 10.9) -->
-                <div class="modal d-block" tabindex="-1" x-show="confirmOpen" x-cloak style="background-color:rgba(0,0,0,.5)">
+                <div class="modal" :class="{ 'd-block': confirmOpen }" tabindex="-1" x-cloak style="background-color:rgba(0,0,0,.5)">
                     <div class="modal-dialog modal-dialog-centered">
                         <div class="modal-content">
                             <div class="modal-header">
@@ -1136,7 +1136,7 @@
                 </div>
 
                 <!-- BULK VALUE MODAL (spec 10.5) -->
-                <div class="modal d-block" tabindex="-1" x-show="bulkOpen" x-cloak style="background-color:rgba(0,0,0,.5)">
+                <div class="modal" :class="{ 'd-block': bulkOpen }" tabindex="-1" x-cloak style="background-color:rgba(0,0,0,.5)">
                     <div class="modal-dialog modal-dialog-centered">
                         <div class="modal-content">
                             <div class="modal-header">
