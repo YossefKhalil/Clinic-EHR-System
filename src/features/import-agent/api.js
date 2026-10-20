@@ -18,6 +18,20 @@ import { foldForMatch } from '@import-core/canonicalize.js';
 
 export const ROW_PAGE = 500;
 
+// `fetchAll` is shared by four tables with different ordering columns. Asking
+// PostgREST to order import_chunks/import_sources by `seq` fails the whole
+// review load, so keep the mapping explicit.
+const TABLE_ORDER = {
+    import_sources: 'idx',
+    import_chunks: 'idx',
+    import_rows: 'seq',
+    import_rejects: 'created_at',
+};
+
+export function orderColumnFor(table) {
+    return TABLE_ORDER[table] ?? 'id';
+}
+
 export class ImportApiError extends Error {
     constructor(code, messageKey, details = {}) {
         super(messageKey ?? `importAgent.error.${code}`);
@@ -26,6 +40,18 @@ export class ImportApiError extends Error {
         this.messageKey = messageKey ?? `importAgent.error.${code}`;
         this.details = details;
     }
+}
+
+/** A table read failed because the access token expired, not because of RLS. */
+function isAuthFailure(error) {
+    return error?.code === 'PGRST301' || error?.status === 401;
+}
+
+function loadFailure(error, details = {}) {
+    if (isAuthFailure(error)) {
+        return new ImportApiError('UNAUTHORIZED', 'importAgent.error.UNAUTHORIZED', details);
+    }
+    return new ImportApiError('LOAD_FAILED', 'importAgent.error.LOAD_FAILED', details);
 }
 
 function serviceName() {
@@ -51,11 +77,21 @@ export async function callJob(action, payload = {}) {
         } catch {
             body = null;
         }
+        if (String(body?.code ?? '').startsWith('UNAUTHORIZED')) {
+            throw new ImportApiError('UNAUTHORIZED', 'importAgent.error.UNAUTHORIZED', { status });
+        }
+        if (status === 401) {
+            throw new ImportApiError('UNAUTHORIZED', 'importAgent.error.UNAUTHORIZED', { status });
+        }
         if (body?.code) throw new ImportApiError(body.code, body.message_key);
         throw new ImportApiError('INTERNAL', 'importAgent.error.INTERNAL', { status });
     }
     if (!data || data.ok !== true) {
-        throw new ImportApiError(data?.code ?? 'INTERNAL', data?.message_key);
+        const code = data?.code ?? 'INTERNAL';
+        if (String(code).startsWith('UNAUTHORIZED')) {
+            throw new ImportApiError('UNAUTHORIZED', 'importAgent.error.UNAUTHORIZED');
+        }
+        throw new ImportApiError(code, data?.message_key);
     }
     return data;
 }
@@ -87,9 +123,9 @@ async function fetchAll(table, filters = []) {
         let query = client.from(table).select('*');
         for (const [column, value] of filters) query = query.eq(column, value);
         const { data, error } = await query
-            .order('seq', { ascending: true })
+            .order(orderColumnFor(table), { ascending: true })
             .range(from, from + ROW_PAGE - 1);
-        if (error) throw new ImportApiError('LOAD_FAILED', 'importAgent.error.LOAD_FAILED', { table });
+        if (error) throw loadFailure(error, { table });
         if (!data || data.length === 0) break;
         all.push(...data);
         if (data.length < ROW_PAGE) break;
@@ -105,7 +141,7 @@ async function fetchAllFirst(table, jobId) {
     const client = supabase();
     if (!client) throw new ImportApiError('OFFLINE', 'importAgent.error.OFFLINE');
     const { data, error } = await client.from(table).select('*').eq('id', jobId).maybeSingle();
-    if (error) throw new ImportApiError('LOAD_FAILED', 'importAgent.error.LOAD_FAILED', { table });
+    if (error) throw loadFailure(error, { table });
     return data;
 }
 
@@ -219,7 +255,7 @@ export async function loadExistingContext(rows) {
         const slice = ids.slice(from, from + 200);
         // Existence regardless of section visibility.
         const { data: rpcIds, error } = await client.rpc('existing_national_ids', { ids: slice });
-        if (error) throw new ImportApiError('LOAD_FAILED', 'importAgent.error.LOAD_FAILED', { rpc: 'existing_national_ids' });
+        if (error) throw loadFailure(error, { rpc: 'existing_national_ids' });
         for (const nid of rpcIds ?? []) existing.set(nid, { visible: false });
         // Which of those the user can actually see (RLS-filtered).
         if (slice.length > 0) {
@@ -227,7 +263,7 @@ export async function loadExistingContext(rows) {
                 .from('patients')
                 .select('id, national_id, name, date_of_birth')
                 .in('national_id', slice);
-            if (visError) throw new ImportApiError('LOAD_FAILED', 'importAgent.error.LOAD_FAILED', { table: 'patients' });
+            if (visError) throw loadFailure(visError, { table: 'patients' });
             for (const patient of visible ?? []) {
                 existing.set(patient.national_id, { visible: true, patient_id: patient.id });
                 nameDobMatches.add(nameDobKey(patient.name, patient.date_of_birth));

@@ -75,12 +75,27 @@ export const LIMITS = {
     // ---- Rate limits (spec §13.5) ----
     MAX_CONCURRENT_JOBS: 2,
     JOBS_PER_USER_DAY: 20,
+    // JOB_TOKEN_CAP is the fallback when the model context lookup is unavailable.
+    // A new job replaces it with the selected model's context window, clamped
+    // by these two bounds, so the stop follows the model rather than one number.
     JOB_TOKEN_CAP: 500_000, // stops extraction, keeps what it has (spec §5.1)
+    JOB_TOKEN_CAP_MIN: 16_000,
+    JOB_TOKEN_CAP_MAX: 2_000_000,
     USER_DAILY_TOKEN_CAP: 2_000_000,
 
     // ---- Storage formats (decisions D19, §8.3) ----
     PHONE_STORAGE_FORMAT: 'local', // 'local' = 01xxxxxxxxx
 };
+
+/**
+ * Free OpenRouter models commonly enforce a one-request-at-a-time limit.
+ * Pumping three chunks in parallel burns two requests on 429s before the
+ * retry policy can help, so free models run sequentially.
+ */
+export function pumpParallelFor(provider, model, limits = LIMITS) {
+    if (provider === 'openrouter' && /:free$/i.test(String(model ?? ''))) return 1;
+    return limits.PUMP_PARALLEL;
+}
 
 /** Keys a deployment may override through the `import_settings` row. */
 export const OVERRIDABLE_KEYS = Object.freeze(Object.keys(LIMITS));

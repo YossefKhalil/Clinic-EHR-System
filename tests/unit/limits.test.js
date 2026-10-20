@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LIMITS, resolveLimits } from '@import-core/limits.js';
+import { LIMITS, pumpParallelFor, resolveLimits } from '@import-core/limits.js';
 
 describe('limits', () => {
     it('matches the defaults of the design spec', () => {
@@ -27,5 +27,11 @@ describe('limits', () => {
     it('ignores empty override values and rejects unknown keys', () => {
         expect(resolveLimits({ MAX_ROWS: null, MAX_CHUNKS: '' }).MAX_ROWS).toBe(500);
         expect(() => resolveLimits({ NOT_A_LIMIT: 1 })).toThrow(/Unknown import limit override/);
+    });
+
+    it('runs free OpenRouter models one chunk at a time', () => {
+        expect(pumpParallelFor('openrouter', 'vendor/model:free', LIMITS)).toBe(1);
+        expect(pumpParallelFor('openrouter', 'vendor/model', LIMITS)).toBe(LIMITS.PUMP_PARALLEL);
+        expect(pumpParallelFor('cloudflare', '@cf/model', LIMITS)).toBe(LIMITS.PUMP_PARALLEL);
     });
 });

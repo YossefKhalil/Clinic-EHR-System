@@ -10,7 +10,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import yaml from 'https://esm.sh/js-yaml@4.1.0';
-import { LIMITS, resolveLimits } from '../_shared/import-core/limits.js';
+import { LIMITS, pumpParallelFor, resolveLimits } from '../_shared/import-core/limits.js';
 import { prepareSources, shiftSourceIds, splitChunkPayload } from '../_shared/import-core/chunker.js';
 import { runPipeline } from '../_shared/import-core/pipeline.js';
 import { PROMPT_IDS } from '../_shared/import-core/yaml-contract.js';
@@ -19,6 +19,7 @@ import { createOpenRouterProvider } from '../_shared/llm/openrouter.ts';
 import { createCloudflareProvider } from '../_shared/llm/cloudflare.ts';
 import { createOpenAiCompatibleProvider } from '../_shared/llm/openai-compatible.ts';
 import { runChunkWithFallback } from '../_shared/llm/fallback.js';
+import { jobTokenCapForContext, resolveModelContext } from '../_shared/llm/model-context.ts';
 import { runChunk } from '../import-extract/run-chunk.js';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
@@ -107,8 +108,7 @@ async function loadReadyChain(settingsRow: AiSettingsRow | null, context: string
         console.warn('AI chain skipped unready entries', context, resolved.skipped);
     }
     return resolved.entries.map((entry) => ({
-        provider: entry.provider,
-        model: entry.model,
+        ...entry,
         client: buildProvider(entry),
     }));
 }
@@ -335,7 +335,7 @@ async function actionAddSource(body: Record<string, unknown>, ctx: Context) {
 }
 
 async function actionStart(body: Record<string, unknown>, ctx: Context) {
-    const { user, service, settingsRow } = ctx;
+    const { user, service, settingsRow, limits } = ctx;
     const loaded = await loadJobForUser(service, user.id, String(body.job_id ?? ''));
     if ('error' in loaded) return fail(loaded.error, loaded.error === 'NOT_FOUND' ? 404 : 403);
     const job = loaded.job;
@@ -351,33 +351,63 @@ async function actionStart(body: Record<string, unknown>, ctx: Context) {
     // this a job with no decryptable key enters extraction and fails every
     // chunk in the pump, which looks like a provider outage instead of a
     // settings problem.
+    let chain;
     try {
-        await loadReadyChain(settingsRow, String(job.id));
+        chain = await loadReadyChain(settingsRow, String(job.id));
     } catch (err) {
         const code = err instanceof SettingsError ? err.code : 'PROVIDER_NOT_READY';
         return fail(code, 409);
     }
 
-    await service.from('import_jobs').update({ status: 'extracting', updated_at: new Date().toISOString() }).eq('id', job.id);
-    return json({ ok: true, status: 'extracting', chunks_total: count });
+    // The job cap is a budget, not the per-call context size. Follow the
+    // selected model's context window when the provider exposes it, and keep
+    // the deployment fallback when it does not. A failed lookup never blocks.
+    const primary = chain[0];
+    if (!primary) return fail('NOT_CONFIGURED', 409);
+    let tokenCap = limits.JOB_TOKEN_CAP;
+    try {
+        const context = await resolveModelContext({
+            provider: primary.provider,
+            model: primary.model,
+            apiKey: primary.apiKey,
+            accountId: primary.accountId,
+            baseUrl: primary.baseUrl,
+        });
+        tokenCap = jobTokenCapForContext(context, limits);
+        if (context) {
+            console.info('job token cap from model context', job.id, primary.provider, primary.model, context, tokenCap);
+        } else {
+            console.warn('model context unavailable, using fallback token cap', job.id, primary.provider, primary.model, tokenCap);
+        }
+    } catch (err) {
+        console.warn('model context lookup failed, using fallback token cap', job.id, (err as Error)?.message);
+    }
+
+    await service
+        .from('import_jobs')
+        .update({ status: 'extracting', token_cap: tokenCap, updated_at: new Date().toISOString() })
+        .eq('id', job.id);
+    return json({ ok: true, status: 'extracting', chunks_total: count, token_cap: tokenCap });
 }
 
 async function chunkProgress(service: Service, jobId: string) {
     const { data: chunks } = await service
         .from('import_chunks')
-        .select('idx, status, attempts, lease_until, truncated')
+        .select('idx, status, attempts, lease_until, truncated, error_code')
         .eq('job_id', jobId)
         .order('idx');
     const progress = {
         total: 0, done: 0, failed: 0, queued: 0, running: 0, split: 0,
-        truncated: 0, next_label: null as string | null,
+        truncated: 0, rate_limited: 0, next_label: null as string | null,
     };
     const now = Date.now();
     for (const chunk of chunks ?? []) {
         progress.total += 1;
         if (chunk.status === 'done' || chunk.status === 'split') progress.done += 1;
-        else if (chunk.status === 'failed') progress.failed += 1;
-        else if (chunk.status === 'running') progress.running += 1;
+        else if (chunk.status === 'failed') {
+            progress.failed += 1;
+            if (chunk.error_code === 'PROVIDER_RATE_LIMITED') progress.rate_limited += 1;
+        } else if (chunk.status === 'running') progress.running += 1;
         else progress.queued += 1;
         const expired = chunk.status === 'running' && chunk.lease_until && Date.parse(chunk.lease_until) < now;
         if (progress.next_label === null && (chunk.status === 'queued' || expired)) {
@@ -674,10 +704,11 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
     }, 2000);
 
     const splitRequests: { parentId: string; sourceId: string | null; children: { kind?: string }[] }[] = [];
+    const parallel = pumpParallelFor(chain[0]?.provider, chain[0]?.model, limits);
     try {
         const { data, error } = await service.rpc('import_claim_chunks', {
             p_job_id: job.id,
-            p_limit: limits.PUMP_PARALLEL,
+            p_limit: parallel,
             p_lease_seconds: limits.LEASE_SECONDS,
             p_max_attempts: limits.MAX_ATTEMPTS,
         });
@@ -741,6 +772,9 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
     const banners: unknown[] = [];
     if (progress.queued === 0 && progress.running === 0) {
         if (progress.failed > 0) banners.push({ code: 'CHUNKS_FAILED', params: { count: progress.failed } });
+        if (progress.rate_limited > 0) {
+            banners.push({ code: 'CHUNKS_RATE_LIMITED', params: { count: progress.rate_limited } });
+        }
         await service.from('import_jobs').update({ status: 'review', updated_at: new Date().toISOString() }).eq('id', job.id);
         job = { ...job, status: 'review' };
     }
@@ -859,6 +893,11 @@ async function actionStatus(body: Record<string, unknown>, ctx: Context) {
     if (job.cancelled_at) banners.push({ code: 'JOB_CANCELLED' });
     const caps = (job.tokens_in ?? 0) + (job.tokens_out ?? 0);
     if (job.token_cap && caps >= job.token_cap) banners.push({ code: 'JOB_TOKEN_CAP', params: { limit: job.token_cap } });
+    const progress = await chunkProgress(service, job.id);
+    if (progress.failed > 0) banners.push({ code: 'CHUNKS_FAILED', params: { count: progress.failed } });
+    if (progress.rate_limited > 0) {
+        banners.push({ code: 'CHUNKS_RATE_LIMITED', params: { count: progress.rate_limited } });
+    }
     return progressPayload(ctx, job, banners);
 }
 

@@ -13,7 +13,9 @@ export async function initSupabase() {
     }
     
     supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
-        auth: { autoRefreshToken: false, persistSession: true }
+        // Long extractions outlive a short-lived access token. Without this the
+        // browser keeps an expired JWT and every table read fails mid-import.
+        auth: { autoRefreshToken: true, persistSession: true }
     });
     
     try {

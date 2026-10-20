@@ -244,6 +244,7 @@
   "importAgent.warn.JOB_TOKEN_CAP": "وصلت المهمة إلى حد الرموز. تم إيقاف الاستخراج مع الاحتفاظ بما تم استخراجه.",
   "importAgent.warn.USER_DAILY_TOKEN_CAP": "تم الوصول إلى الحد اليومي لرموز هذا الحساب. جرّب مرة أخرى غدًا.",
   "importAgent.warn.CHUNKS_FAILED": "فشل استخراج بعض الأجزاء (:count). أعد المحاولة من الشبكة.",
+  "importAgent.warn.CHUNKS_RATE_LIMITED": "وصلت :count من الأجزاء إلى حدّ الطلبات لدى مزوّد الذكاء الاصطناعي. أضف مزوّداً أو نموذجاً آخر إلى سلسلة الاحتياط ثم أعد المحاولة.",
   "importAgent.warn.JOB_CANCELLED": "تم إلغاء هذا الاستيراد.",
   "importAgent.issue.NAME_REQUIRED": "الاسم مفقود.",
   "importAgent.issue.NID_REQUIRED": "الرقم القومي مفقود.",

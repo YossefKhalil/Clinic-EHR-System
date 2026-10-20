@@ -651,7 +651,7 @@
                             <p class="small text-muted mb-2" x-show="progress.nextLabel" x-text="t('importAgent.progress.next', { label: progress.nextLabel })"></p>
                             <div class="alert alert-warning py-2 small" role="alert" x-show="banners.length > 0">
                                 <template x-for="(banner, bIndex) in banners" :key="bIndex">
-                                    <div x-text="t('importAgent.warn.' + banner.code, { count: banner.count })"></div>
+                                    <div x-text="bannerText(banner)"></div>
                                 </template>
                             </div>
                             <button type="button" class="btn btn-sm btn-outline-warning" @click="retryFailed()" x-show="progress.failed > 0"
@@ -675,7 +675,7 @@
                         <div class="alert alert-danger py-2 small" role="alert" x-show="saveState === 'failed'" x-cloak x-text="t('importAgent.review.autosave.failed')"></div>
                         <div class="alert alert-warning py-2 small" role="alert" x-show="banners.length > 0">
                             <template x-for="(banner, bIndex) in banners" :key="bIndex">
-                                <div x-text="t('importAgent.warn.' + banner.code, { count: banner.count })"></div>
+                                <div x-text="bannerText(banner)"></div>
                             </template>
                             <button type="button" class="btn btn-sm btn-outline-warning mt-1" @click="retryFailed()" x-show="hasFailedChunks"
                                 x-text="t('importAgent.review.retryChunk')"></button>

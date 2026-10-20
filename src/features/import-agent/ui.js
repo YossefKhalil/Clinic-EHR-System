@@ -227,6 +227,10 @@ export function importAgentWizard() {
             };
         },
 
+        bannerText(banner) {
+            return this.t(`importAgent.warn.${banner?.code ?? 'UNKNOWN'}`, banner?.params ?? {});
+        },
+
         // ------------------------------------------------------ add step
         get usableFiles() {
             return this.files.filter((file) => file.sources !== null && !file.error);
