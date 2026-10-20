@@ -311,6 +311,7 @@
   "importAgent.error.UNAUTHORIZED": "انتهت جلستك، برجاء تسجيل الدخول من جديد.",
   "importAgent.error.NOT_CONFIGURED": "لم يُضبَط الاستخراج بالذكاء الاصطناعي بعد، على المدير إدخال بيانات المزوّد.",
   "importAgent.error.DECRYPT_FAILED": "تعذّرت قراءة بيانات المزوّد المحفوظة، على المدير إدخالها من جديد.",
+  "importAgent.error.ENCRYPTION_KEY_MISSING": "مفتاح تشفير إعدادات الذكاء الاصطناعي غير مُهيّأ على الخادم. يجب أن يوفّره النشر قبل حفظ بيانات المزوّد.",
   "importAgent.error.PROVIDER_NOT_READY": "المزوّد غير جاهز الآن، حاول بعد قليل.",
   "importAgent.error.UPLOAD_FAILED": "فشل رفع ملف إلى منطقة الإيواء، تحقق من الاتصال ثم أعد المحاولة.",
   "importAgent.error.LOAD_FAILED": "فشل تحميل بيانات الاستيراد، أعد تحميل الصفحة.",

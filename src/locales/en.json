@@ -311,6 +311,7 @@
   "importAgent.error.UNAUTHORIZED": "Your session expired, please log in again.",
   "importAgent.error.NOT_CONFIGURED": "AI extraction is not configured yet, an administrator must add the provider credentials.",
   "importAgent.error.DECRYPT_FAILED": "The stored AI credentials cannot be read, an administrator must re-enter them.",
+  "importAgent.error.ENCRYPTION_KEY_MISSING": "The AI settings encryption key is not configured on the server. A deployment must provision it before credentials can be saved.",
   "importAgent.error.PROVIDER_NOT_READY": "The AI provider is not ready right now, try again shortly.",
   "importAgent.error.UPLOAD_FAILED": "Uploading a file to the staging area failed, check the connection and retry.",
   "importAgent.error.LOAD_FAILED": "Loading the import data failed, reload the page.",

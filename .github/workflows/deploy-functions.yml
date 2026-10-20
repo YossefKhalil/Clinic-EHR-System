@@ -36,6 +36,24 @@ jobs:
         with:
           version: latest
 
+      # Provision the encryption secret once. Never rotate it automatically:
+      # changing this value makes every stored provider key unreadable.
+      - name: Ensure AI settings encryption secret
+        run: |
+          set -euo pipefail
+          secrets="$(supabase secrets list --project-ref "$PROJECT_REF")" || {
+            echo "::error::Could not read the project secrets."
+            exit 1
+          }
+          if grep -q 'AI_SETTINGS_ENC_KEY' <<< "$secrets"; then
+            echo "AI_SETTINGS_ENC_KEY is already configured."
+            exit 0
+          fi
+          enc_key="$(openssl rand -base64 32)"
+          echo "::add-mask::$enc_key"
+          supabase secrets set "AI_SETTINGS_ENC_KEY=$enc_key" --project-ref "$PROJECT_REF"
+          echo "Generated and stored AI_SETTINGS_ENC_KEY."
+
       - name: Deploy manage-user
         run: supabase functions deploy manage-user --project-ref "$PROJECT_REF"
 
