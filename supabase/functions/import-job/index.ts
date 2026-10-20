@@ -14,10 +14,11 @@ import { LIMITS, resolveLimits } from '../_shared/import-core/limits.js';
 import { prepareSources, shiftSourceIds, splitChunkPayload } from '../_shared/import-core/chunker.js';
 import { runPipeline } from '../_shared/import-core/pipeline.js';
 import { PROMPT_IDS } from '../_shared/import-core/yaml-contract.js';
-import { readAiSettings, SettingsError } from '../_shared/ai-settings.ts';
+import { readAiChain, chainFromRow, SettingsError, type AiSettingsRow } from '../_shared/ai-settings.ts';
 import { createOpenRouterProvider } from '../_shared/llm/openrouter.ts';
 import { createCloudflareProvider } from '../_shared/llm/cloudflare.ts';
 import { createOpenAiCompatibleProvider } from '../_shared/llm/openai-compatible.ts';
+import { runChunkWithFallback } from '../_shared/llm/fallback.js';
 import { runChunk } from '../import-extract/run-chunk.js';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
@@ -62,7 +63,9 @@ function buildProvider(credentials: { provider: string; model: string; apiKey: s
     if (credentials.provider === 'openrouter') {
         return createOpenRouterProvider({
             apiKey: credentials.apiKey ?? '',
-            model: credentials.model,
+            // One chain row is exactly one model. Passing an array prevents the
+            // adapter from splitting a model id on whitespace or commas.
+            model: [credentials.model],
             appTitle: 'Clinic EHR import agent',
         });
     }
@@ -78,6 +81,36 @@ function buildProvider(credentials: { provider: string; model: string; apiKey: s
         apiKey: credentials.apiKey,
         model: credentials.model,
     });
+}
+
+/**
+ * Decrypt the ordered chain and build one client per ready entry. Unready
+ * entries are skipped with a logged reason so a broken secondary cannot block
+ * a working primary. If no entry is ready the whole extraction fails loudly.
+ */
+async function loadReadyChain(settingsRow: AiSettingsRow | null, context: string) {
+    if (!settingsRow || settingsRow.enabled !== true) {
+        throw new SettingsError('FEATURE_DISABLED', 'The import agent is disabled in AI settings');
+    }
+    const resolved = await readAiChain(settingsRow, Deno.env.get('AI_SETTINGS_ENC_KEY') ?? '');
+    if (resolved.entries.length === 0) {
+        console.error('AI chain has no ready entries', context, resolved.skipped);
+        const codes = new Set(resolved.skipped.map((entry) => entry.code));
+        const code = codes.has('ENCRYPTION_KEY_MISSING')
+            ? 'ENCRYPTION_KEY_MISSING'
+            : codes.has('DECRYPT_FAILED')
+                ? 'DECRYPT_FAILED'
+                : 'NOT_CONFIGURED';
+        throw new SettingsError(code, 'No ready model in the AI chain');
+    }
+    if (resolved.skipped.length > 0) {
+        console.warn('AI chain skipped unready entries', context, resolved.skipped);
+    }
+    return resolved.entries.map((entry) => ({
+        provider: entry.provider,
+        model: entry.model,
+        client: buildProvider(entry),
+    }));
 }
 
 type Service = ReturnType<typeof createClient>;
@@ -117,7 +150,7 @@ async function sumUsageToday(service: Service, userId: string): Promise<number> 
 type Context = {
     user: { id: string };
     service: Service;
-    settingsRow: Record<string, unknown> | null;
+    settingsRow: AiSettingsRow | null;
     limits: typeof LIMITS;
 };
 
@@ -175,6 +208,7 @@ async function actionCreate(body: Record<string, unknown>, ctx: Context) {
         provider: settingsRow
             ? { provider: settingsRow.provider, model: settingsRow.model }
             : null,
+        model_chain: settingsRow ? chainFromRow(settingsRow) : [],
         limits,
     };
 
@@ -301,7 +335,7 @@ async function actionAddSource(body: Record<string, unknown>, ctx: Context) {
 }
 
 async function actionStart(body: Record<string, unknown>, ctx: Context) {
-    const { user, service } = ctx;
+    const { user, service, settingsRow } = ctx;
     const loaded = await loadJobForUser(service, user.id, String(body.job_id ?? ''));
     if ('error' in loaded) return fail(loaded.error, loaded.error === 'NOT_FOUND' ? 404 : 403);
     const job = loaded.job;
@@ -312,6 +346,17 @@ async function actionStart(body: Record<string, unknown>, ctx: Context) {
         .select('id', { count: 'exact', head: true })
         .eq('job_id', job.id);
     if (!count) return fail('NO_CHUNKS');
+
+    // Preflight the real chain before marking the job as extracting. Without
+    // this a job with no decryptable key enters extraction and fails every
+    // chunk in the pump, which looks like a provider outage instead of a
+    // settings problem.
+    try {
+        await loadReadyChain(settingsRow, String(job.id));
+    } catch (err) {
+        const code = err instanceof SettingsError ? err.code : 'PROVIDER_NOT_READY';
+        return fail(code, 409);
+    }
 
     await service.from('import_jobs').update({ status: 'extracting', updated_at: new Date().toISOString() }).eq('id', job.id);
     return json({ ok: true, status: 'extracting', chunks_total: count });
@@ -395,6 +440,29 @@ async function persistChunkResult(
     const payload = chunkRow.payload ?? {};
     const lines = Array.isArray(payload.lines) ? payload.lines : [];
 
+    // Failed chains still made real provider calls. Record their aggregated
+    // usage before returning, otherwise a chain that exhausts every entry
+    // hides its cost from the job cap and the daily cap.
+    const recordUsage = async () => {
+        const usage = result.usage ?? { in: 0, out: 0 };
+        if (usage.in > 0 || usage.out > 0 || result.cost != null) {
+            await service.rpc('import_bump_tokens', {
+                p_job_id: job.id,
+                p_in: usage.in,
+                p_out: usage.out,
+            });
+            await service.from('ai_usage').insert({
+                user_id: job.created_by,
+                job_id: job.id,
+                chunk_id: chunkRow.id,
+                model: result.model,
+                tokens_in: usage.in,
+                tokens_out: usage.out,
+                cost_est: result.cost ?? null,
+            });
+        }
+    };
+
     if (result.status === 'failed') {
         await service
             .from('import_chunks')
@@ -408,6 +476,7 @@ async function persistChunkResult(
                 lease_until: null,
             })
             .eq('id', chunkRow.id);
+        await recordUsage();
         return null;
     }
 
@@ -478,19 +547,7 @@ async function persistChunkResult(
         await service.from('import_rejects').insert(unmappedPayload);
     }
 
-    const usageRecord = {
-        user_id: job.created_by,
-        job_id: job.id,
-        chunk_id: chunkRow.id,
-        model: result.model,
-        tokens_in: result.usage.in,
-        tokens_out: result.usage.out,
-        cost_est: result.cost ?? null,
-    };
-    if (result.usage.in > 0 || result.usage.out > 0 || result.cost != null) {
-        await service.rpc('import_bump_tokens', { p_job_id: job.id, p_in: result.usage.in, p_out: result.usage.out });
-        await service.from('ai_usage').insert(usageRecord);
-    }
+    await recordUsage();
 
     const needsSplit = result.truncated || pipeline.requeueSplit;
     if (needsSplit) {
@@ -596,9 +653,9 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
         }]);
     }
 
-    let provider;
+    let chain;
     try {
-        provider = buildProvider(await readAiSettings(settingsRow as never, Deno.env.get('AI_SETTINGS_ENC_KEY') ?? ''));
+        chain = await loadReadyChain(settingsRow, String(job.id));
     } catch (err) {
         const code = err instanceof SettingsError ? err.code : 'PROVIDER_NOT_READY';
         return fail(code, 409);
@@ -629,14 +686,29 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
 
         await Promise.all(claimed.map(async (row) => {
             try {
-                const result = await runChunk({
-                    provider: provider as never,
-                    chunk: row.payload,
-                    hints: String(job.hints ?? ''),
-                    limits,
-                    yaml,
+                const outcome = await runChunkWithFallback({
+                    chain,
+                    run: (entry) => runChunk({
+                        provider: entry.client as never,
+                        chunk: row.payload,
+                        hints: String(job.hints ?? ''),
+                        limits,
+                        yaml,
+                        signal: controller.signal,
+                    }),
                     signal: controller.signal,
                 });
+                const result = outcome.result;
+                if (outcome.fallback.length > 0) {
+                    console.warn('AI fallback used', job.id, row.id, outcome.attempts.map((attempt) => (
+                        `${attempt.provider}/${attempt.model}:${attempt.status}${attempt.errorCode ? `/${attempt.errorCode}` : ''}`
+                    )).join(' | '));
+                }
+                if (result.status === 'failed' && outcome.attempts.length > 1) {
+                    console.error('AI chain exhausted', job.id, row.id, outcome.attempts.map((attempt) => (
+                        `${attempt.provider}/${attempt.model}:${attempt.errorCode ?? 'FAILED'}`
+                    )).join(' | '));
+                }
                 if (result.status === 'cancelled') {
                     await service
                         .from('import_chunks')
