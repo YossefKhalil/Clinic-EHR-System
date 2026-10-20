@@ -224,11 +224,19 @@ export function importAgentWizard() {
         showFailure(error) {
             this.errorBanner = {
                 messageKey: error?.messageKey || error?.message || 'importAgent.error.INTERNAL',
+                params: error?.params ?? {},
             };
         },
 
         bannerText(banner) {
             return this.t(`importAgent.warn.${banner?.code ?? 'UNKNOWN'}`, banner?.params ?? {});
+        },
+
+        bannerRetryText(banner) {
+            if (!banner?.retryAfterMs) return '';
+            return this.t('importAgent.warn.retryAfter', {
+                seconds: Math.ceil(Number(banner.retryAfterMs) / 1000),
+            });
         },
 
         // ------------------------------------------------------ add step
@@ -536,6 +544,8 @@ export function importAgentWizard() {
                 const changes = review.revalidate(this.reviewState);
                 this.selected = [];
                 this.bulkOpen = false;
+                this.errorBanner = null;
+                this.loadError = null;
                 this.step = 'review';
                 this.$nextTick(() => this.measureGrid());
 
@@ -545,8 +555,11 @@ export function importAgentWizard() {
                     this.redoStack = [];
                 }
             } catch (error) {
-                this.loadError = error?.messageKey ?? 'importAgent.error.LOAD_FAILED';
-                this.errorBanner = { messageKey: this.loadError };
+                this.loadError = error?.messageKey || 'importAgent.error.LOAD_FAILED';
+                this.errorBanner = {
+                    messageKey: this.loadError,
+                    params: error?.params ?? {},
+                };
                 this.step = 'add';
             } finally {
                 this.busy = false;
@@ -886,8 +899,11 @@ export function importAgentWizard() {
                     failed = true;
                     if (error?.code === 'SAVE_CONFLICT') {
                         this.errorBanner = { messageKey: 'importAgent.error.SAVE_CONFLICT' };
-                    } else if (error?.messageKey) {
-                        this.errorBanner = { messageKey: error.messageKey };
+                    } else {
+                        this.errorBanner = {
+                            messageKey: error?.messageKey || 'importAgent.error.SAVE_FAILED',
+                            params: error?.params ?? {},
+                        };
                     }
                     break;
                 }

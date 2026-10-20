@@ -245,6 +245,8 @@
   "importAgent.warn.USER_DAILY_TOKEN_CAP": "The daily token limit for this account is reached. Try again tomorrow.",
   "importAgent.warn.CHUNKS_FAILED": "Some chunks failed to extract (:count). Retry them from the grid.",
   "importAgent.warn.CHUNKS_RATE_LIMITED": "The AI provider rate-limited :count chunk(s). Add another provider or model to the fallback chain, then retry.",
+  "importAgent.warn.openSettings": "Open AI settings",
+  "importAgent.warn.retryAfter": "The provider asked to retry after :seconds seconds.",
   "importAgent.warn.JOB_CANCELLED": "This import was cancelled.",
   "importAgent.issue.NAME_REQUIRED": "Name is missing.",
   "importAgent.issue.NID_REQUIRED": "National ID is missing.",

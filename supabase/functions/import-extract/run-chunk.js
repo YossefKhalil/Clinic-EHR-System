@@ -102,7 +102,16 @@ export async function runChunk({
         result = await provider.complete(request);
     } catch (err) {
         if (aborted()) return { ...base, status: 'cancelled' };
-        return { ...base, status: 'failed', errorCode: err?.code || 'PROVIDER_ERROR' };
+        return {
+            ...base,
+            status: 'failed',
+            errorCode: err?.code || 'PROVIDER_ERROR',
+            // The provider map already puts the upstream status and a short
+            // response body in the message. Keep it so the review banner can
+            // say *why* the call failed instead of only "PROVIDER_ERROR".
+            errorDetail: String(err?.message ?? '').slice(0, 500) || null,
+            retryAfterMs: err?.retryAfterMs ?? null,
+        };
     }
     addUsage(result);
 

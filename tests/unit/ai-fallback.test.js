@@ -141,6 +141,29 @@ describe('runChunkWithFallback', () => {
         expect(outcome.attempts[0]).toMatchObject({ provider: 'openrouter', status: 'failed', errorCode: 'PROVIDER_ERROR' });
     });
 
+    it('carries the provider error detail and retry-after to the UI', async () => {
+        const outcome = await runChunkWithFallback({
+            chain: [CHAIN[0]],
+            run: async () => {
+                throw Object.assign(new Error('Rate limited (429): free model limit exceeded'), {
+                    code: 'PROVIDER_RATE_LIMITED',
+                    retryAfterMs: 60_000,
+                });
+            },
+        });
+        expect(outcome.result).toMatchObject({
+            status: 'failed',
+            errorCode: 'PROVIDER_RATE_LIMITED',
+            errorDetail: 'Rate limited (429): free model limit exceeded',
+            retryAfterMs: 60_000,
+        });
+        expect(outcome.attempts[0]).toMatchObject({
+            provider: 'openrouter',
+            errorCode: 'PROVIDER_RATE_LIMITED',
+            retryAfterMs: 60_000,
+        });
+    });
+
     it('fails cleanly when the chain is empty', async () => {
         const outcome = await runChunkWithFallback({ chain: [], run: async () => result('ok') });
         expect(outcome.result.status).toBe('failed');

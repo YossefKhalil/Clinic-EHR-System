@@ -29,6 +29,8 @@ function syntheticFailure(entry, err) {
         cost: null,
         promptId: null,
         errorCode: err?.code || 'PROVIDER_ERROR',
+        errorDetail: String(err?.message ?? '').slice(0, 500) || null,
+        retryAfterMs: err?.retryAfterMs ?? null,
     };
 }
 
@@ -68,6 +70,8 @@ export async function runChunkWithFallback({ chain, run, signal = null }) {
             model: result?.model || entry.model,
             status: result?.status ?? 'failed',
             errorCode: result?.errorCode ?? null,
+            errorDetail: result?.errorDetail ?? null,
+            retryAfterMs: result?.retryAfterMs ?? null,
             usage,
             cost,
         };

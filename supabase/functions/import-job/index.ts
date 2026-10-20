@@ -731,6 +731,12 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
         });
         if (error) return fail('INTERNAL', 500);
         const claimed = (data ?? []) as { id: string; idx: number; payload: Record<string, unknown>; source_id?: string | null }[];
+        let lastProviderFailure: {
+            code: string;
+            detail: string | null;
+            retryAfterMs: number | null;
+            model: string | null;
+        } | null = null;
 
         await Promise.all(claimed.map(async (row) => {
             try {
@@ -757,6 +763,20 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
                         `${attempt.provider}/${attempt.model}:${attempt.errorCode ?? 'FAILED'}`
                     )).join(' | '));
                 }
+                if (result.status === 'failed') {
+                    // Prefer the rate-limit attempt: it is the actionable one.
+                    if (!lastProviderFailure || result.errorCode === 'PROVIDER_RATE_LIMITED') {
+                        lastProviderFailure = {
+                            code: result.errorCode ?? 'PROVIDER_ERROR',
+                            detail: result.errorDetail ?? null,
+                            retryAfterMs: result.retryAfterMs ?? null,
+                            model: result.model ?? null,
+                        };
+                    }
+                    if (result.errorDetail) {
+                        console.error('chunk provider detail', job.id, row.id, result.errorDetail);
+                    }
+                }
                 if (result.status === 'cancelled') {
                     await service
                         .from('import_chunks')
@@ -779,6 +799,23 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
         for (const request of splitRequests) {
             await insertSplitChildren(service, job.id as string, request);
         }
+
+        // Persist the *why* with the job so the review banner can show the
+        // provider's own 429 body instead of a generic code, including after
+        // a page reload. Clear it once a later pump has no failure.
+        const currentConfig = { ...(job.config ?? {}) } as Record<string, unknown>;
+        if (lastProviderFailure) {
+            currentConfig.last_provider_error = {
+                ...lastProviderFailure,
+                at: new Date().toISOString(),
+            };
+            await service.from('import_jobs').update({ config: currentConfig }).eq('id', job.id);
+            job = { ...job, config: currentConfig };
+        } else if (currentConfig.last_provider_error) {
+            delete currentConfig.last_provider_error;
+            await service.from('import_jobs').update({ config: currentConfig }).eq('id', job.id);
+            job = { ...job, config: currentConfig };
+        }
     } finally {
         clearInterval(watcher);
     }
@@ -786,11 +823,23 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
     await failExhausted(service, job.id, limits);
 
     const progress = await chunkProgress(service, job.id);
+    const providerError = (job.config as Record<string, unknown> | null)?.last_provider_error as {
+        code?: string;
+        detail?: string | null;
+        retryAfterMs?: number | null;
+        model?: string | null;
+    } | undefined;
     const banners: unknown[] = [];
     if (progress.queued === 0 && progress.running === 0) {
         if (progress.failed > 0) banners.push({ code: 'CHUNKS_FAILED', params: { count: progress.failed } });
         if (progress.rate_limited > 0) {
-            banners.push({ code: 'CHUNKS_RATE_LIMITED', params: { count: progress.rate_limited } });
+            banners.push({
+                code: 'CHUNKS_RATE_LIMITED',
+                params: { count: progress.rate_limited },
+                model: providerError?.model ?? chain[0]?.model ?? null,
+                detail: providerError?.detail ?? null,
+                retryAfterMs: providerError?.retryAfterMs ?? null,
+            });
         }
         await service.from('import_jobs').update({ status: 'review', updated_at: new Date().toISOString() }).eq('id', job.id);
         job = { ...job, status: 'review' };
@@ -911,9 +960,20 @@ async function actionStatus(body: Record<string, unknown>, ctx: Context) {
     const caps = (job.tokens_in ?? 0) + (job.tokens_out ?? 0);
     if (job.token_cap && caps >= job.token_cap) banners.push({ code: 'JOB_TOKEN_CAP', params: { limit: job.token_cap } });
     const progress = await chunkProgress(service, job.id);
+    const providerError = (job.config as Record<string, unknown> | null)?.last_provider_error as {
+        detail?: string | null;
+        retryAfterMs?: number | null;
+        model?: string | null;
+    } | undefined;
     if (progress.failed > 0) banners.push({ code: 'CHUNKS_FAILED', params: { count: progress.failed } });
     if (progress.rate_limited > 0) {
-        banners.push({ code: 'CHUNKS_RATE_LIMITED', params: { count: progress.rate_limited } });
+        banners.push({
+            code: 'CHUNKS_RATE_LIMITED',
+            params: { count: progress.rate_limited },
+            model: providerError?.model ?? null,
+            detail: providerError?.detail ?? null,
+            retryAfterMs: providerError?.retryAfterMs ?? null,
+        });
     }
     return progressPayload(ctx, job, banners);
 }
