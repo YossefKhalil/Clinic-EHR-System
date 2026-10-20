@@ -204,6 +204,9 @@ Each step lands on `ai-import-rebuild`; the preview rebuilds automatically.
   (section + hints), file rows, Analyze. Analyze skips the old "What will be sent"
   screen and goes straight to extraction; extraction progress and the M5 review are
   still the old surface until steps 2-4.
+- The old bulk-fill and confirm modals are hidden unless their state opens them; the
+  containers used `d-block` (display:block !important) against `x-show`, which made the
+  bulk modal appear on every import visit. They are deleted in step 3.
 
 
 ## Open questions for review
