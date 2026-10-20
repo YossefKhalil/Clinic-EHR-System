@@ -239,6 +239,21 @@ export function importAgentWizard() {
             });
         },
 
+        bannerQuotaText(banner) {
+            const quota = banner?.freeDaily;
+            const limit = typeof quota?.limit === 'number' ? quota.limit : null;
+            const remaining = typeof quota?.remaining === 'number' ? quota.remaining : null;
+            const used = typeof quota?.used === 'number' ? quota.used : null;
+            if (!limit || remaining === null) return '';
+            if (remaining > 0) {
+                return this.t('importAgent.warn.freeQuota', { remaining, limit });
+            }
+            return this.t('importAgent.warn.freeQuotaExhausted', {
+                used: used ?? Math.max(0, limit - remaining),
+                limit,
+            });
+        },
+
         // ------------------------------------------------------ add step
         get usableFiles() {
             return this.files.filter((file) => file.sources !== null && !file.error);

@@ -247,6 +247,8 @@
   "importAgent.warn.CHUNKS_RATE_LIMITED": "وصلت :count من الأجزاء إلى حدّ الطلبات لدى مزوّد الذكاء الاصطناعي. أضف مزوّداً أو نموذجاً آخر إلى سلسلة الاحتياط ثم أعد المحاولة.",
   "importAgent.warn.openSettings": "فتح إعدادات الذكاء الاصطناعي",
   "importAgent.warn.retryAfter": "طلب المزوّد إعادة المحاولة بعد :seconds ثانية.",
+  "importAgent.warn.freeQuota": "طلبات النماذج المجانية المتبقية اليوم في OpenRouter: :remaining من :limit.",
+  "importAgent.warn.freeQuotaExhausted": "تم استهلاك الحد اليومي للنماذج المجانية في OpenRouter (:used من :limit). ستستمر جميع النماذج المجانية في إرجاع 429 حتى إعادة ضبط اليوم بتوقيت UTC؛ أضف رصيداً أو مزوّداً آخر.",
   "importAgent.warn.JOB_CANCELLED": "تم إلغاء هذا الاستيراد.",
   "importAgent.issue.NAME_REQUIRED": "الاسم مفقود.",
   "importAgent.issue.NID_REQUIRED": "الرقم القومي مفقود.",

@@ -656,6 +656,8 @@
                                         <div class="small text-muted mt-1" x-show="banner.model" x-text="banner.model"></div>
                                         <div class="font-monospace text-break mt-1" x-show="banner.detail" x-text="banner.detail"></div>
                                         <div class="small text-muted mt-1" x-show="banner.retryAfterMs" x-text="bannerRetryText(banner)"></div>
+                                        <div class="small mt-1" :class="banner.freeDaily && !(banner.freeDaily.remaining > 0) ? 'text-danger fw-semibold' : 'text-muted'"
+                                            x-show="banner.freeDaily" x-text="bannerQuotaText(banner)"></div>
                                     </div>
                                 </template>
                                 <button type="button" class="btn btn-sm btn-outline-warning mt-2" x-show="banners.some(b => b.code === 'CHUNKS_RATE_LIMITED')"
@@ -687,6 +689,8 @@
                                     <div class="small text-muted mt-1" x-show="banner.model" x-text="banner.model"></div>
                                     <div class="font-monospace text-break mt-1" x-show="banner.detail" x-text="banner.detail"></div>
                                     <div class="small text-muted mt-1" x-show="banner.retryAfterMs" x-text="bannerRetryText(banner)"></div>
+                                    <div class="small mt-1" :class="banner.freeDaily && !(banner.freeDaily.remaining > 0) ? 'text-danger fw-semibold' : 'text-muted'"
+                                        x-show="banner.freeDaily" x-text="bannerQuotaText(banner)"></div>
                                 </div>
                             </template>
                             <button type="button" class="btn btn-sm btn-outline-warning mt-2 me-2" @click="retryFailed()" x-show="hasFailedChunks"

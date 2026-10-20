@@ -247,6 +247,8 @@
   "importAgent.warn.CHUNKS_RATE_LIMITED": "The AI provider rate-limited :count chunk(s). Add another provider or model to the fallback chain, then retry.",
   "importAgent.warn.openSettings": "Open AI settings",
   "importAgent.warn.retryAfter": "The provider asked to retry after :seconds seconds.",
+  "importAgent.warn.freeQuota": "OpenRouter free-model requests left today: :remaining of :limit.",
+  "importAgent.warn.freeQuotaExhausted": "OpenRouter's free-model daily limit is used up (:used of :limit). Every free model will keep returning 429 until the UTC reset; add credits or another provider.",
   "importAgent.warn.JOB_CANCELLED": "This import was cancelled.",
   "importAgent.issue.NAME_REQUIRED": "Name is missing.",
   "importAgent.issue.NID_REQUIRED": "National ID is missing.",

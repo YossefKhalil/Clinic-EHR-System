@@ -163,6 +163,46 @@ async function sumUsageToday(service: Service, userId: string): Promise<number> 
     return total;
 }
 
+type OpenRouterFreeQuota = {
+    remaining: number | null;
+    limit: number | null;
+    used: number | null;
+};
+
+/**
+ * OpenRouter's `/key` endpoint reports how many free-model requests remain
+ * today. It is a read-only GET and does not consume a model request, so a
+ * rate-limited pump can show "0 of 50 left" without guessing.
+ */
+async function openRouterFreeQuota(
+    chain: { provider: string; apiKey: string | null }[],
+): Promise<OpenRouterFreeQuota | null> {
+    const entry = chain.find((item) => item.provider === 'openrouter' && item.apiKey);
+    if (!entry?.apiKey) return null;
+    try {
+        const response = await fetch('https://openrouter.ai/api/v1/key', {
+            headers: { Authorization: `Bearer ${entry.apiKey}` },
+            signal: AbortSignal.timeout(4_000),
+        });
+        if (!response.ok) return null;
+        const payload = await response.json() as {
+            data?: { free_model_daily_requests?: Record<string, unknown> };
+        };
+        const daily = payload?.data?.free_model_daily_requests;
+        if (!daily) return null;
+        const count = (value: unknown) => (
+            typeof value === 'number' && Number.isFinite(value) ? value : null
+        );
+        return {
+            remaining: count(daily.remaining),
+            limit: count(daily.limit),
+            used: count(daily.used),
+        };
+    } catch {
+        return null;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
@@ -736,6 +776,8 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
             detail: string | null;
             retryAfterMs: number | null;
             model: string | null;
+            provider: string | null;
+            freeDaily?: OpenRouterFreeQuota | null;
         } | null = null;
 
         await Promise.all(claimed.map(async (row) => {
@@ -771,6 +813,7 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
                             detail: result.errorDetail ?? null,
                             retryAfterMs: result.retryAfterMs ?? null,
                             model: result.model ?? null,
+                            provider: chain.find((entry) => entry.model === result.model)?.provider ?? null,
                         };
                     }
                     if (result.errorDetail) {
@@ -805,6 +848,10 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
         // a page reload. Clear it once a later pump has no failure.
         const currentConfig = { ...(job.config ?? {}) } as Record<string, unknown>;
         if (lastProviderFailure) {
+            if (lastProviderFailure.code === 'PROVIDER_RATE_LIMITED'
+                && lastProviderFailure.provider === 'openrouter') {
+                lastProviderFailure.freeDaily = await openRouterFreeQuota(chain);
+            }
             currentConfig.last_provider_error = {
                 ...lastProviderFailure,
                 at: new Date().toISOString(),
@@ -828,6 +875,7 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
         detail?: string | null;
         retryAfterMs?: number | null;
         model?: string | null;
+        freeDaily?: OpenRouterFreeQuota | null;
     } | undefined;
     const banners: unknown[] = [];
     if (progress.queued === 0 && progress.running === 0) {
@@ -839,6 +887,7 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
                 model: providerError?.model ?? chain[0]?.model ?? null,
                 detail: providerError?.detail ?? null,
                 retryAfterMs: providerError?.retryAfterMs ?? null,
+                freeDaily: providerError?.freeDaily ?? null,
             });
         }
         await service.from('import_jobs').update({ status: 'review', updated_at: new Date().toISOString() }).eq('id', job.id);
@@ -964,6 +1013,7 @@ async function actionStatus(body: Record<string, unknown>, ctx: Context) {
         detail?: string | null;
         retryAfterMs?: number | null;
         model?: string | null;
+        freeDaily?: OpenRouterFreeQuota | null;
     } | undefined;
     if (progress.failed > 0) banners.push({ code: 'CHUNKS_FAILED', params: { count: progress.failed } });
     if (progress.rate_limited > 0) {
@@ -973,6 +1023,7 @@ async function actionStatus(body: Record<string, unknown>, ctx: Context) {
             model: providerError?.model ?? null,
             detail: providerError?.detail ?? null,
             retryAfterMs: providerError?.retryAfterMs ?? null,
+            freeDaily: providerError?.freeDaily ?? null,
         });
     }
     return progressPayload(ctx, job, banners);
