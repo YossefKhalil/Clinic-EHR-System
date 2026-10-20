@@ -113,6 +113,26 @@ async function loadReadyChain(settingsRow: AiSettingsRow | null, context: string
     }));
 }
 
+async function tokenCapForPrimary(
+    primary: { provider: string; model: string; apiKey?: string | null; accountId?: string | null; baseUrl?: string | null },
+    ownerId: string,
+    limits: typeof LIMITS,
+): Promise<number> {
+    let context: number | null = null;
+    try {
+        context = await resolveModelContext(primary);
+    } catch (err) {
+        console.warn('model context lookup failed, using fallback token cap', ownerId, (err as Error)?.message);
+    }
+    const cap = jobTokenCapForContext(context, limits);
+    if (context) {
+        console.info('job token cap from model context', ownerId, primary.provider, primary.model, context, cap);
+    } else {
+        console.warn('model context unavailable, using fallback token cap', ownerId, primary.provider, primary.model, cap);
+    }
+    return cap;
+}
+
 type Service = ReturnType<typeof createClient>;
 
 async function audit(service: Service, actor: string, action: string, entityId: string, meta: Record<string, unknown> = {}) {
@@ -364,24 +384,7 @@ async function actionStart(body: Record<string, unknown>, ctx: Context) {
     // the deployment fallback when it does not. A failed lookup never blocks.
     const primary = chain[0];
     if (!primary) return fail('NOT_CONFIGURED', 409);
-    let tokenCap = limits.JOB_TOKEN_CAP;
-    try {
-        const context = await resolveModelContext({
-            provider: primary.provider,
-            model: primary.model,
-            apiKey: primary.apiKey,
-            accountId: primary.accountId,
-            baseUrl: primary.baseUrl,
-        });
-        tokenCap = jobTokenCapForContext(context, limits);
-        if (context) {
-            console.info('job token cap from model context', job.id, primary.provider, primary.model, context, tokenCap);
-        } else {
-            console.warn('model context unavailable, using fallback token cap', job.id, primary.provider, primary.model, tokenCap);
-        }
-    } catch (err) {
-        console.warn('model context lookup failed, using fallback token cap', job.id, (err as Error)?.message);
-    }
+    const tokenCap = await tokenCapForPrimary(primary, String(job.id), limits);
 
     await service
         .from('import_jobs')
@@ -689,6 +692,20 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
     } catch (err) {
         const code = err instanceof SettingsError ? err.code : 'PROVIDER_NOT_READY';
         return fail(code, 409);
+    }
+
+    // Jobs created before the model-context resolver still carry the old
+    // 500k fallback. Recompute it on the next pump/retry so an existing job
+    // gets the same cap as a newly started one.
+    if (chain[0] && job.token_cap === limits.JOB_TOKEN_CAP) {
+        const contextCap = await tokenCapForPrimary(chain[0], String(job.id), limits);
+        if (contextCap !== job.token_cap) {
+            await service
+                .from('import_jobs')
+                .update({ token_cap: contextCap, updated_at: new Date().toISOString() })
+                .eq('id', job.id);
+            job = { ...job, token_cap: contextCap };
+        }
     }
 
     // Cancel stops billing (spec §9.5): a light watcher aborts in-flight calls
