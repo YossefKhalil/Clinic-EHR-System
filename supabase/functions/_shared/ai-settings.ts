@@ -16,9 +16,12 @@ export const HKDF_INFO = 'aes-gcm-256';
 export const MAX_MODEL_CHAIN = 8;
 export const MAX_MODEL_LENGTH = 160;
 
-export type AiProviderId = 'openrouter' | 'cloudflare' | 'openai';
+export type AiProviderId = 'openrouter' | 'cloudflare' | 'openai' | 'groq';
 
-export const AI_PROVIDERS: readonly AiProviderId[] = ['openrouter', 'cloudflare', 'openai'];
+export const AI_PROVIDERS: readonly AiProviderId[] = ['openrouter', 'cloudflare', 'openai', 'groq'];
+
+/** Groq exposes an OpenAI-compatible API; the key is the only credential. */
+export const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
 
 export class SettingsError extends Error {
     readonly code: string;
@@ -105,6 +108,7 @@ export interface AiSettingsRow {
     cloudflare_token_encrypted?: string | null;
     openai_base_url?: string | null;
     openai_key_encrypted?: string | null;
+    groq_key_encrypted?: string | null;
 }
 
 export interface ModelChainEntry {
@@ -134,7 +138,7 @@ export interface ProviderHealth {
 }
 
 export function isAiProvider(value: unknown): value is AiProviderId {
-    return value === 'openrouter' || value === 'cloudflare' || value === 'openai';
+    return value === 'openrouter' || value === 'cloudflare' || value === 'openai' || value === 'groq';
 }
 
 /**
@@ -209,6 +213,7 @@ export function providerPresence(row: AiSettingsRow): Record<AiProviderId, boole
         openrouter: Boolean(row?.openrouter_key_encrypted),
         cloudflare: Boolean(row?.cloudflare_account_id && row?.cloudflare_token_encrypted),
         openai: Boolean(row?.openai_base_url),
+        groq: Boolean(row?.groq_key_encrypted),
     };
 }
 
@@ -255,6 +260,16 @@ export async function readProviderCredentials(
             apiKey: row.openai_key_encrypted ? await decryptSecret(encKey, row.openai_key_encrypted) : null,
             accountId: null,
             baseUrl: row.openai_base_url,
+        };
+    }
+    if (provider === 'groq') {
+        if (!row.groq_key_encrypted) throw new SettingsError('NOT_CONFIGURED', 'Groq API key is not set');
+        return {
+            provider,
+            model,
+            apiKey: await decryptSecret(encKey, row.groq_key_encrypted),
+            accountId: null,
+            baseUrl: GROQ_BASE_URL,
         };
     }
     throw new SettingsError('NOT_CONFIGURED', `Unknown provider: ${String(provider)}`);
@@ -320,6 +335,7 @@ export async function providerHealth(
     if (!present[provider]) return { configured: false, healthy: false, code: null };
     const needsSecret = provider === 'openrouter'
         || provider === 'cloudflare'
+        || provider === 'groq'
         || (provider === 'openai' && Boolean(row.openai_key_encrypted));
     if (!encKey && needsSecret) {
         return { configured: true, healthy: false, code: 'ENCRYPTION_KEY_MISSING' };
@@ -332,6 +348,8 @@ export async function providerHealth(
             await decryptSecret(encKey, row.cloudflare_token_encrypted);
         } else if (provider === 'openai' && row.openai_key_encrypted) {
             await decryptSecret(encKey, row.openai_key_encrypted);
+        } else if (provider === 'groq' && row.groq_key_encrypted) {
+            await decryptSecret(encKey, row.groq_key_encrypted);
         }
         return { configured: true, healthy: true, code: null };
     } catch (err) {

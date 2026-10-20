@@ -52,6 +52,22 @@ describe('resolveModelContext', () => {
         }, { fetchImpl })).resolves.toBe(131072);
     });
 
+    it('reads Groq model metadata through the OpenAI-compatible lookup', async () => {
+        const fetchImpl = async (url, init) => {
+            expect(url).toBe('https://api.groq.com/openai/v1/models');
+            expect(init.headers.authorization).toBe('Bearer gsk-test');
+            return jsonResponse({
+                data: [{ id: 'llama-3.3-70b-versatile', context_window: 131072 }],
+            });
+        };
+        await expect(resolveModelContext({
+            provider: 'groq',
+            model: 'llama-3.3-70b-versatile',
+            baseUrl: 'https://api.groq.com/openai/v1',
+            apiKey: 'gsk-test',
+        }, { fetchImpl })).resolves.toBe(131072);
+    });
+
     it('reads Cloudflare model properties', async () => {
         const model = '@cf/meta/llama-3.1-8b-instruct';
         const fetchImpl = async (url, init) => {

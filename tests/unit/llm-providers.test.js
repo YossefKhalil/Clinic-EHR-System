@@ -130,6 +130,40 @@ describe('openai-compatible adapter', () => {
         expect(() => mapOpenAiResult({ choices: [] }, 'm')).toThrowError(/no message content/);
     });
 
+    it('reads the answer of a reasoning model (content is null)', () => {
+        // Reasoning models answer in `reasoning_content`; a provider that
+        // only looks at `content` reports "no text" for a good answer.
+        expect(mapOpenAiResult({
+            choices: [{ message: { content: null, reasoning_content: 'the answer' }, finish_reason: 'stop' }],
+        }, 'm').text).toBe('the answer');
+        expect(mapOpenAiResult({
+            choices: [{ message: { content: null, reasoning: 'also the answer' }, finish_reason: 'stop' }],
+        }, 'm').text).toBe('also the answer');
+        expect(mapOpenAiResult({
+            choices: [{ delta: { content: 'streamed answer' } }],
+        }, 'm').text).toBe('streamed answer');
+    });
+
+    it('sends the parameters the model accepts (Groq, OpenAI reasoning models)', () => {
+        // Groq and the o-series reject `max_tokens` with HTTP 400.
+        const groq = buildOpenAiBody('llama-3.3-70b-versatile', REQUEST, {}, { preferMaxCompletionTokens: true });
+        expect(groq.max_completion_tokens).toBe(100);
+        expect(groq.max_tokens).toBeUndefined();
+        expect(groq.temperature).toBe(0);
+
+        // A reasoning model rejects `temperature` and needs the effort.
+        const reasoning = buildOpenAiBody('deepseek-r1-distill-llama-70b', REQUEST);
+        expect(reasoning.max_completion_tokens).toBe(100);
+        expect(reasoning.max_tokens).toBeUndefined();
+        expect(reasoning.temperature).toBeUndefined();
+        expect(reasoning.reasoning_effort).toBe('low');
+
+        // A plain model keeps the classic shape.
+        const plain = buildOpenAiBody('llama-3.1-8b-instant', REQUEST);
+        expect(plain.max_tokens).toBe(100);
+        expect(plain.max_completion_tokens).toBeUndefined();
+    });
+
     it('classifies HTTP errors: 429/5xx retryable, 401 not, Retry-After honoured', () => {
         const rate = openAiErrorFor(429, 'slow down', '3');
         expect(rate.retryable).toBe(true);
@@ -298,7 +332,32 @@ describe('cloudflare adapter (spec §7.1)', () => {
         expect(() => mapCloudflareResult({
             success: true,
             result: { choices: [], usage: { prompt_tokens: 1, completion_tokens: 0 } },
-        }, 'm')).toThrowError(/no text \(result keys: choices, usage\)/);
+        }, 'm')).toThrowError(/no text \(result keys: choices, usage/);
+    });
+
+    it('uses Qwen reasoning content when content is null', () => {
+        const result = mapCloudflareResult({
+            success: true,
+            result: {
+                choices: [{
+                    message: { content: null, reasoning_content: 'answer from reasoning' },
+                    finish_reason: 'stop',
+                }],
+            },
+        }, 'm');
+        expect(result.text).toBe('answer from reasoning');
+    });
+
+    it('gives Qwen 3.8 a low reasoning budget and the completion-token field', () => {
+        const body = buildCloudflareBody(REQUEST, '@cf/qwen/qwen3.8-27b');
+        expect(body).toMatchObject({
+            max_completion_tokens: 100,
+            reasoning_effort: 'low',
+        });
+        expect(body.max_tokens).toBeUndefined();
+        expect(buildCloudflareBody(REQUEST, '@cf/meta/llama-3.1-8b-instruct')).toMatchObject({
+            max_tokens: 100,
+        });
     });
 
     it('calls the account endpoint with the model path and maps the result', async () => {

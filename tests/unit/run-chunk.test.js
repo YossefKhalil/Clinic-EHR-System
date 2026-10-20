@@ -93,6 +93,22 @@ describe('runChunk', () => {
         expect(repairMessage).toContain('<<<BAD-fixed1>>>');
     });
 
+    it('keeps the document indices unique after a repair (no patient overwrites another)', async () => {
+        // The good document comes first (index 1) and the broken one second
+        // (index 2). The repair call only asks for the broken document, so it
+        // numbers it 1 again - merging the two lists as-is would give two
+        // patients the same index and the server would store the repaired
+        // record twice.
+        const first = `${DOC}\n---\nname: [broken`;
+        const repaired = '---\nname: "Mona"\nnational_id: "29903220201567"\n_src: "S1:R3"';
+        const provider = fakeProvider([{ text: first }, { text: repaired }]);
+        const result = await run(provider);
+        expect(result.documents.map((d) => d.record.name)).toEqual(['Ahmed', 'Mona']);
+        const indices = result.documents.map((d) => d.index);
+        expect(new Set(indices).size).toBe(indices.length);
+        expect(indices).toEqual([1, 2]);
+    });
+
     it('keeps still-bad documents in the tray with the source lines', async () => {
         const provider = fakeProvider([
             { text: `---\n- broken\n` },

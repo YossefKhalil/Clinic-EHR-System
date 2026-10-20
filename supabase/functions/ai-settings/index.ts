@@ -18,6 +18,7 @@ import {
     chainFromRow,
     decryptSecret,
     encryptSecret,
+    GROQ_BASE_URL,
     isAiProvider,
     parseModelChain,
     providerHealth,
@@ -137,9 +138,12 @@ async function publicSettings(row: AiSettingsRow | null) {
                 ? Boolean(row?.openai_key_encrypted)
                 : provider === 'openrouter'
                     ? Boolean(row?.openrouter_key_encrypted)
-                    : Boolean(row?.cloudflare_token_encrypted),
+                    : provider === 'groq'
+                        ? Boolean(row?.groq_key_encrypted)
+                        : Boolean(row?.cloudflare_token_encrypted),
             ...(provider === 'cloudflare' ? { accountId: row?.cloudflare_account_id ?? '' } : {}),
             ...(provider === 'openai' ? { baseUrl: row?.openai_base_url ?? '' } : {}),
+            ...(provider === 'groq' ? { baseUrl: GROQ_BASE_URL } : {}),
         };
     }
     return {
@@ -173,6 +177,7 @@ type Creds = {
     openrouter?: Record<string, unknown>;
     cloudflare?: Record<string, unknown>;
     openai?: Record<string, unknown>;
+    groq?: Record<string, unknown>;
 };
 
 async function actionSave(body: Record<string, unknown>, service: Service, userId: string) {
@@ -193,16 +198,19 @@ async function actionSave(body: Record<string, unknown>, service: Service, userI
     const or = objectAt(credentials.openrouter);
     const cf = objectAt(credentials.cloudflare);
     const oa = objectAt(credentials.openai);
+    const gr = objectAt(credentials.groq);
 
     let orKeyEncrypted = existing?.openrouter_key_encrypted ?? null;
     let cfAccountId = existing?.cloudflare_account_id ?? '';
     let cfTokenEncrypted = existing?.cloudflare_token_encrypted ?? null;
     let oaBaseUrl = existing?.openai_base_url ?? '';
     let oaKeyEncrypted = existing?.openai_key_encrypted ?? null;
+    let grKeyEncrypted = existing?.groq_key_encrypted ?? null;
 
     let nextOrKey = '';
     let nextCfToken = '';
     let nextOaKey = '';
+    let nextGrKey = '';
     try {
         if (or.clearKey === true && trim(or.apiKey)) return fail('BAD_REQUEST', 400);
         if (or.clearKey === true) {
@@ -223,17 +231,25 @@ async function actionSave(body: Record<string, unknown>, service: Service, userI
         if (oa.clearKey === true) oaKeyEncrypted = null;
         if (typeof oa.baseUrl === 'string') oaBaseUrl = normalizeBaseUrl(oa.baseUrl);
         nextOaKey = normalizeSecret(trim(oa.apiKey));
+
+        if (gr.clearKey === true && trim(gr.apiKey)) return fail('BAD_REQUEST', 400);
+        if (gr.clearKey === true) {
+            if (chain.some((entry) => entry.provider === 'groq')) return fail('PROVIDER_IN_USE', 409, { provider: 'groq' });
+            grKeyEncrypted = null;
+        }
+        nextGrKey = normalizeSecret(trim(gr.apiKey));
     } catch (err) {
         if (err instanceof SettingsError) return fail(err.code, 400);
         throw err;
     }
 
-    if (!ENC_KEY && (nextOrKey || nextCfToken || nextOaKey)) {
+    if (!ENC_KEY && (nextOrKey || nextCfToken || nextOaKey || nextGrKey)) {
         return fail('ENCRYPTION_KEY_MISSING', 409);
     }
     if (nextOrKey) orKeyEncrypted = await encryptSecret(ENC_KEY, nextOrKey);
     if (nextCfToken) cfTokenEncrypted = await encryptSecret(ENC_KEY, nextCfToken);
     if (nextOaKey) oaKeyEncrypted = await encryptSecret(ENC_KEY, nextOaKey);
+    if (nextGrKey) grKeyEncrypted = await encryptSecret(ENC_KEY, nextGrKey);
 
     const nextRow: AiSettingsRow = {
         provider: chain[0]?.provider
@@ -248,9 +264,11 @@ async function actionSave(body: Record<string, unknown>, service: Service, userI
         cloudflare_token_encrypted: cfTokenEncrypted,
         openai_base_url: oaBaseUrl || null,
         openai_key_encrypted: oaKeyEncrypted,
+        groq_key_encrypted: grKeyEncrypted,
     };
 
-    if (!ENC_KEY && (nextRow.openrouter_key_encrypted || nextRow.cloudflare_token_encrypted || nextRow.openai_key_encrypted)) {
+    if (!ENC_KEY && (nextRow.openrouter_key_encrypted || nextRow.cloudflare_token_encrypted
+        || nextRow.openai_key_encrypted || nextRow.groq_key_encrypted)) {
         return fail('ENCRYPTION_KEY_MISSING', 409);
     }
 
@@ -276,6 +294,7 @@ async function actionSave(body: Record<string, unknown>, service: Service, userI
         cloudflare_token_encrypted: cfTokenEncrypted,
         openai_base_url: oaBaseUrl || null,
         openai_key_encrypted: oaKeyEncrypted,
+        groq_key_encrypted: grKeyEncrypted,
         updated_at: new Date().toISOString(),
         updated_by: userId,
     };
@@ -326,6 +345,16 @@ async function actionTest(body: Record<string, unknown>, service: Service) {
                 apiKey = await decryptSecret(ENC_KEY, existing.cloudflare_token_encrypted);
             }
             if (!accountId || !apiKey) return fail('NOT_CONFIGURED', 400, { provider });
+        } else if (provider === 'groq') {
+            baseUrl = GROQ_BASE_URL;
+            const typed = normalizeSecret(trim(draft.apiKey));
+            if (typed) {
+                apiKey = typed;
+            } else if (existing?.groq_key_encrypted) {
+                if (!ENC_KEY) return fail('ENCRYPTION_KEY_MISSING', 409);
+                apiKey = await decryptSecret(ENC_KEY, existing.groq_key_encrypted);
+            }
+            if (!apiKey) return fail('NOT_CONFIGURED', 400, { provider });
         } else {
             baseUrl = normalizeBaseUrl(typeof draft.baseUrl === 'string'
                 ? draft.baseUrl
@@ -362,7 +391,7 @@ async function actionTest(body: Record<string, unknown>, service: Service) {
         } else {
             const headers: Record<string, string> = {};
             if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-            response = await fetch(`${baseUrl}/models`, {
+            response = await fetch(`${baseUrl.replace(/\/+$/, '')}/models`, {
                 headers,
                 signal: AbortSignal.timeout(12_000),
             });

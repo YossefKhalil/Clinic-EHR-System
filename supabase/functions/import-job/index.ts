@@ -10,7 +10,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import yaml from 'https://esm.sh/js-yaml@4.1.0';
-import { LIMITS, pumpParallelFor, resolveLimits } from '../_shared/import-core/limits.js';
+import { LIMITS, leaseSecondsFor, pumpParallelFor, resolveLimits } from '../_shared/import-core/limits.js';
 import { prepareSources, shiftSourceIds, splitChunkPayload } from '../_shared/import-core/chunker.js';
 import { runPipeline } from '../_shared/import-core/pipeline.js';
 import { PROMPT_IDS } from '../_shared/import-core/yaml-contract.js';
@@ -60,7 +60,10 @@ function linesOfText(text: string): { id: string; text: string }[] {
 }
 
 /** Build the provider from validated, decrypted credentials. */
-function buildProvider(credentials: { provider: string; model: string; apiKey: string | null; accountId: string | null; baseUrl: string | null }) {
+function buildProvider(
+    credentials: { provider: string; model: string; apiKey: string | null; accountId: string | null; baseUrl: string | null },
+    limits: typeof LIMITS = LIMITS,
+) {
     if (credentials.provider === 'openrouter') {
         return createOpenRouterProvider({
             apiKey: credentials.apiKey ?? '',
@@ -68,6 +71,8 @@ function buildProvider(credentials: { provider: string; model: string; apiKey: s
             // adapter from splitting a model id on whitespace or commas.
             model: [credentials.model],
             appTitle: 'Clinic EHR import agent',
+            timeoutMs: limits.PROVIDER_TIMEOUT_MS,
+            maxAttempts: limits.PROVIDER_MAX_ATTEMPTS,
         });
     }
     if (credentials.provider === 'cloudflare') {
@@ -75,12 +80,18 @@ function buildProvider(credentials: { provider: string; model: string; apiKey: s
             accountId: credentials.accountId ?? '',
             apiKey: credentials.apiKey ?? '',
             model: credentials.model,
+            timeoutMs: limits.PROVIDER_TIMEOUT_MS,
+            maxAttempts: limits.PROVIDER_MAX_ATTEMPTS,
         });
     }
     return createOpenAiCompatibleProvider({
         baseUrl: credentials.baseUrl ?? '',
         apiKey: credentials.apiKey,
         model: credentials.model,
+        // Groq (and the OpenAI o-series) reject `max_tokens` with HTTP 400.
+        timeoutMs: limits.PROVIDER_TIMEOUT_MS,
+        maxAttempts: limits.PROVIDER_MAX_ATTEMPTS,
+        preferMaxCompletionTokens: credentials.provider === 'groq',
     });
 }
 
@@ -89,7 +100,11 @@ function buildProvider(credentials: { provider: string; model: string; apiKey: s
  * entries are skipped with a logged reason so a broken secondary cannot block
  * a working primary. If no entry is ready the whole extraction fails loudly.
  */
-async function loadReadyChain(settingsRow: AiSettingsRow | null, context: string) {
+async function loadReadyChain(
+    settingsRow: AiSettingsRow | null,
+    context: string,
+    limits: typeof LIMITS = LIMITS,
+) {
     if (!settingsRow || settingsRow.enabled !== true) {
         throw new SettingsError('FEATURE_DISABLED', 'The import agent is disabled in AI settings');
     }
@@ -109,7 +124,7 @@ async function loadReadyChain(settingsRow: AiSettingsRow | null, context: string
     }
     return resolved.entries.map((entry) => ({
         ...entry,
-        client: buildProvider(entry),
+        client: buildProvider(entry, limits),
     }));
 }
 
@@ -413,7 +428,7 @@ async function actionStart(body: Record<string, unknown>, ctx: Context) {
     // settings problem.
     let chain;
     try {
-        chain = await loadReadyChain(settingsRow, String(job.id));
+        chain = await loadReadyChain(settingsRow, String(job.id), limits);
     } catch (err) {
         const code = err instanceof SettingsError ? err.code : 'PROVIDER_NOT_READY';
         return fail(code, 409);
@@ -519,12 +534,13 @@ async function persistChunkResult(
     const recordUsage = async () => {
         const usage = result.usage ?? { in: 0, out: 0 };
         if (usage.in > 0 || usage.out > 0 || result.cost != null) {
-            await service.rpc('import_bump_tokens', {
+            const { error: bumpError } = await service.rpc('import_bump_tokens', {
                 p_job_id: job.id,
                 p_in: usage.in,
                 p_out: usage.out,
             });
-            await service.from('ai_usage').insert({
+            if (bumpError) console.error('token bump failed', job.id, bumpError.message);
+            const { error: usageError } = await service.from('ai_usage').insert({
                 user_id: job.created_by,
                 job_id: job.id,
                 chunk_id: chunkRow.id,
@@ -533,11 +549,12 @@ async function persistChunkResult(
                 tokens_out: usage.out,
                 cost_est: result.cost ?? null,
             });
+            if (usageError) console.error('ai_usage insert failed', job.id, usageError.message);
         }
     };
 
     if (result.status === 'failed') {
-        await service
+        const { error: failError } = await service
             .from('import_chunks')
             .update({
                 status: 'failed',
@@ -549,6 +566,7 @@ async function persistChunkResult(
                 lease_until: null,
             })
             .eq('id', chunkRow.id);
+        if (failError) console.error('chunk fail update failed', chunkRow.id, failError.message);
         await recordUsage();
         return null;
     }
@@ -583,7 +601,19 @@ async function persistChunkResult(
         dup: row.dup ?? null,
     }));
     if (rowPayload.length > 0) {
-        await service.from('import_rows').upsert(rowPayload, { onConflict: 'chunk_id,seq', ignoreDuplicates: true });
+        const { error: rowsError } = await service
+            .from('import_rows')
+            .upsert(rowPayload, { onConflict: 'chunk_id,seq', ignoreDuplicates: true });
+        if (rowsError) {
+            // The chunk must not be reported as done when its rows were not
+            // stored: the review would show an empty job with no error.
+            console.error('import_rows upsert failed', chunkRow.id, rowsError.message);
+            await service
+                .from('import_chunks')
+                .update({ status: 'failed', error_code: 'PERSIST_FAILED', lease_until: null })
+                .eq('id', chunkRow.id);
+            return null;
+        }
     }
 
     const trayPayload = [
@@ -603,7 +633,8 @@ async function persistChunkResult(
         })),
     ];
     if (trayPayload.length > 0) {
-        await service.from('import_rejects').insert(trayPayload);
+        const { error: trayError } = await service.from('import_rejects').insert(trayPayload);
+        if (trayError) console.error('import_rejects insert failed', chunkRow.id, trayError.message);
     }
 
     // Unmapped text stays visible in the tray (invariant I8, spec 10.7): one
@@ -617,7 +648,8 @@ async function persistChunkResult(
         src: { seq: offset + 1 },
     })));
     if (unmappedPayload.length > 0) {
-        await service.from('import_rejects').insert(unmappedPayload);
+        const { error: unmappedError } = await service.from('import_rejects').insert(unmappedPayload);
+        if (unmappedError) console.error('unmapped reject insert failed', chunkRow.id, unmappedError.message);
     }
 
     await recordUsage();
@@ -642,6 +674,19 @@ async function persistChunkResult(
                 .eq('id', chunkRow.id);
             return null;
         }
+        // The children re-extract the same lines, so the parent's partial rows
+        // and tray entries would show every patient twice. Drop them before
+        // the children take over.
+        const { error: parentRowsError } = await service
+            .from('import_rows')
+            .delete()
+            .eq('chunk_id', chunkRow.id);
+        if (parentRowsError) console.error('parent rows delete failed', chunkRow.id, parentRowsError.message);
+        const { error: parentRejectsError } = await service
+            .from('import_rejects')
+            .delete()
+            .eq('chunk_id', chunkRow.id);
+        if (parentRejectsError) console.error('parent rejects delete failed', chunkRow.id, parentRejectsError.message);
         await service
             .from('import_chunks')
             .update({
@@ -657,7 +702,7 @@ async function persistChunkResult(
         return { parentId: chunkRow.id, sourceId: chunkRow.source_id ?? null, children };
     }
 
-    await service
+    const { error: doneError } = await service
         .from('import_chunks')
         .update({
             status: 'done',
@@ -668,6 +713,7 @@ async function persistChunkResult(
             lease_until: null,
         })
         .eq('id', chunkRow.id);
+    if (doneError) console.error('chunk done update failed', chunkRow.id, doneError.message);
     return null;
 }
 
@@ -697,6 +743,21 @@ async function insertSplitChildren(service: Service, jobId: string, request: { p
     if (error) console.error('split insert failed', request.parentId, error.message);
 }
 
+/**
+ * Move a job to `review` without ever overwriting a cancellation: an
+ * in-flight pump used to flip a cancelled job back to `review`, so the
+ * cancelled job came back as a resumable one.
+ */
+async function settleToReview(service: Service, jobId: string) {
+    const { error } = await service
+        .from('import_jobs')
+        .update({ status: 'review', updated_at: new Date().toISOString() })
+        .eq('id', jobId)
+        .is('cancelled_at', null)
+        .neq('status', 'cancelled');
+    if (error) console.error('settle to review failed', jobId, error.message);
+}
+
 async function actionPump(body: Record<string, unknown>, ctx: Context) {
     const { user, service, settingsRow, limits } = ctx;
     const loaded = await loadJobForUser(service, user.id, String(body.job_id ?? ''));
@@ -714,12 +775,18 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
     // Caps before any call (spec §9.5): job token cap stops extraction.
     const tokens = (job.tokens_in ?? 0) + (job.tokens_out ?? 0);
     if (job.token_cap && tokens >= job.token_cap) {
-        await service.from('import_jobs').update({ status: 'review', updated_at: new Date().toISOString() }).eq('id', job.id);
+        await settleToReview(service, job.id);
         job = { ...job, status: 'review' };
         return progressPayload(ctx, job, [{ code: 'JOB_TOKEN_CAP', params: { limit: job.token_cap } }]);
     }
     const dailyTokens = await sumUsageToday(service, user.id);
     if (dailyTokens >= limits.USER_DAILY_TOKEN_CAP) {
+        // The daily cap must settle the job as well: leaving it `extracting`
+        // keeps it in the "extracting" state forever, holds one of the two
+        // concurrent-job slots and never lets the user reach the review of
+        // the rows that were already extracted.
+        await settleToReview(service, job.id);
+        job = { ...job, status: 'review' };
         return progressPayload(ctx, job, [{
             code: 'USER_DAILY_TOKEN_CAP',
             params: { limit: limits.USER_DAILY_TOKEN_CAP },
@@ -728,7 +795,7 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
 
     let chain;
     try {
-        chain = await loadReadyChain(settingsRow, String(job.id));
+        chain = await loadReadyChain(settingsRow, String(job.id), limits);
     } catch (err) {
         const code = err instanceof SettingsError ? err.code : 'PROVIDER_NOT_READY';
         return fail(code, 409);
@@ -762,14 +829,20 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
 
     const splitRequests: { parentId: string; sourceId: string | null; children: { kind?: string }[] }[] = [];
     const parallel = pumpParallelFor(chain[0]?.provider, chain[0]?.model, limits);
+    // The lease must outlive the work it protects, otherwise a second worker
+    // claims the same chunk while the first one is still calling the provider.
+    const leaseSeconds = leaseSecondsFor(chain.length, limits);
     try {
         const { data, error } = await service.rpc('import_claim_chunks', {
             p_job_id: job.id,
             p_limit: parallel,
-            p_lease_seconds: limits.LEASE_SECONDS,
+            p_lease_seconds: leaseSeconds,
             p_max_attempts: limits.MAX_ATTEMPTS,
         });
-        if (error) return fail('INTERNAL', 500);
+        if (error) {
+            console.error('claim chunks failed', job.id, error.message);
+            return fail('INTERNAL', 500);
+        }
         const claimed = (data ?? []) as { id: string; idx: number; payload: Record<string, unknown>; source_id?: string | null }[];
         let lastProviderFailure: {
             code: string;
@@ -900,7 +973,7 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
                 freeDaily: providerError?.freeDaily ?? null,
             });
         }
-        await service.from('import_jobs').update({ status: 'review', updated_at: new Date().toISOString() }).eq('id', job.id);
+        await settleToReview(service, job.id);
         job = { ...job, status: 'review' };
     }
     if (controller.signal.aborted) banners.push({ code: 'JOB_CANCELLED' });
@@ -943,12 +1016,31 @@ async function actionRetryChunk(body: Record<string, unknown>, ctx: Context) {
         .maybeSingle();
     if (!chunk) return fail('NOT_FOUND', 404);
 
-    await service
+    // Only a failed chunk can be retried. Re-running a chunk that already
+    // succeeded would bill the provider again and mix the old rows with the
+    // new ones.
+    if (chunk.status !== 'failed') {
+        return fail('CHUNK_STATE', 409);
+    }
+
+    // The retry starts from scratch: the chunk's own rows and tray entries
+    // are removed so a second run cannot duplicate them.
+    const { error: rowsError } = await service.from('import_rows').delete().eq('chunk_id', chunk.id);
+    if (rowsError) return fail('SAVE_FAILED', 500);
+    const { error: rejectsError } = await service.from('import_rejects').delete().eq('chunk_id', chunk.id);
+    if (rejectsError) return fail('SAVE_FAILED', 500);
+
+    const { error: resetError } = await service
         .from('import_chunks')
         .update({ status: 'queued', attempts: 0, error_code: null, lease_until: null })
         .eq('id', chunk.id);
+    if (resetError) return fail('SAVE_FAILED', 500);
     if (['review', 'failed'].includes(job.status)) {
-        await service.from('import_jobs').update({ status: 'extracting', updated_at: new Date().toISOString() }).eq('id', job.id);
+        await service
+            .from('import_jobs')
+            .update({ status: 'extracting', updated_at: new Date().toISOString() })
+            .eq('id', job.id)
+            .is('cancelled_at', null);
     }
     return json({ ok: true, status: 'extracting' });
 }

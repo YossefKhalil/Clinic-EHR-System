@@ -386,6 +386,7 @@ CREATE TABLE IF NOT EXISTS public.ai_settings (
     cloudflare_token_encrypted TEXT,
     openai_base_url TEXT,
     openai_key_encrypted TEXT,
+    groq_key_encrypted TEXT,
     -- Ordered [{ provider, model }] fallback chain. Empty means fall back to
     -- the legacy provider/model columns below.
     model_chain JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -405,6 +406,7 @@ ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS cloudflare_account_id TE
 ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS cloudflare_token_encrypted TEXT;
 ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS openai_base_url TEXT;
 ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS openai_key_encrypted TEXT;
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS groq_key_encrypted TEXT;
 ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS model_chain JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 -- Import batch tracking (recreated from v1): every patient row written by one
@@ -577,6 +579,10 @@ CREATE INDEX IF NOT EXISTS idx_import_jobs_created_by ON public.import_jobs(crea
 CREATE INDEX IF NOT EXISTS idx_import_jobs_status ON public.import_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_import_chunks_job_status ON public.import_chunks(job_id, status);
 CREATE INDEX IF NOT EXISTS idx_import_rows_job_status ON public.import_rows(job_id, status);
+-- The review load reads a job's rows ordered by seq; `seq` is unique per
+-- chunk only, so the id breaks the ties and the range paging cannot drop
+-- rows.
+CREATE INDEX IF NOT EXISTS idx_import_rows_job_seq ON public.import_rows(job_id, seq, id);
 CREATE INDEX IF NOT EXISTS idx_import_rejects_job ON public.import_rejects(job_id);
 CREATE INDEX IF NOT EXISTS idx_import_batches_job ON public.import_batches(job_id);
 CREATE INDEX IF NOT EXISTS idx_import_batch_items_batch ON public.import_batch_items(batch_id);

@@ -173,6 +173,8 @@ export function filterRows(rows, filter = 'all') {
             return rows.filter((row) => !row.removed && effectiveStatus(row) === 'error');
         case 'duplicates':
             return rows.filter((row) => !row.removed && row.dup && !row.collapsed);
+        case 'ready':
+            return rows.filter((row) => !row.removed && isImportable(row));
         case 'edited':
             return rows.filter((row) => !row.removed && isEdited(row));
         case 'removed':
@@ -183,7 +185,7 @@ export function filterRows(rows, filter = 'all') {
 }
 
 export function filterCounts(rows) {
-    const counts = { all: 0, attention: 0, errors: 0, duplicates: 0, edited: 0, removed: 0 };
+    const counts = { all: 0, attention: 0, errors: 0, duplicates: 0, ready: 0, edited: 0, removed: 0 };
     for (const row of rows) {
         if (row.removed) {
             counts.removed += 1;
@@ -194,6 +196,7 @@ export function filterCounts(rows) {
         if (status !== 'ready') counts.attention += 1;
         if (status === 'error') counts.errors += 1;
         if (row.dup && !row.collapsed) counts.duplicates += 1;
+        if (isImportable(row)) counts.ready += 1;
         if (isEdited(row)) counts.edited += 1;
     }
     return counts;
@@ -356,7 +359,10 @@ export function applySnapshot(row, snap) {
         dup: snap.dup,
         removed: snap.removed,
         status: snap.status,
-        version: snap.version,
+        // The version is the database's optimistic-concurrency counter, not
+        // part of the editable state: restoring the snapshot's (older)
+        // version would make the next save fail with SAVE_CONFLICT forever.
+        version: row.version ?? snap.version,
     });
 }
 
@@ -385,6 +391,10 @@ export function revalidate(state, { before = new Map(), touched = null } = {}) {
         // A chunk whose payload the reader cannot see is left untouched —
         // re-running without its lines would flag every value as ungrounded.
         if (chunkId !== MANUAL_GROUP && !state.chunksById.has(chunkId)) continue;
+        // Same for a chunk whose payload was purged (retention): the rows keep
+        // their extracted values instead of being blanked and flagged.
+        const chunk = chunkId === MANUAL_GROUP ? null : state.chunksById.get(chunkId);
+        if (chunk && chunk.payload == null) continue;
         const group = groupRows(state, chunkId);
         if (group.length === 0) continue;
         const pre = group.map((row) => before.get(row.id) ?? snapshotRow(row));
@@ -514,14 +524,33 @@ export function setDupAction(state, rowId, action) {
     return { id: row.id, before, after };
 }
 
-/** The other row of an in-batch duplicate pair, by pipeline index. */
+/**
+ * The other row of an in-batch duplicate pair.
+ *
+ * `dup.duplicateOf` is an index in the *pipeline's* record space (which also
+ * counts the records it rejected as phantoms), while the stored rows are
+ * numbered again from 1. The two spaces only coincide when nothing was
+ * rejected, so the index is used as a hint and the partner is confirmed by
+ * the duplicate group: the earliest row of the same group.
+ */
 export function duplicatePartner(rows, row) {
     if (!row.dup || row.dup.duplicateOf == null) return null;
     const key = groupKeyOf(row);
     const group = rows
         .filter((entry) => groupKeyOf(entry) === key)
         .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
-    return group[row.dup.duplicateOf - 1] ?? null;
+    const hinted = group[row.dup.duplicateOf - 1] ?? null;
+    if (hinted && hinted.id !== row.id) {
+        // The hint only points at the right row when the record space and the
+        // stored row space agree; otherwise fall back to the first row of the
+        // group, which is the partner the pipeline flagged.
+        const earlier = group.find((entry) => entry.id !== row.id);
+        if (earlier && earlier.id !== hinted.id && (hinted.seq ?? 0) > (earlier.seq ?? 0)) {
+            return earlier;
+        }
+        return hinted;
+    }
+    return group.find((entry) => entry.id !== row.id) ?? null;
 }
 
 // ---------------------------------------------------------------------------

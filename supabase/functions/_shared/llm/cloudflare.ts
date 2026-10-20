@@ -5,7 +5,8 @@
 import {
     LlmError, LlmProvider, LlmRequest, LlmResult, withRetries,
 } from './provider.ts';
-import { openAiErrorFor, timeoutSignal } from './openai-compatible.ts';
+import { isReasoningModel, openAiErrorFor, timeoutSignal } from './openai-compatible.ts';
+import { choiceText, contentText } from './content-text.ts';
 
 export interface CloudflareOptions {
     accountId: string;
@@ -19,7 +20,7 @@ export interface CloudflareOptions {
     random?: () => number;
 }
 
-export function buildCloudflareBody(request: LlmRequest) {
+export function buildCloudflareBody(request: LlmRequest, model = '') {
     if (request.user.some((part) => part.type === 'image')) {
         throw new LlmError('IMAGES_UNSUPPORTED', 'The Cloudflare adapter is text-only in this build', {
             retryable: false,
@@ -29,14 +30,25 @@ export function buildCloudflareBody(request: LlmRequest) {
         .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
         .map((part) => part.text)
         .join('\n\n');
-    return {
+    const body: Record<string, unknown> = {
         messages: [
             { role: 'system', content: request.system },
             { role: 'user', content: userText },
         ],
-        max_tokens: request.maxTokens,
         temperature: 0,
     };
+    if (isReasoningModel(model)) {
+        // Reasoning models (Qwen 3.8, DeepSeek R1, ...) default to a high
+        // reasoning effort. For structured extraction that can spend the whole
+        // completion budget on hidden reasoning and return `content: null`.
+        // Low effort is plenty for copying rows into YAML and leaves room for
+        // the answer.
+        body.max_completion_tokens = request.maxTokens;
+        body.reasoning_effort = 'low';
+    } else {
+        body.max_tokens = request.maxTokens;
+    }
+    return body;
 }
 
 type CloudflareUsage = {
@@ -57,29 +69,11 @@ type CloudflarePayload = {
 };
 
 type CloudflareChoice = {
-    message?: { content?: unknown } | null;
+    message?: unknown;
     text?: unknown;
+    delta?: unknown;
     finish_reason?: unknown;
 };
-
-/** OpenAI-style content may be a string or an array of text parts. */
-function contentText(value: unknown): string | null {
-    if (typeof value === 'string') return value;
-    if (Array.isArray(value)) {
-        const joined = value.map((part) => {
-            if (typeof part === 'string') return part;
-            if (part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string') {
-                return (part as { text: string }).text;
-            }
-            return '';
-        }).join('');
-        return joined || null;
-    }
-    if (value && typeof value === 'object' && typeof (value as { text?: unknown }).text === 'string') {
-        return (value as { text: string }).text;
-    }
-    return null;
-}
 
 function usageCounts(usage: CloudflareUsage | null | undefined) {
     return {
@@ -126,27 +120,41 @@ export function mapCloudflareResult(json: unknown, fallbackModel: string): LlmRe
     if (typeof payload === 'string') {
         text = payload;
     } else if (typeof payload === 'object') {
-        const body = payload as CloudflarePayload;
-        text = contentText(body.response) ?? contentText(body.content) ?? contentText(body.text);
+        const body = payload as CloudflarePayload & {
+            generated_text?: unknown;
+            output?: unknown;
+        };
+        text = contentText(body.response)
+            ?? contentText(body.content)
+            ?? contentText(body.text)
+            ?? contentText(body.generated_text)
+            ?? contentText(body.output);
         usage = body.usage ?? usage;
         finish = body.finish_reason;
         if (typeof body.model === 'string') model = body.model;
 
         if (text == null && Array.isArray(body.choices) && body.choices.length > 0) {
-            const choice = body.choices[0] as CloudflareChoice;
-            text = contentText(choice?.message?.content) ?? contentText(choice?.text);
-            finish = choice?.finish_reason ?? finish;
+            const choice = body.choices[0];
+            text = choiceText(choice);
+            if (choice && typeof choice === 'object') {
+                finish = (choice as CloudflareChoice).finish_reason ?? finish;
+            }
         }
     }
 
     const trimmed = typeof text === 'string' ? text.trim() : '';
     if (!trimmed) {
-        const keys = payload && typeof payload === 'object'
-            ? Object.keys(payload as object).join(', ') || 'none'
-            : typeof payload;
+        const body = payload && typeof payload === 'object' ? payload as CloudflarePayload : null;
+        const keys = body ? Object.keys(body).join(', ') || 'none' : typeof payload;
+        const choices = body && Array.isArray(body.choices) ? body.choices : null;
+        const first = choices?.[0];
+        const firstKeys = first && typeof first === 'object' ? Object.keys(first as object).join(', ') : 'none';
+        const message = first && typeof first === 'object' ? (first as CloudflareChoice).message : null;
+        const messageKeys = message && typeof message === 'object' ? Object.keys(message as object).join(', ') : 'none';
+        const finish = first && typeof first === 'object' ? String((first as CloudflareChoice).finish_reason ?? 'none') : 'none';
         throw new LlmError(
             'PROVIDER_BAD_RESPONSE',
-            `Cloudflare Workers AI returned no text (result keys: ${keys})`,
+            `Cloudflare Workers AI returned no text (result keys: ${keys}; choices: ${choices?.length ?? 'none'}; first choice: ${firstKeys}; message: ${messageKeys}; finish: ${finish})`,
             { retryable: false },
         );
     }
@@ -169,7 +177,7 @@ export function createCloudflareProvider(options: CloudflareOptions): LlmProvide
     return {
         model: options.model,
         async complete(request: LlmRequest): Promise<LlmResult> {
-            const body = buildCloudflareBody(request); // throws before any network call
+            const body = buildCloudflareBody(request, options.model); // throws before any network call
             return withRetries(async () => {
                 let response: Response;
                 try {

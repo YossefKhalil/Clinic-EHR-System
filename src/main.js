@@ -101,6 +101,9 @@ function app() {
         isSuperAdmin: false,
         currentPage: 'login',
         localeLabel: 'العربية',
+        // `?mock=review` preview route: renders the import review screen with
+        // mock data, without a session. Never touches real data.
+        mockPreview: false,
         
         loginForm: { email: '', password: '' },
         loginError: null,
@@ -165,7 +168,7 @@ function app() {
         aiSettingsSaving: false,
         aiSettingsProvider: 'openrouter',
         aiSettingsTesting: null,
-        aiSettingsTestResults: { openrouter: null, cloudflare: null, openai: null },
+        aiSettingsTestResults: { openrouter: null, cloudflare: null, openai: null, groq: null },
         aiSettingsMessage: null,
         aiSettingsInvalid: {},
         aiSettingsRowSeq: 0,
@@ -174,6 +177,7 @@ function app() {
             { id: 'openrouter', labelKey: 'aiSettings.provider.openrouter' },
             { id: 'cloudflare', labelKey: 'aiSettings.provider.cloudflare' },
             { id: 'openai', labelKey: 'aiSettings.provider.openai' },
+            { id: 'groq', labelKey: 'aiSettings.provider.groq' },
         ],
         aiSettingsForm: {
             enabled: false,
@@ -182,6 +186,7 @@ function app() {
                 openrouter: { apiKey: '', clearKey: false },
                 cloudflare: { accountId: '', apiToken: '', clearToken: false },
                 openai: { baseUrl: '', apiKey: '', clearKey: false },
+                groq: { apiKey: '', clearKey: false },
             },
         },
         
@@ -240,8 +245,13 @@ function app() {
                 };
                 
                 this.localeLabel = t('locale_label');
-                
-                if (this.isLoggedIn) {
+
+                // Visual preview of the import review screen: `?mock=review`.
+                if (new URLSearchParams(window.location.search).get('mock') === 'review') {
+                    this.enterMockPreview();
+                }
+
+                if (this.isLoggedIn && !this.mockPreview) {
                     // A persisted session must land on the dashboard rather than
                     // back on the login screen, and a failed fetch must not leave
                     // the whole app stuck behind the page loader.
@@ -260,6 +270,9 @@ function app() {
         },
         
         updateAuthState() {
+            // The mock preview route owns its own shell state: a late auth
+            // event must not bounce the preview back to the login screen.
+            if (this.mockPreview) return;
             this.user = getCurrentUser();
             this.isLoggedIn = !!this.user;
             this.isSuperAdmin = !!this.profile?.is_admin;
@@ -272,6 +285,20 @@ function app() {
                 this.importEnabled = true;
                 this.importResumable = null;
             }
+        },
+
+        /**
+         * `?mock=review`: render the import review screen with mock data so
+         * the UI can be compared against the mockup without a session or a
+         * real extraction. It never reads or writes real data.
+         */
+        enterMockPreview() {
+            this.mockPreview = true;
+            this.isLoggedIn = true;
+            this.isSuperAdmin = true;
+            this.user = { id: 'mock-user', email: 'mock@example.test' };
+            this.currentPage = 'import';
+            this.loading = false;
         },
 
         /** Hide the import entry when ai_settings.enabled says so; fail open. */
@@ -552,12 +579,16 @@ function app() {
                     apiKey: '',
                     clearKey: false,
                 },
+                groq: {
+                    apiKey: '',
+                    clearKey: false,
+                },
             };
             if (firstLoad) {
                 const primary = this.aiSettingsForm.chain.find((row) => row.provider);
                 if (primary?.provider) this.aiSettingsProvider = primary.provider;
             }
-            this.aiSettingsTestResults = { openrouter: null, cloudflare: null, openai: null };
+            this.aiSettingsTestResults = { openrouter: null, cloudflare: null, openai: null, groq: null };
             this.aiSettingsInvalid = {};
             this.aiSettingsMessage = null;
         },
@@ -596,6 +627,10 @@ function app() {
             if (provider === 'openai') {
                 return Boolean(credentials.openai.baseUrl.trim());
             }
+            if (provider === 'groq') {
+                return Boolean(credentials.groq.apiKey.trim())
+                    || (saved.configured === true && !credentials.groq.clearKey);
+            }
             return false;
         },
 
@@ -617,6 +652,7 @@ function app() {
             if (provider === 'openrouter') return Boolean(this.aiSettingsForm.credentials.openrouter.apiKey.trim());
             if (provider === 'cloudflare') return Boolean(this.aiSettingsForm.credentials.cloudflare.apiToken.trim());
             if (provider === 'openai') return Boolean(this.aiSettingsForm.credentials.openai.apiKey.trim());
+            if (provider === 'groq') return Boolean(this.aiSettingsForm.credentials.groq.apiKey.trim());
             return false;
         },
 
@@ -805,6 +841,10 @@ function app() {
                         apiKey: credentials.openai.apiKey.trim(),
                         clearKey: credentials.openai.clearKey === true,
                     },
+                    groq: {
+                        apiKey: credentials.groq.apiKey.trim(),
+                        clearKey: credentials.groq.clearKey === true,
+                    },
                 },
             };
         },
@@ -843,6 +883,9 @@ function app() {
                     accountId: credentials.cloudflare.accountId.trim(),
                     apiToken: credentials.cloudflare.apiToken.trim(),
                 };
+            }
+            if (provider === 'groq') {
+                return { apiKey: credentials.groq.apiKey.trim() };
             }
             return {
                 baseUrl: credentials.openai.baseUrl.trim(),
@@ -911,6 +954,9 @@ function app() {
             } else if (provider === 'cloudflare') {
                 this.aiSettingsForm.credentials.cloudflare.apiToken = '';
                 this.aiSettingsForm.credentials.cloudflare.clearToken = true;
+            } else if (provider === 'groq') {
+                this.aiSettingsForm.credentials.groq.apiKey = '';
+                this.aiSettingsForm.credentials.groq.clearKey = true;
             } else {
                 this.aiSettingsForm.credentials.openai.apiKey = '';
                 this.aiSettingsForm.credentials.openai.clearKey = true;

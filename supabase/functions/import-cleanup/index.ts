@@ -110,14 +110,19 @@ Deno.serve(async (req) => {
         if (retentionError) throw new Error(`retention: ${retentionError.message}`);
 
         // 2. Jobs whose staged data has outlived its TTL.
+        //    A job that is still open (uploads, extracting, review) keeps its
+        //    chunk payloads: the review screen re-runs the pipeline against
+        //    those source lines, and without them every row would come back
+        //    as an error with empty fields - and the review would write that
+        //    destruction back to the database.
         const doneCutoff = new Date(
             Date.now() - LIMITS.STAGING_TTL_HOURS_AFTER_DONE * 60 * 60 * 1000,
         ).toISOString();
         const nowIso = new Date().toISOString();
         const { data: jobs, error: jobsError } = await supabase
             .from('import_jobs')
-            .select('id, created_by')
-            .or(`and(status.in.(done,cancelled),updated_at.lte.${doneCutoff}),expires_at.lte.${nowIso}`)
+            .select('id, created_by, status')
+            .or(`and(status.in.(done,cancelled),updated_at.lte.${doneCutoff}),and(expires_at.lte.${nowIso},status.in.(failed))`)
             .limit(MAX_JOBS_PER_RUN);
         if (jobsError) throw new Error(`jobs: ${jobsError.message}`);
 

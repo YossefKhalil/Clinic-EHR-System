@@ -21,15 +21,23 @@ export const ROW_PAGE = 500;
 // `fetchAll` is shared by four tables with different ordering columns. Asking
 // PostgREST to order import_chunks/import_sources by `seq` fails the whole
 // review load, so keep the mapping explicit.
+//
+// The second column breaks the ties: `import_rows.seq` is unique per chunk
+// only, and paging over a non-unique sort key silently duplicates and drops
+// rows when a job has more rows than one page.
 const TABLE_ORDER = {
-    import_sources: 'idx',
-    import_chunks: 'idx',
-    import_rows: 'seq',
-    import_rejects: 'created_at',
+    import_sources: { column: 'idx' },
+    import_chunks: { column: 'idx' },
+    import_rows: { column: 'seq', tiebreaker: 'id' },
+    import_rejects: { column: 'created_at', tiebreaker: 'id' },
 };
 
 export function orderColumnFor(table) {
-    return TABLE_ORDER[table] ?? 'id';
+    return TABLE_ORDER[table]?.column ?? 'id';
+}
+
+export function orderTiebreakerFor(table) {
+    return TABLE_ORDER[table]?.tiebreaker ?? 'id';
 }
 
 export class ImportApiError extends Error {
@@ -65,14 +73,16 @@ function serviceName() {
 export async function callJob(action, payload = {}) {
     const client = supabase();
     if (!client) throw new ImportApiError('OFFLINE', 'importAgent.error.OFFLINE');
-    const { data, error, status } = await client.functions.invoke(serviceName(), {
+    const { data, error } = await client.functions.invoke(serviceName(), {
         body: { action, ...payload },
     });
 
     if (error) {
         // Non-2xx responses land in `error` with the body in its context.
         let body = null;
+        let status = null;
         try {
+            status = error.context?.status ?? null;
             body = typeof error.context?.json === 'function' ? await error.context.json() : null;
         } catch {
             body = null;
@@ -124,6 +134,7 @@ async function fetchAll(table, filters = []) {
         for (const [column, value] of filters) query = query.eq(column, value);
         const { data, error } = await query
             .order(orderColumnFor(table), { ascending: true })
+            .order(orderTiebreakerFor(table), { ascending: true })
             .range(from, from + ROW_PAGE - 1);
         if (error) throw loadFailure(error, { table });
         if (!data || data.length === 0) break;

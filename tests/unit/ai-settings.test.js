@@ -113,6 +113,20 @@ describe('readAiSettings', () => {
             baseUrl: 'http://localhost:11434/v1',
         });
         expect(await codeOf(readAiSettings({ ...baseRow, provider: 'openai' }, SECRET))).toBe('NOT_CONFIGURED');
+
+        const groq = await readAiSettings({
+            ...baseRow,
+            provider: 'groq',
+            groq_key_encrypted: await encryptSecret(SECRET, 'gsk-test'),
+        }, SECRET);
+        expect(groq).toEqual({
+            provider: 'groq',
+            model: 'google/gemini-2.5-flash-lite',
+            apiKey: 'gsk-test',
+            accountId: null,
+            baseUrl: 'https://api.groq.com/openai/v1',
+        });
+        expect(await codeOf(readAiSettings({ ...baseRow, provider: 'groq' }, SECRET))).toBe('NOT_CONFIGURED');
         expect(await codeOf(readAiSettings({ ...baseRow, provider: 'weird' }, SECRET))).toBe('NOT_CONFIGURED');
     });
 });

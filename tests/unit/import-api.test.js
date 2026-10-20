@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { orderColumnFor } from '../../src/features/import-agent/api.js';
+import { orderColumnFor, orderTiebreakerFor } from '../../src/features/import-agent/api.js';
 
 describe('import table ordering', () => {
     it('orders each table by a column that exists', () => {
@@ -11,5 +11,13 @@ describe('import table ordering', () => {
 
     it('never falls back to seq for an unknown table', () => {
         expect(orderColumnFor('unknown_table')).toBe('id');
+    });
+
+    it('breaks ties with a unique column so the paging cannot drop rows', () => {
+        // `seq` is unique per chunk only: paging over it alone duplicates and
+        // drops rows once a job has more rows than one page.
+        expect(orderTiebreakerFor('import_rows')).toBe('id');
+        expect(orderTiebreakerFor('import_rejects')).toBe('id');
+        expect(orderTiebreakerFor('unknown_table')).toBe('id');
     });
 });

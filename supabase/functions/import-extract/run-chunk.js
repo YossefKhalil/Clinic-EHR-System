@@ -29,6 +29,48 @@ function rejectionsFrom(bad, lines) {
 }
 
 /**
+ * Merge the documents of a repair parse back into the original index space.
+ *
+ * `parseContract` numbers the documents of one parse 1..N, including the
+ * broken ones (a broken document still occupies its position). The repair
+ * call only asks for the broken documents, so its own numbering restarts at
+ * 1. Merging the two lists as-is makes two different patients share one
+ * index, and the server then stores the same record twice: the first patient
+ * is overwritten by the repaired one.
+ *
+ * The repaired documents are therefore re-indexed onto the free positions of
+ * the original parse (the positions of the documents that were broken), and
+ * every index stays unique.
+ */
+export function mergeRepairedDocuments(documents, bad, reparsed) {
+    const used = new Set(documents.map((doc) => doc.index));
+    const free = bad.map((entry) => entry.index).filter((index) => !used.has(index));
+    const nextFreeIndex = () => {
+        let index = 1;
+        while (used.has(index)) index += 1;
+        used.add(index);
+        return index;
+    };
+    const takeIndex = (position) => {
+        const candidate = free[position];
+        if (candidate !== undefined && !used.has(candidate)) {
+            used.add(candidate);
+            return candidate;
+        }
+        return nextFreeIndex();
+    };
+    const mergedDocuments = reparsed.documents.map((doc, position) => ({
+        ...doc,
+        index: takeIndex(position),
+    }));
+    const mergedBad = reparsed.bad.map((entry, position) => ({
+        ...entry,
+        index: takeIndex(mergedDocuments.length + position),
+    }));
+    return { documents: mergedDocuments, bad: mergedBad };
+}
+
+/**
  * Run one chunk end to end.
  *
  * @param {{
@@ -151,8 +193,12 @@ export async function runChunk({
             addUsage(repaired);
             const reparsed = parseContract(repaired.text ?? '', { yaml, finishReason: repaired.finishReason });
             if (reparsed.ok) {
-                documents = [...documents, ...reparsed.documents];
-                rejected = rejectionsFrom(reparsed.bad, lines);
+                // The repair call numbers its documents from 1 again; put them
+                // back onto the original positions so two patients never share
+                // one index (and one patient never overwrites the other).
+                const merged = mergeRepairedDocuments(documents, parsed.bad, reparsed);
+                documents = [...documents, ...merged.documents];
+                rejected = rejectionsFrom(merged.bad, lines);
             } else {
                 rejected = rejectionsFrom(parsed.bad, lines);
             }

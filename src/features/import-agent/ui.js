@@ -74,11 +74,54 @@ function dedupeIssues(issues) {
     });
 }
 
+/** The intake registry order, exactly as the record panel should read it. */
+const RECORD_SECTIONS = Object.freeze([
+    {
+        titleKey: '1. Personal Identification',
+        icon: 'bi-person-vcard',
+        keys: ['name', 'national_id'],
+    },
+    {
+        titleKey: '2. Demographics & Contact Info',
+        icon: 'bi-telephone-inbound',
+        keys: ['mobile', 'date_of_birth', 'age', 'marital_status', 'children_count', 'governorate'],
+    },
+    {
+        titleKey: '3. Full Residential Address',
+        icon: 'bi-geo-alt',
+        keys: ['address'],
+    },
+    {
+        titleKey: '4. Consultation / Visit Data',
+        icon: 'bi-clipboard2-pulse',
+        keys: ['problem', 'solution', 'visit_date', 'price', 'follower', 'section', 'source_of_money', 'notes'],
+    },
+    {
+        titleKey: '5. Attachments',
+        icon: 'bi-paperclip',
+        keys: [],
+    },
+]);
+
+const LONG_FIELDS = new Set(['address', 'problem', 'solution']);
+
 export function importAgentWizard() {
     return {
         // ------------------------------------------------------ lifecycle
         init() {
             window.__iaWizard = this;
+            // Visual preview route: `?mock=review` renders the review screen
+            // with mock data so a UI change can be checked without running a
+            // real extraction. No network, no auth, no patient data.
+            if (new URLSearchParams(window.location.search).get('mock') === 'review') {
+                this.$nextTick(() => this.seedMockPreview());
+            }
+        },
+
+        /** Seed the mock review state (see `mock-preview.js`). */
+        async seedMockPreview() {
+            const { seedMockReview } = await import('./mock-preview.js');
+            seedMockReview(this);
         },
 
         /** Page-entry hook, driven by main.js on navigate('import'). */
@@ -129,6 +172,15 @@ export function importAgentWizard() {
         // review
         reviewState: null,
         filter: 'all',
+        reviewMode: 'simple',
+        expandedRowId: null,
+        nextIssueIndex: 0,
+        strip: null,
+        sectionPicker: '',
+        fillField: '',
+        fillValue: '',
+        fillOnlyEmpty: true,
+        confirmStripOpen: false,
         selected: [],
         drawerOpen: false,
         drawerRowId: null,
@@ -588,9 +640,60 @@ export function importAgentWizard() {
         },
 
         // ------------------------------------------------------ derived
+        /**
+         * Rows in the order they were extracted: chunk order first, then the
+         * order inside the chunk. `import_rows.seq` is unique per chunk only,
+         * so ordering by `seq` alone interleaves the files.
+         */
+        orderedRows() {
+            if (!this.reviewState) return [];
+            const chunkIdx = new Map();
+            for (const chunk of this.reviewState.chunksById.values()) {
+                chunkIdx.set(chunk.id, chunk.idx ?? 0);
+            }
+            return [...this.reviewState.rows].sort((a, b) => {
+                const chunkDiff = (chunkIdx.get(a.chunk_id) ?? 0) - (chunkIdx.get(b.chunk_id) ?? 0);
+                if (chunkDiff !== 0) return chunkDiff;
+                return (a.seq ?? 0) - (b.seq ?? 0);
+            });
+        },
+
         get visibleRows() {
             if (!this.reviewState) return [];
-            return review.riskSort(review.filterRows(this.reviewState.rows, this.filter));
+            return review.riskSort(review.filterRows(this.orderedRows(), this.filter));
+        },
+
+        /** Simple mode keeps the extracted order; removed rows are hidden. */
+        get simpleRows() {
+            if (!this.reviewState) return [];
+            return review.filterRows(this.orderedRows(), 'all');
+        },
+
+        get recordSections() {
+            return RECORD_SECTIONS.map((section) => ({
+                ...section,
+                fields: section.keys.map((key) => fieldByKey(key)).filter(Boolean),
+            }));
+        },
+
+        get attentionRows() {
+            if (!this.reviewState) return [];
+            return review.riskSort(review.filterRows(this.reviewState.rows, 'attention'));
+        },
+
+        get nextIssueCount() {
+            return this.attentionRows.length;
+        },
+
+        get filterChips() {
+            const counts = this.counts;
+            return [
+                { id: 'all', labelKey: 'importAgent.review.pill.all', count: counts.all },
+                { id: 'attention', labelKey: 'importAgent.review.pill.attention', count: counts.attention },
+                { id: 'duplicates', labelKey: 'importAgent.review.pill.duplicates', count: counts.duplicates },
+                { id: 'ready', labelKey: 'importAgent.review.pill.ready', count: counts.ready },
+                { id: 'removed', labelKey: 'importAgent.review.pill.removed', count: counts.removed },
+            ];
         },
 
         get gridWindow() {
@@ -613,7 +716,7 @@ export function importAgentWizard() {
 
         get counts() {
             if (!this.reviewState) {
-                return { all: 0, attention: 0, errors: 0, duplicates: 0, edited: 0, removed: 0 };
+                return { all: 0, attention: 0, errors: 0, duplicates: 0, ready: 0, edited: 0, removed: 0 };
             }
             return review.filterCounts(this.reviewState.rows);
         },
@@ -625,6 +728,35 @@ export function importAgentWizard() {
 
         get rejectedItems() {
             return this.rejects ?? [];
+        },
+
+        /** Chunks that failed, with the reason the provider gave. */
+        get failedChunks() {
+            return (this.chunks ?? []).filter((chunk) => chunk.status === 'failed');
+        },
+
+        /** The chunk's failure reason, translated (the raw code as fallback). */
+        chunkErrorLabel(code) {
+            if (!code) return this.t('importAgent.chunkError.PROVIDER_ERROR');
+            const key = `importAgent.chunkError.${code}`;
+            const value = this.t(key);
+            return value === key ? code : value;
+        },
+
+        /**
+         * The reason a file was rejected. The reader codes live under
+         * `importAgent.reject.*`; showing `importAgent.error.*` put a raw
+         * translation key in front of the user.
+         */
+        fileErrorLabel(file) {
+            const code = file?.error?.code;
+            if (!code) return '';
+            const rejectKey = `importAgent.reject.${code}`;
+            const rejectValue = this.t(rejectKey);
+            if (rejectValue !== rejectKey) return rejectValue;
+            const errorKey = `importAgent.error.${code}`;
+            const errorValue = this.t(errorKey);
+            return errorValue === errorKey ? code : errorValue;
         },
 
         get rejectedCount() {
@@ -665,6 +797,193 @@ export function importAgentWizard() {
             return review.duplicatePartner(this.reviewState.rows, row);
         },
 
+        // ------------------------------------------------------ review surface
+        setReviewMode(mode) {
+            this.reviewMode = mode === 'advanced' ? 'advanced' : 'simple';
+            this.expandedRowId = null;
+            this.selected = [];
+            this.strip = null;
+        },
+
+        isExpanded(row) {
+            return this.expandedRowId === row?.id;
+        },
+
+        toggleRecord(row) {
+            this.expandedRowId = this.isExpanded(row) ? null : row.id;
+        },
+
+        recordFieldValue(row, fieldKey) {
+            return this.drawerFieldValue(row, fieldKey);
+        },
+
+        isLongField(fieldKey) {
+            return LONG_FIELDS.has(fieldKey);
+        },
+
+        isNotesField(fieldKey) {
+            return this.editorType(fieldKey) === 'notes';
+        },
+
+        isRequiredField(fieldKey) {
+            return fieldByKey(fieldKey)?.required === true;
+        },
+
+        displayCell(row, fieldKey) {
+            const value = review.cellValues(row)[fieldKey];
+            if (fieldKey === 'notes') {
+                const count = Array.isArray(value) ? value.length : value ? 1 : 0;
+                return count > 0 ? this.t('importAgent.review.cell.notesCount', { count }) : '';
+            }
+            if (fieldKey === 'governorate' || fieldKey === 'follower' || fieldKey === 'section'
+                || fieldKey === 'source_of_money' || fieldKey === 'marital_status') {
+                const option = this.editorOptions(fieldKey).find(
+                    (entry) => String(entry.value) === String(value ?? ''),
+                );
+                return option?.label ?? (value === null || value === undefined ? '' : String(value));
+            }
+            if (fieldKey === 'date_of_birth' || fieldKey === 'visit_date') {
+                return this.editorValue(row, fieldKey);
+            }
+            if (value === null || value === undefined) return '';
+            if (Array.isArray(value)) return value.join(', ');
+            return String(value);
+        },
+
+        rowTint(row) {
+            if (row?.dup?.kind && !row.removed) return 'ia-row-dup';
+            const status = review.effectiveStatus(row);
+            if (status === 'error') return 'ia-row-bad';
+            if (status === 'review') return 'ia-row-check';
+            return '';
+        },
+
+        /** The row's number in the extracted order (1-based, whole job). */
+        rowNumber(row) {
+            if (!row) return '';
+            const index = this.orderedRows().findIndex((entry) => entry.id === row.id);
+            return index >= 0 ? index + 1 : (row.seq ?? '');
+        },
+
+        /**
+         * True when the row still needs the reviewer's attention: an error or
+         * an unacknowledged warning - field-level warnings included. The
+         * "Row looks good" button is the only way to acknowledge a warning,
+         * so it must appear for every row that blocks the import.
+         */
+        hasRowIssues(row) {
+            if (!row) return false;
+            if (review.unackWarnCount(row) > 0) return true;
+            return (row.issues ?? []).some((entry) => entry.severity === 'error');
+        },
+
+        markerIcon(row) {
+            if (row?.removed) return 'bi-arrow-counterclockwise text-secondary';
+            if (row?.dup && !row.collapsed) return 'bi-files text-info';
+            const status = review.effectiveStatus(row);
+            if (status === 'error') return 'bi-x-octagon-fill text-danger';
+            if (status === 'review') return 'bi-exclamation-triangle-fill text-warning';
+            return 'bi-check-circle text-success opacity-50';
+        },
+
+        rowIssueSummary(row) {
+            const list = dedupeIssues(row?.issues ?? []).map((issue) => {
+                const message = this.issueMessage(issue);
+                return issue.field ? `${this.fieldLabel(issue.field)}: ${message}` : message;
+            });
+            if (list.length > 0) return list[0];
+            if (row?.dup?.kind) return this.dupKindLabel(row.dup.kind);
+            return '';
+        },
+
+        sourceForRow(row) {
+            if (!this.reviewState || !row) return null;
+            return review.sourceModel(this.reviewState, row, null);
+        },
+
+        duplicatePartnerFor(row) {
+            if (!this.reviewState || !row) return null;
+            return review.duplicatePartner(this.reviewState.rows, row);
+        },
+
+        sourceSnippet(row) {
+            const model = this.sourceForRow(row);
+            if (!model) return '';
+            const line = model.lines.find((entry) => entry.cited) ?? model.lines[0];
+            return line?.text ?? '';
+        },
+
+        sourceLabel(row) {
+            const name = this.sourceName(row);
+            if (!name) return this.t('importAgent.review.source.manual');
+            return `${name}${this.chunkLabel(row) ? ` · ${this.chunkLabel(row)}` : ''}`;
+        },
+
+        nextIssue() {
+            const rows = this.attentionRows;
+            if (rows.length === 0) return;
+            const row = rows[this.nextIssueIndex % rows.length];
+            this.nextIssueIndex = (this.nextIssueIndex + 1) % rows.length;
+            this.reviewMode = 'advanced';
+            this.filter = 'all';
+            this.expandedRowId = row.id;
+            // The advanced table is created by x-if, so it only exists after
+            // the next render.
+            this.$nextTick(() => {
+                this.$nextTick(() => {
+                    document.getElementById(`review-row-advanced-${row.id}`)?.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'center',
+                    });
+                });
+            });
+        },
+
+        toggleStrip(name) {
+            this.strip = this.strip === name ? null : name;
+        },
+
+        applySectionPicker() {
+            if (!this.sectionPicker || !this.reviewState) return;
+            const ids = this.reviewState.rows
+                .filter((row) => !row.removed && !review.cellValues(row).section)
+                .map((row) => row.id);
+            if (ids.length === 0) return;
+            const changes = review.setValueForRows(this.reviewState, {
+                ids,
+                fieldKey: 'section',
+                raw: this.sectionPicker,
+                mode: 'blanks',
+            });
+            this.commit('section', changes);
+        },
+
+        applyFill() {
+            if (!this.fillField || !this.reviewState) return;
+            const ids = this.reviewState.rows.filter((row) => !row.removed).map((row) => row.id);
+            const changes = review.setValueForRows(this.reviewState, {
+                ids,
+                fieldKey: this.fillField,
+                raw: this.fillValue,
+                mode: this.fillOnlyEmpty ? 'blanks' : 'overwrite',
+            });
+            this.commit('fill', changes);
+        },
+
+        openConfirmStrip() {
+            this.confirmStripOpen = true;
+            this.confirmNote = '';
+        },
+
+        closeConfirmStrip() {
+            this.confirmStripOpen = false;
+        },
+
+        confirmFromBar() {
+            this.confirmOpen = true;
+            this.confirmNote = '';
+        },
+
         // ------------------------------------------------------ labels
         fieldLabel(fieldKey) {
             const field = fieldByKey(fieldKey);
@@ -685,6 +1004,7 @@ export function importAgentWizard() {
 
         statusChip(row) {
             if (row.removed) return { label: this.t('importAgent.review.chip.removed'), cls: 'text-bg-secondary' };
+            if (row.dup?.kind) return { label: this.t('importAgent.review.chip.duplicate'), cls: 'text-bg-info' };
             const status = review.effectiveStatus(row);
             if (status === 'error') return { label: this.t('importAgent.review.chip.error'), cls: 'text-bg-danger' };
             if (status === 'review') return { label: this.t('importAgent.review.chip.review'), cls: 'text-bg-warning' };
@@ -1333,10 +1653,16 @@ export function importAgentWizard() {
             if (viewport) this.grid.viewport = Math.max(240, viewport);
         },
 
+        /**
+         * The file a row came from. `import_rows` has no `source_id`: the row
+         * points at its chunk and the chunk points at the source.
+         */
         sourceName(row) {
             if (!row) return null;
-            if (row.chunk_id) return this.sources?.find((source) => source.id === row.source_id)?.name ?? null;
-            return null;
+            const chunk = row.chunk_id ? this.reviewState?.chunksById.get(row.chunk_id) : null;
+            const sourceId = chunk?.source_id ?? row.source_id ?? null;
+            if (!sourceId) return null;
+            return this.sources?.find((source) => source.id === sourceId)?.name ?? null;
         },
 
         chunkLabel(row) {

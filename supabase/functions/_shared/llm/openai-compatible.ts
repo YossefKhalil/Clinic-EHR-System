@@ -5,6 +5,7 @@
 import {
     LlmError, LlmProvider, LlmRequest, LlmResult, parseRetryAfter, withRetries,
 } from './provider.ts';
+import { choiceText } from './content-text.ts';
 
 export interface OpenAiCompatibleOptions {
     /** Base URL without the trailing /chat/completions, e.g. https://openrouter.ai/api/v1 */
@@ -18,9 +19,33 @@ export interface OpenAiCompatibleOptions {
     headers?: Record<string, string>;
     /** Extra top-level body fields (OpenRouter provider preferences). */
     extraBody?: Record<string, unknown>;
+    /**
+     * Send `max_completion_tokens` instead of `max_tokens`. Groq and the
+     * OpenAI o-series reject `max_tokens` with HTTP 400.
+     */
+    preferMaxCompletionTokens?: boolean;
+    /**
+     * Reasoning models: `max_completion_tokens` + `reasoning_effort`, and no
+     * `temperature` (they only accept 1). Detected from the model id unless
+     * this is set explicitly.
+     */
+    reasoning?: boolean;
+    /** Reasoning effort for reasoning models. */
+    reasoningEffort?: 'low' | 'medium' | 'high';
     /** Injectable for tests (retry pacing). */
     sleep?: (ms: number) => Promise<void>;
     random?: () => number;
+}
+
+/**
+ * Reasoning models answer in `reasoning_content` and reject `max_tokens`
+ * and `temperature`. Detected from the model id so an admin who picks such a
+ * model in the chain does not get a wall of HTTP 400s.
+ */
+export function isReasoningModel(model: string): boolean {
+    const id = String(model ?? '').toLowerCase();
+    if (/(^|[^a-z0-9])(o1|o3|o4|gpt-5)([^a-z0-9]|$)/.test(id)) return true;
+    return /deepseek-r1|qwq|reasoner|reasoning|thinking|qwen3/.test(id);
 }
 
 export function buildOpenAiMessages(request: LlmRequest) {
@@ -39,14 +64,25 @@ export function buildOpenAiBody(
     model: string,
     request: LlmRequest,
     extraBody: Record<string, unknown> = {},
+    policy: { reasoning?: boolean; preferMaxCompletionTokens?: boolean; reasoningEffort?: string } = {},
 ) {
-    return {
+    const reasoning = policy.reasoning ?? isReasoningModel(model);
+    const useMaxCompletionTokens = reasoning || policy.preferMaxCompletionTokens === true;
+    const body: Record<string, unknown> = {
         model,
-        temperature: 0,
-        max_tokens: request.maxTokens,
         messages: buildOpenAiMessages(request),
         ...extraBody,
     };
+    if (reasoning) {
+        // Reasoning models only accept temperature 1 and reject `max_tokens`.
+        body.max_completion_tokens = request.maxTokens;
+        body.reasoning_effort = policy.reasoningEffort ?? 'low';
+    } else {
+        body.temperature = 0;
+        if (useMaxCompletionTokens) body.max_completion_tokens = request.maxTokens;
+        else body.max_tokens = request.maxTokens;
+    }
+    return body;
 }
 
 export function mapOpenAiResult(json: unknown, fallbackModel: string): LlmResult {
@@ -56,12 +92,20 @@ export function mapOpenAiResult(json: unknown, fallbackModel: string): LlmResult
         model?: string;
     };
     const choice = data?.choices?.[0];
-    let text = choice?.message?.content;
-    if (Array.isArray(text)) {
-        text = text.map((part) => (part as { text?: string })?.text ?? '').join('');
-    }
-    if (typeof text !== 'string') {
-        throw new LlmError('PROVIDER_BAD_RESPONSE', 'Provider returned no message content', { retryable: false });
+    // Reasoning models leave `content` null and put the answer in
+    // `reasoning_content` / `reasoning`; a streaming answer arrives as
+    // `delta`. Accept every shape the providers use instead of reporting
+    // "no text" for a perfectly good answer.
+    const text = choiceText(choice);
+    if (text == null) {
+        const message = (choice as { message?: Record<string, unknown> } | undefined)?.message;
+        const messageKeys = message && typeof message === 'object' ? Object.keys(message).join(', ') || 'none' : 'none';
+        const choiceKeys = choice && typeof choice === 'object' ? Object.keys(choice).join(', ') || 'none' : 'none';
+        throw new LlmError(
+            'PROVIDER_BAD_RESPONSE',
+            `Provider returned no message content (choices: ${data?.choices?.length ?? 'none'}; choice: ${choiceKeys}; message: ${messageKeys})`,
+            { retryable: false },
+        );
     }
     return {
         text,
@@ -122,11 +166,16 @@ export function createOpenAiCompatibleProvider(options: OpenAiCompatibleOptions)
                 if (options.apiKey) headers.authorization = `Bearer ${options.apiKey}`;
 
                 let response: Response;
+                const body = buildOpenAiBody(options.model, request, options.extraBody, {
+                    reasoning: options.reasoning,
+                    preferMaxCompletionTokens: options.preferMaxCompletionTokens,
+                    reasoningEffort: options.reasoningEffort,
+                });
                 try {
                     response = await fetchImpl(url, {
                         method: 'POST',
                         headers,
-                        body: JSON.stringify(buildOpenAiBody(options.model, request, options.extraBody)),
+                        body: JSON.stringify(body),
                         signal: timeoutSignal(request.signal, timeoutMs),
                     });
                 } catch (err) {

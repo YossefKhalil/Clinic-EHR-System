@@ -36,6 +36,7 @@ async function encryptedRow(overrides = {}) {
         cloudflare_token_encrypted: await encryptSecret(SECRET, 'cf-token'),
         openai_base_url: 'http://localhost:11434/v1',
         openai_key_encrypted: null,
+        groq_key_encrypted: null,
         ...overrides,
     };
 }
@@ -133,6 +134,21 @@ describe('readAiChain', () => {
         expect(result.entries[0].apiKey).toBe('sk-or-test');
         expect(result.entries[1]).toMatchObject({ apiKey: 'cf-token', accountId: ACCOUNT });
         expect(result.entries[2]).toMatchObject({ apiKey: null, baseUrl: 'http://localhost:11434/v1' });
+    });
+
+    it('decrypts a Groq key and supplies its fixed OpenAI-compatible base URL', async () => {
+        const row = await encryptedRow({
+            groq_key_encrypted: await encryptSecret(SECRET, 'gsk-test'),
+            model_chain: [{ provider: 'groq', model: 'llama-3.3-70b-versatile' }],
+        });
+        const result = await readAiChain(row, SECRET);
+        expect(result.skipped).toEqual([]);
+        expect(result.entries[0]).toMatchObject({
+            provider: 'groq',
+            model: 'llama-3.3-70b-versatile',
+            apiKey: 'gsk-test',
+            baseUrl: 'https://api.groq.com/openai/v1',
+        });
     });
 
     it('skips an unready secondary but keeps the ready primary', async () => {
@@ -260,6 +276,7 @@ describe('providerHealth', () => {
             openrouter: true,
             cloudflare: true,
             openai: false,
+            groq: false,
         });
     });
 });

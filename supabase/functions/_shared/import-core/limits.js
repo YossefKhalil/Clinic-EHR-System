@@ -34,6 +34,11 @@ export const LIMITS = {
     // ---- Pump / leases (spec §9.5) ----
     PUMP_PARALLEL: 3,
     LEASE_SECONDS: 90,
+    // A lease must outlive the work it protects: one chunk can take
+    // `chain length × attempts × provider timeout`. A lease that expires
+    // while the provider is still working lets a second worker pick the same
+    // chunk up and bill the patient twice.
+    LEASE_SECONDS_MAX: 3_600,
     MAX_ATTEMPTS: 3,
 
     // ---- Extraction (spec §7) ----
@@ -95,6 +100,18 @@ export const LIMITS = {
 export function pumpParallelFor(provider, model, limits = LIMITS) {
     if (provider === 'openrouter' && /:free$/i.test(String(model ?? ''))) return 1;
     return limits.PUMP_PARALLEL;
+}
+
+/**
+ * The lease a chunk needs: long enough to cover the worst case of one chunk
+ * (every chain entry, every attempt, the full provider timeout) and short
+ * enough that a crashed worker is reclaimed in reasonable time.
+ */
+export function leaseSecondsFor(chainLength, limits = LIMITS) {
+    const worstCase = Math.ceil(
+        Math.max(1, chainLength) * limits.PROVIDER_MAX_ATTEMPTS * (limits.PROVIDER_TIMEOUT_MS / 1000),
+    );
+    return Math.min(limits.LEASE_SECONDS_MAX, Math.max(limits.LEASE_SECONDS, worstCase));
 }
 
 /** Keys a deployment may override through the `import_settings` row. */

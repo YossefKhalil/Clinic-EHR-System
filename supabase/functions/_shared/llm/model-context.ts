@@ -144,7 +144,7 @@ export async function resolveModelContext(
             context = await openRouterContext(entry, fetchImpl, signal);
         } else if (entry.provider === 'cloudflare') {
             context = await cloudflareContext(entry, fetchImpl, signal);
-        } else if (entry.provider === 'openai') {
+        } else if (entry.provider === 'openai' || entry.provider === 'groq') {
             context = await openAiContext(entry, fetchImpl, signal);
         }
     } catch {
