@@ -340,7 +340,10 @@ button.stat-link {
     top: calc(100% + 0.5rem);
     inset-inline-start: 0;
     z-index: 1045;
-    width: min(41rem, 100%);
+    /* The toolbar is now only as wide as the button: the panel takes its
+       width from the viewport, not from that wrapper. */
+    width: min(41rem, 92vw);
+    max-width: 92vw;
     padding: 1rem 1.1rem;
     background: #fff;
     border: 1px solid #dee2e6;
@@ -377,6 +380,26 @@ button.stat-link {
 .filter-panel-footer .filter-panel-reset,
 .filter-panel-footer .filter-panel-apply {
     min-width: 6.5rem;
+}
+
+/* The folded dashboard cards: one dense line with every number. */
+.stat-compact {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.45rem;
+    margin-block-start: 0.35rem;
+    padding-block-start: 0.35rem;
+    border-block-start: 1px solid rgba(0, 0, 0, 0.08);
+    font-size: 0.78rem;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+.stat-compact .sep {
+    color: rgba(0, 0, 0, 0.3);
 }
 
 /* Applied-filter chips */

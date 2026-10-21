@@ -201,12 +201,19 @@
                             </button>
                         </div>
 
-                        <!-- Folded: the same numbers in one line. -->
-                        <div class="d-flex flex-wrap align-items-center gap-3 small text-muted mt-2" x-show="!statsCardOpen" x-cloak>
+                        <!-- Folded: every number on one line. -->
+                        <div class="stat-compact text-muted" x-show="!statsCardOpen" x-cloak>
+                            <span><strong class="text-dark" x-text="stats.total"></strong> <span x-text="t('Total Patients')"></span></span>
+                            <span class="sep">·</span>
                             <span><strong class="text-success" x-text="stats.completed"></strong> <span x-text="t('Completed')"></span></span>
+                            <span class="sep">·</span>
                             <span><strong class="text-danger" x-text="stats.pending"></strong> <span x-text="t('Pending')"></span></span>
                             <template x-for="entry in sectionStatEntries()" :key="'fold-sec-' + entry.key">
-                                <span><strong :class="'text-' + sectionColor(entry.key)" x-text="entry.count"></strong> <span x-text="entry.label"></span></span>
+                                <span>
+                                    <span class="sep">·</span>
+                                    <strong :class="'text-' + sectionColor(entry.key)" x-text="entry.count"></strong>
+                                    <span x-text="entry.label"></span>
+                                </span>
                             </template>
                         </div>
 
@@ -270,13 +277,26 @@
                     </div>
                     <div class="card-body p-4">
 
-                        <!-- Folded: the same totals in one line. -->
-                        <div class="d-flex flex-wrap align-items-center gap-3 small" x-show="!financialCardOpen" x-cloak>
-                            <span class="fw-bold" x-text="formatMoney(priceStats?.grandTotal)"></span>
-                            <span class="text-muted" x-text="t('EGP')"></span>
-                            <span class="text-muted"><span x-text="priceStats?.totalPatients ?? 0"></span> <span x-text="t('patients')"></span></span>
-                            <template x-for="entry in sourceFinancialEntries()" :key="'fold-src-' + entry.key">
-                                <span class="text-muted"><span x-text="entry.label"></span>: <strong :class="'text-' + sourceColor(entry.key)" x-text="formatMoney(entry.total)"></strong></span>
+                        <!-- Folded: every total on one line. -->
+                        <div class="stat-compact text-muted" x-show="!financialCardOpen" x-cloak>
+                            <span><strong class="text-primary" x-text="formatMoney(priceStats?.grandTotal)"></strong> <span x-text="t('EGP')"></span></span>
+                            <span class="sep">·</span>
+                            <span><strong class="text-dark" x-text="priceStats?.totalPatients ?? 0"></strong> <span x-text="t('patients')"></span></span>
+                            <template x-for="entry in sectionFinancialEntries()" :key="'fold-fin-sec-' + entry.key">
+                                <span>
+                                    <span class="sep">·</span>
+                                    <strong :class="'text-' + sectionColor(entry.key)" x-text="formatMoney(entry.total)"></strong>
+                                    <span x-text="entry.label"></span>
+                                    <span x-text="'(' + entry.count + ')'"></span>
+                                </span>
+                            </template>
+                            <template x-for="entry in sourceFinancialEntries()" :key="'fold-fin-src-' + entry.key">
+                                <span>
+                                    <span class="sep">·</span>
+                                    <strong :class="'text-' + sourceColor(entry.key)" x-text="formatMoney(entry.total)"></strong>
+                                    <span x-text="entry.label"></span>
+                                    <span x-text="'(' + entry.count + ')'"></span>
+                                </span>
                             </template>
                         </div>
 
