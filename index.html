@@ -197,7 +197,7 @@
                                 <span x-text="t('Manage')"></span> <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>
                             </button>
                             <button type="button" class="btn btn-sm btn-link text-secondary p-1"
-                                @click="statsCardOpen = !statsCardOpen"
+                                @click="toggleStatsCard()"
                                 :aria-expanded="statsCardOpen ? 'true' : 'false'"
                                 :aria-label="statsCardOpen ? t('Collapse') : t('Expand')">
                                 <i class="bi" :class="statsCardOpen ? 'bi-chevron-up' : 'bi-chevron-down'" aria-hidden="true"></i>
@@ -271,7 +271,7 @@
                         <div class="d-flex align-items-center gap-2">
                             <span class="text-muted small" x-text="isSuperAdmin ? t('Financial summary across all patients') : t('Financial summary in your section')"></span>
                             <button type="button" class="btn btn-sm btn-link text-secondary p-1"
-                                @click="financialCardOpen = !financialCardOpen"
+                                @click="toggleFinancialCard()"
                                 :aria-expanded="financialCardOpen ? 'true' : 'false'"
                                 :aria-label="financialCardOpen ? t('Collapse') : t('Expand')">
                                 <i class="bi" :class="financialCardOpen ? 'bi-chevron-up' : 'bi-chevron-down'" aria-hidden="true"></i>

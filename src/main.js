@@ -170,7 +170,8 @@ function app() {
         settingsTab: 'options',
         // The patients table text size (a personal preference).
         patientTableFont: 0.9,
-        // The dashboard cards can be folded into one line.
+        // The dashboard cards can be folded into one line (the state is
+        // remembered in this browser).
         statsCardOpen: true,
         financialCardOpen: true,
         
@@ -298,6 +299,9 @@ function app() {
                 this.currentDate = this.formatToday();
                 this.patientTableFont = this.loadPatientTableFont();
                 this.applyBootstrapDirection();
+                const cards = this.loadCardState();
+                this.statsCardOpen = cards.stats;
+                this.financialCardOpen = cards.financial;
 
                 // Visual preview of the import review screen: `?mock=review`.
                 if (new URLSearchParams(window.location.search).get('mock') === 'review') {
@@ -578,6 +582,44 @@ function app() {
             } else if (!rtl && existing) {
                 existing.remove();
             }
+        },
+
+        // Whether the dashboard cards are folded is remembered per browser.
+        loadCardState() {
+            try {
+                const raw = localStorage.getItem('dashboardCards');
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    return {
+                        stats: parsed?.stats !== false,
+                        financial: parsed?.financial !== false,
+                    };
+                }
+            } catch {
+                // No storage (private mode): the default is fine.
+            }
+            return { stats: true, financial: true };
+        },
+
+        saveCardState() {
+            try {
+                localStorage.setItem('dashboardCards', JSON.stringify({
+                    stats: this.statsCardOpen,
+                    financial: this.financialCardOpen,
+                }));
+            } catch {
+                // No storage: the state lasts for this page only.
+            }
+        },
+
+        toggleStatsCard() {
+            this.statsCardOpen = !this.statsCardOpen;
+            this.saveCardState();
+        },
+
+        toggleFinancialCard() {
+            this.financialCardOpen = !this.financialCardOpen;
+            this.saveCardState();
         },
 
         // The table text size is remembered per browser.
