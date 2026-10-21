@@ -131,8 +131,11 @@ function app() {
         globalSearchDebounce: null,
         globalSearchRequestId: 0,
         
-        // Prices
+        // Financial summary (the retired Prices page lives here now, #15).
+        // A load failure is reported inline with a retry button instead of
+        // taking the whole dashboard down.
         priceStats: null,
+        priceStatsError: null,
 
         // AI import entry: the ai_settings flag (fail open) and the job the
         // "Continue import" dropdown item can resume.
@@ -141,9 +144,18 @@ function app() {
         // Every import of this account that is still open (the "Continue
         // import" entries in the drop-down, one per job).
         importOpenJobs: [],
+        // The drop-down shows three open imports; "see more" reveals the rest.
+        importJobsExpanded: false,
+        importJobsLimit: 3,
         
         // Users
         users: [],
+        usersLoading: false,
+        usersError: null,
+
+        // Settings tabs (#16): Clinic options / Users / AI & Import. Users are
+        // fetched when their tab is shown, not on every Settings entry.
+        settingsTab: 'options',
         
         // Governorates & editable options
         governorates: GOVERNORATES,
@@ -344,6 +356,40 @@ function app() {
             } catch {
                 this.importResumable = null;
                 this.importOpenJobs = [];
+            }
+        },
+
+        /** The open imports the drop-down shows (three, or all). */
+        get importVisibleJobs() {
+            const jobs = this.importOpenJobs ?? [];
+            return this.importJobsExpanded ? jobs : jobs.slice(0, this.importJobsLimit);
+        },
+
+        /**
+         * "Import from file or paste" always starts a NEW import: the wizard
+         * is reset, so the user never lands in the previous job.
+         */
+        async openNewImport() {
+            await this.navigate('import');
+            const wizard = window.__iaWizard;
+            if (wizard?.startNewImport) await wizard.startNewImport();
+        },
+
+        /** Cancel every open import of this account. */
+        async clearAllImports() {
+            const jobs = [...(this.importOpenJobs ?? [])];
+            try {
+                const { callJob } = await import('./features/import-agent/api.js');
+                for (const job of jobs) {
+                    try {
+                        await callJob('cancel', { job_id: job.id });
+                    } catch (error) {
+                        console.error('Cancel import failed:', job?.id, error);
+                    }
+                }
+            } finally {
+                this.importJobsExpanded = false;
+                await this.refreshImportResume();
             }
         },
 

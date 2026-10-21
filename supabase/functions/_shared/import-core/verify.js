@@ -324,9 +324,26 @@ export function deriveFields(cells, { today }) {
     } else if (currentAge !== null && currentAge !== undefined && currentAge !== '' && dob) {
         const computed = ageFromDob(dob, today);
         if (computed !== null && Math.abs(Number(currentAge) - computed) > 1) {
-            issues.push(issue('AGE_DOB_MISMATCH', {
-                field: 'age', detail: { age: currentAge, dob, computed },
-            }));
+            if (cells.age?.origin === 'user') {
+                // The reviewer typed the age: their own contradiction, they
+                // have to resolve it.
+                issues.push(issue('AGE_DOB_MISMATCH', {
+                    field: 'age', detail: { age: currentAge, dob, computed },
+                }));
+            } else if (cells.date_of_birth?.origin === 'derived') {
+                // The date of birth was read out of the national ID and the
+                // age came from the file. One of the two is wrong, but the
+                // system only guessed one of them: a quiet note, not a
+                // warning the reviewer has to clear.
+                issues.push(issue('AGE_NID_MISMATCH', {
+                    field: 'age', detail: { age: currentAge, dob, computed },
+                }));
+            } else {
+                // Both were written down: a real conflict.
+                issues.push(issue('AGE_DOB_MISMATCH', {
+                    field: 'age', detail: { age: currentAge, dob, computed },
+                }));
+            }
         }
     }
 

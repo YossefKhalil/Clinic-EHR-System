@@ -38,6 +38,7 @@ export const SEVERITY_BY_CODE = Object.freeze({
     DATE_TWO_DIGIT_YEAR: 'info',
     DOB_DERIVED_FROM_NID: 'info',
     AGE_DERIVED: 'info',
+    AGE_NID_MISMATCH: 'info',
     PRICE_RANGE: 'warn',
     ENUM_UNMATCHED: 'warn',
     ENUM_FUZZY: 'warn',

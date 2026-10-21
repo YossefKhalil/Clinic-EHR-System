@@ -215,6 +215,30 @@ describe('deriveFields', () => {
             .toMatchObject({ code: 'AGE_DOB_MISMATCH', field: 'age' });
     });
 
+    it('a conflict with a date of birth read from the national ID stays a quiet note', () => {
+        // The date of birth was decoded from the national ID, the age came
+        // from the file. The system only guessed one of them, so this is an
+        // information - and the written age is kept, not overwritten.
+        const cells = {
+            date_of_birth: { value: '2003-09-28', origin: 'derived', raw: '' },
+            age: cell(19),
+        };
+        const out = deriveFields(cells, { today: TODAY });
+        expect(codes(out)).toEqual(['AGE_NID_MISMATCH']);
+        expect(out.issues[0].severity).toBe('info');
+        expect(out.cells.age.value).toBe(19);
+    });
+
+    it('an age the reviewer typed against their own date of birth stays a warning', () => {
+        const cells = {
+            date_of_birth: cell('1998-05-15'),
+            age: { value: 26, origin: 'user', raw: '26' },
+        };
+        const out = deriveFields(cells, { today: TODAY });
+        expect(codes(out)).toEqual(['AGE_DOB_MISMATCH']);
+        expect(out.issues[0].severity).toBe('warn');
+    });
+
     it('flags a visit date before the birth date, but not an equal one', () => {
         const before = { date_of_birth: cell('1998-05-15'), visit_date: cell('1998-05-14') };
         expect(codes(deriveFields(before, { today: TODAY })))

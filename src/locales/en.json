@@ -277,6 +277,7 @@
   "importAgent.issue.DOB_TWO_DIGIT_YEAR": "A two-digit birth year was expanded to 20yy.",
   "importAgent.issue.DATE_TWO_DIGIT_YEAR": "A two-digit year was expanded to 20yy.",
   "importAgent.issue.DOB_DERIVED_FROM_NID": "The date of birth was taken from the national ID.",
+  "importAgent.issue.AGE_NID_MISMATCH": "The age (:age) does not match the date of birth that was taken from the national ID (:computed).",
   "importAgent.issue.AGE_DERIVED": "The age was calculated from the date of birth (:age).",
   "importAgent.issue.PRICE_RANGE": "The price :value is unusually high (over :threshold).",
   "importAgent.issue.ENUM_UNMATCHED": "\":raw\" matched none of the allowed options, left empty.",
@@ -634,5 +635,8 @@
   "aiSettings.limits.tokensPerMinute": "Provider tokens per minute",
   "aiSettings.limits.tokensPerMinuteHint": "The budget the pump respects. Default: :default.",
   "importAgent.wizard.openImports": "Imports you can continue",
-  "importAgent.progress.rounds": "Still working - a big file is extracted in rounds, the next one starts automatically."
+  "importAgent.progress.rounds": "Still working - a big file is extracted in rounds, the next one starts automatically.",
+  "importAgent.wizard.moreImports": "See :count more",
+  "importAgent.wizard.lessImports": "Show less",
+  "importAgent.wizard.clearAllImports": "Clear all imports"
 }

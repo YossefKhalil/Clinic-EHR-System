@@ -359,18 +359,10 @@
                                 <i class="bi bi-person-plus-fill me-1"></i> <span x-text="t('Add New Patient')"></span>
                             </button>
                             <button type="button" class="btn btn-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false" x-show="importEnabled" x-cloak :aria-label="t('Add New Patient')"></button>
-                            <ul class="dropdown-menu dropdown-menu-end" style="min-width:17rem">
-                                <li>
-                                    <button type="button" class="dropdown-item" @click="openPatientForm()">
-                                        <i class="bi bi-person-plus me-2"></i><span x-text="t('New Patient')"></span>
-                                    </button>
-                                </li>
-                                <template x-if="importEnabled">
-                                    <li><hr class="dropdown-divider"></li>
-                                </template>
+                            <ul class="dropdown-menu dropdown-menu-end" style="min-width:19rem">
                                 <template x-if="importEnabled">
                                     <li>
-                                        <button type="button" class="dropdown-item fw-semibold" @click="navigate('import')">
+                                        <button type="button" class="dropdown-item fw-semibold" @click="openNewImport()">
                                             <i class="bi bi-stars me-2 text-primary"></i><span x-text="t('Import from file or paste')"></span>
                                         </button>
                                     </li>
@@ -378,7 +370,7 @@
                                 <template x-if="importEnabled && importOpenJobs.length > 0">
                                     <li><hr class="dropdown-divider"></li>
                                 </template>
-                                <template x-for="job in (importEnabled ? importOpenJobs : [])" :key="job.id">
+                                <template x-for="job in (importEnabled ? importVisibleJobs : [])" :key="job.id">
                                     <li class="d-flex align-items-center gap-1 px-2">
                                         <button type="button" class="dropdown-item text-secondary flex-grow-1 text-start"
                                             @click="continueImport(job)">
@@ -389,6 +381,22 @@
                                         <button type="button" class="btn btn-sm btn-link text-danger text-decoration-none p-0 px-1"
                                             @click.stop="cancelImport(job)" :title="t('importAgent.wizard.cancel')" :aria-label="t('importAgent.wizard.cancel')">
                                             <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    </li>
+                                </template>
+                                <template x-if="importEnabled && importOpenJobs.length > 3">
+                                    <li>
+                                        <button type="button" class="dropdown-item text-secondary small" @click="importJobsExpanded = !importJobsExpanded">
+                                            <i class="bi bi-chevron-down me-2" x-show="!importJobsExpanded"></i>
+                                            <i class="bi bi-chevron-up me-2" x-show="importJobsExpanded"></i>
+                                            <span x-text="importJobsExpanded ? t('importAgent.wizard.lessImports') : t('importAgent.wizard.moreImports', { count: importOpenJobs.length - 3 })"></span>
+                                        </button>
+                                    </li>
+                                </template>
+                                <template x-if="importEnabled && importOpenJobs.length > 0">
+                                    <li>
+                                        <button type="button" class="dropdown-item text-danger small" @click="clearAllImports()">
+                                            <i class="bi bi-trash me-2"></i><span x-text="t('importAgent.wizard.clearAllImports')"></span>
                                         </button>
                                     </li>
                                 </template>
@@ -871,7 +879,7 @@
                                                                                             <label class="form-label fw-semibold">
                                                                                                 <span x-text="fieldLabel(field.key)"></span>
                                                                                                 <span class="text-danger" x-show="isRequiredField(field.key)">*</span>
-                                                                                                <small class="text-muted fw-normal" x-show="field.key === 'age'">(<span x-text="t('importAgent.review.record.auto')"></span>)</small>
+                                                                                                <small class="text-muted fw-normal" x-show="field.key === 'age' && isDerivedAge(row)">(<span x-text="t('importAgent.review.record.auto')"></span>)</small>
                                                                                             </label>
 
                                                                                             <template x-if="editorType(field.key) === 'select'">
@@ -911,8 +919,8 @@
                                                                                                         :value="drawerFieldValue(row, field.key)"
                                                                                                         @change="drawerFieldChange(row, field.key, $event.target.value)"
                                                                                                         :aria-label="fieldLabel(field.key)"></textarea>
-                                                                                                    <input x-show="!isLongField(field.key)" type="text" class="form-control" :class="[cellStateClass(row, field.key), field.key === 'age' ? 'bg-light' : '']"
-                                                                                                        :readonly="field.key === 'age'"
+                                                                                                    <input x-show="!isLongField(field.key)" type="text" class="form-control" :class="[cellStateClass(row, field.key), field.key === 'age' && isDerivedAge(row) ? 'bg-light' : '']"
+                                                                                                        :readonly="field.key === 'age' && isDerivedAge(row)"
                                                                                                         :value="drawerFieldValue(row, field.key)"
                                                                                                         @change="drawerFieldChange(row, field.key, $event.target.value)"
                                                                                                         :aria-label="fieldLabel(field.key)"
@@ -920,9 +928,7 @@
                                                                                                 </div>
                                                                                             </template>
 
-                                                                                            <div class="form-text text-warning-emphasis" x-show="field.key === 'mobile' && cellIssueList(row, field.key).length > 0"
-                                                                                                x-text="cellIssueList(row, field.key).join(' · ')"></div>
-                                                                                            <div class="form-text text-danger" x-show="field.key !== 'mobile' && cellIssueList(row, field.key).length > 0"
+                                                                                            <div class="form-text" :class="cellIssueClass(row, field.key)" x-show="cellIssueList(row, field.key).length > 0"
                                                                                                 x-text="cellIssueList(row, field.key).join(' · ')"></div>
                                                                                         </div>
                                                                                     </template>
@@ -1156,7 +1162,7 @@
                                                                                             <label class="form-label fw-semibold">
                                                                                                 <span x-text="fieldLabel(field.key)"></span>
                                                                                                 <span class="text-danger" x-show="isRequiredField(field.key)">*</span>
-                                                                                                <small class="text-muted fw-normal" x-show="field.key === 'age'">(<span x-text="t('importAgent.review.record.auto')"></span>)</small>
+                                                                                                <small class="text-muted fw-normal" x-show="field.key === 'age' && isDerivedAge(row)">(<span x-text="t('importAgent.review.record.auto')"></span>)</small>
                                                                                             </label>
 
                                                                                             <template x-if="editorType(field.key) === 'select'">
@@ -1196,8 +1202,8 @@
                                                                                                         :value="drawerFieldValue(row, field.key)"
                                                                                                         @change="drawerFieldChange(row, field.key, $event.target.value)"
                                                                                                         :aria-label="fieldLabel(field.key)"></textarea>
-                                                                                                    <input x-show="!isLongField(field.key)" type="text" class="form-control" :class="[cellStateClass(row, field.key), field.key === 'age' ? 'bg-light' : '']"
-                                                                                                        :readonly="field.key === 'age'"
+                                                                                                    <input x-show="!isLongField(field.key)" type="text" class="form-control" :class="[cellStateClass(row, field.key), field.key === 'age' && isDerivedAge(row) ? 'bg-light' : '']"
+                                                                                                        :readonly="field.key === 'age' && isDerivedAge(row)"
                                                                                                         :value="drawerFieldValue(row, field.key)"
                                                                                                         @change="drawerFieldChange(row, field.key, $event.target.value)"
                                                                                                         :aria-label="fieldLabel(field.key)"
@@ -1205,9 +1211,7 @@
                                                                                                 </div>
                                                                                             </template>
 
-                                                                                            <div class="form-text text-warning-emphasis" x-show="field.key === 'mobile' && cellIssueList(row, field.key).length > 0"
-                                                                                                x-text="cellIssueList(row, field.key).join(' · ')"></div>
-                                                                                            <div class="form-text text-danger" x-show="field.key !== 'mobile' && cellIssueList(row, field.key).length > 0"
+                                                                                            <div class="form-text" :class="cellIssueClass(row, field.key)" x-show="cellIssueList(row, field.key).length > 0"
                                                                                                 x-text="cellIssueList(row, field.key).join(' · ')"></div>
                                                                                         </div>
                                                                                     </template>

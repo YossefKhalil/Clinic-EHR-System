@@ -634,5 +634,9 @@
   "aiSettings.limits.tokensPerMinute": "رموز المزوّد في الدقيقة",
   "aiSettings.limits.tokensPerMinuteHint": "الميزانية التي يلتزم بها الضخ. الافتراضي: :default.",
   "importAgent.wizard.openImports": "استيرادات يمكنك استئنافها",
-  "importAgent.progress.rounds": "ما زال يعمل - يُستخرج الملف الكبير على جولات، وتبدأ الجولة التالية تلقائيًا."
+  "importAgent.progress.rounds": "ما زال يعمل - يُستخرج الملف الكبير على جولات، وتبدأ الجولة التالية تلقائيًا.",
+  "importAgent.wizard.moreImports": "عرض :count أخرى",
+  "importAgent.wizard.lessImports": "عرض أقل",
+  "importAgent.wizard.clearAllImports": "مسح كل الاستيرادات",
+  "importAgent.issue.AGE_NID_MISMATCH": "السن (:age) لا يطابق تاريخ الميلاد المستخرج من الرقم القومي (:computed)."
 }

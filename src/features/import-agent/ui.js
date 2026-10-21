@@ -563,6 +563,33 @@ export function importAgentWizard() {
         },
 
         // ------------------------------------------------------ resume
+        /**
+         * Start a NEW import: everything of the previous one is dropped, so
+         * "Import from file or paste" never continues an old job.
+         */
+        async startNewImport() {
+            this.step = 'add';
+            this.job = null;
+            this.jobStatus = '';
+            this.reviewState = null;
+            this.files = [];
+            this.pastedText = '';
+            this.hints = '';
+            this.section = '';
+            this.showMore = false;
+            this.banners = [];
+            this.errorBanner = null;
+            this.progress = { done: 0, total: 0, failed: 0, truncated: 0, nextLabel: '', tokens: null };
+            this.selected = [];
+            this.expandedRowId = null;
+            this.strip = null;
+            this.confirmStripOpen = false;
+            this.pumpFailed = false;
+            this.pumpError = null;
+            this.cancelRequested = true;
+            await this.loadOpenJobs();
+        },
+
         /** The imports of this account that are still open, newest first. */
         async loadOpenJobs() {
             try {
@@ -1130,6 +1157,28 @@ export function importAgentWizard() {
 
         cellIssueList(row, fieldKey) {
             return dedupeIssues(review.cellIssues(row, fieldKey)).map((issue) => this.issueMessage(issue));
+        },
+
+        /**
+         * The colour of a cell's issues: an error is red, a warning amber and
+         * an information quiet. Everything red made a note like "the date of
+         * birth was taken from the national ID" look like a failure.
+         */
+        cellIssueClass(row, fieldKey) {
+            const state = review.cellState(row, fieldKey);
+            if (state.severity === 'error') return 'text-danger';
+            if (state.severity === 'warn') return 'text-warning-emphasis';
+            return 'text-muted';
+        },
+
+        /** Where a cell's value comes from: extracted, derived, default, user. */
+        cellOrigin(row, fieldKey) {
+            return row?.cells?.[fieldKey]?.origin ?? null;
+        },
+
+        /** The age is only read-only while it is the derived one. */
+        isDerivedAge(row) {
+            return this.cellOrigin(row, 'age') === 'derived';
         },
 
         cellStateClass(row, fieldKey) {
