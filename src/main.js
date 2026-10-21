@@ -510,6 +510,9 @@ function app() {
             if (page === 'settings' && !this.isSuperAdmin) return;
             // The import entry is hidden when the ai_settings flag is off.
             if (page === 'import' && !this.importEnabled) return;
+            // Retired pages (#15, #16): the financial summary lives on the
+            // dashboard, and user management inside Settings.
+            if (page === 'prices' || page === 'users' || page === 'user-form') return;
             if (page !== 'patients') this.closeGlobalSearch();
             this.currentPage = page;
             this.closeMobileNav();
@@ -519,8 +522,6 @@ function app() {
                     await this.loadPatients();
                     this.refreshImportResume();
                 }
-                if (page === 'prices') await this.showPrices();
-                if (page === 'users') await this.loadUsers();
                 if (page === 'settings') await this.showSettings();
                 if (page === 'import') await importAgentEnter();
             } catch (error) {
@@ -537,13 +538,54 @@ function app() {
         async showDashboard() {
             if (!this.isLoggedIn) return;
             const section = this.profile?.section || null;
-            this.stats = await getDashboardStats(this.isSuperAdmin, section);
-            this.recentPatients = await getRecentPatients(this.isSuperAdmin, section);
+            // One navigation pass: stats, recent patients and the financial
+            // summary load in parallel (#15), so the dashboard never makes a
+            // duplicate prices request. Stats/table failures keep the old
+            // behavior (bubble up to the caller); a financial-summary failure
+            // is contained inside its own card (warning + retry).
+            const [_summary, stats, recent] = await Promise.allSettled([
+                this.isSuperAdmin ? this.loadPriceStats() : Promise.resolve(null),
+                getDashboardStats(this.isSuperAdmin, section),
+                getRecentPatients(this.isSuperAdmin, section),
+            ]);
+            if (stats.status === 'fulfilled') this.stats = stats.value;
+            if (recent.status === 'fulfilled') this.recentPatients = recent.value;
+            if (stats.status === 'rejected') throw stats.reason;
+            if (recent.status === 'rejected') throw recent.reason;
         },
-        
-        async showPrices() {
-            if (!this.isLoggedIn) return;
-            this.priceStats = await getPriceStats(this.isSuperAdmin, this.profile?.section);
+
+        // The financial summary never throws: a failure is shown inside the
+        // card with a retry action while the rest of the dashboard stays up.
+        // Super-admin-only, matching the nav entry of the page it replaced.
+        async loadPriceStats() {
+            if (!this.isLoggedIn || !this.isSuperAdmin) return;
+            try {
+                this.priceStats = await getPriceStats(this.isSuperAdmin, this.profile?.section);
+                this.priceStatsError = null;
+            } catch (error) {
+                console.error('Financial summary load failed:', error);
+                this.priceStatsError = true;
+            }
+        },
+
+        // Compact rows for the dashboard financial card, keeping the same
+        // values, labels and formatting the Prices page showed.
+        financialEntries(kind, totals) {
+            return Object.entries(totals || {}).map(([key, data]) => ({
+                key,
+                label: lookupOptionLabel(kind, key),
+                count: data?.count ?? 0,
+                total: data?.total ?? 0,
+            }));
+        },
+        sectionFinancialEntries() {
+            return this.financialEntries('section', this.priceStats?.sectionTotals);
+        },
+        sourceFinancialEntries() {
+            return this.financialEntries('source', this.priceStats?.sourceTotals);
+        },
+        hasFinancialData() {
+            return (this.priceStats?.totalPatients ?? 0) > 0;
         },
         
         // ---- Editable options (issue #1) ------------------------------------
@@ -617,6 +659,37 @@ function app() {
                 // must not hide the provider settings.
                 await this.loadImportLimits();
             }
+            // Coming back to Settings with the Users tab already selected
+            // refreshes its list; opening the tab refetches as well.
+            if (this.settingsTab === 'users') await this.loadUsers();
+        },
+        
+        // Tabs at the top of Settings (#16): Clinic options, Users, AI & Import.
+        async openSettingsTab(tab) {
+            this.settingsTab = tab;
+            // The user list is fetched when its tab is shown.
+            if (tab === 'users') await this.loadUsers();
+        },
+        
+        // Keyboard support for the tablist (ARIA tabs). RTL flips the visual
+        // direction per the ARIA authoring practices.
+        settingsTabKeydown(event) {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const tabs = ['options', 'users', 'ai'];
+            const index = tabs.indexOf(this.settingsTab);
+            const forwardKey = document.documentElement.dir === 'rtl' ? 'ArrowLeft' : 'ArrowRight';
+            let next = index;
+            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                next = (index + (event.key === forwardKey ? 1 : -1) + tabs.length) % tabs.length;
+            } else if (event.key === 'Home') {
+                next = 0;
+            } else if (event.key === 'End') {
+                next = tabs.length - 1;
+            }
+            if (next === index) return;
+            this.openSettingsTab(tabs[next]);
+            document.getElementById(`settings-tab-${tabs[next]}`)?.focus();
         },
         
         // Editable working copies so typing never writes through until Save.
@@ -1238,8 +1311,22 @@ function app() {
         },
         
         async loadUsers() {
-            const { getUsers } = await import('./services/users.js');
-            this.users = await getUsers();
+            // The Users tab only exists inside Settings, which no non-admin
+            // can open; this also keeps stale state from loading the list.
+            if (!this.isSuperAdmin) return;
+            this.usersError = null;
+            this.usersLoading = true;
+            try {
+                const { getUsers } = await import('./services/users.js');
+                this.users = await getUsers();
+            } catch (error) {
+                console.error('User list load failed:', error);
+                // The message lands in the tab with a retry action instead of
+                // leaving a blank table.
+                this.usersError = error.message || this.t('Could not load the user list.');
+            } finally {
+                this.usersLoading = false;
+            }
         },
         
         async loadPatients() {
@@ -1665,13 +1752,26 @@ function app() {
         openUserForm() {
             this.editingUser = null;
             this.userForm = { name: '', email: '', password: '', is_admin: false, section: '' };
-            this.currentPage = 'user-form';
+            // Create/edit is a Bootstrap modal over Settings → Users (#16) so
+            // the table stays visible behind the form.
+            this.showUserFormModal();
         },
         
         editUser(u) {
             this.editingUser = u;
-            this.userForm = { name: u.name, email: u.email, password: '', is_admin: !!u.is_admin, section: u.section || '' };
-            this.currentPage = 'user-form';
+            this.userForm = { name: u.name || '', email: u.email || '', password: '', is_admin: !!u.is_admin, section: u.section || '' };
+            this.showUserFormModal();
+        },
+        
+        showUserFormModal() {
+            bootstrapBundle?.Modal?.getOrCreateInstance(document.getElementById('userFormModal'))?.show();
+        },
+        
+        closeUserForm() {
+            bootstrapBundle?.Modal?.getOrCreateInstance(document.getElementById('userFormModal'))?.hide();
+            // A fresh form for the next open (openUserForm/editUser set the
+            // real values; this just clears the modal's leftovers).
+            this.userForm = { name: '', email: '', password: '', is_admin: false, section: '' };
         },
         
         async submitUserForm() {
@@ -1684,7 +1784,9 @@ function app() {
                     await createUser(this.userForm);
                     this.showAlert(this.t('user created successfully'));
                 }
-                this.currentPage = 'users';
+                // The modal closes on success only, so a failed save stays open
+                // with its alert; the admin remains on Settings → Users.
+                this.closeUserForm();
                 await this.loadUsers();
             } catch (error) {
                 this.showAlert(error.message || 'Error saving user', 'danger');

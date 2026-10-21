@@ -410,3 +410,46 @@ i.bi {
         margin-inline-start: 0;
     }
 }
+
+/*
+ * Dashboard financial summary (#15) — compact per-section/per-source rows.
+ * Entries wrap into an auto-fit grid (two columns when the card has room)
+ * and fall back to one column on small screens.
+ */
+.fin-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+    gap: 0.5rem;
+}
+
+.fin-entry {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid rgba(var(--bs-body-color-rgb), 0.1);
+    border-radius: 0.5rem;
+}
+
+.fin-entry-label {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+/* Direction-aware money column: sits at the reading-direction row end and
+   keeps its left/right alignment consistent in RTL. */
+.fin-entry-total {
+    flex: 0 0 auto;
+    text-align: end;
+    margin-inline-start: auto;
+}
+
+/*
+ * Settings user management (#16) — the edit/delete buttons are the only row
+ * actions in the app, so give them a comfortable touch target in the table.
+ */
+.settings-user-table .btn {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+}

@@ -64,13 +64,12 @@ The application is deliberately serverless. The frontend is a static Vite build 
 ### Search and reporting
 
 - **Global search** across every patient field, with Arabic-aware normalization and fuzzy matching. Results support full keyboard navigation.
-- **Dashboard** with total, completed, and pending counts, section and source breakdowns, and a recent-patients table.
-- **Price reporting** by section and funding source.
+- **Dashboard** with total, completed, and pending counts, section and source breakdowns, a financial summary (grand total, by section, by funding source), and a recent-patients table.
 - **Excel export** of the current patient list. SheetJS is loaded only when an export is requested.
 
 ### Administration
 
-- **User management** through the `manage-user` Edge Function: create, edit, and remove users, assign administrator rights, and set section access.
+- **User management** inside Settings through the `manage-user` Edge Function: create, edit, and remove users, assign administrator rights, and set section access.
 - **Editable option lists** for followers, sections, and funding sources, with English and Arabic labels and an active/inactive state. Changes apply without a redeploy.
 - **AI import settings** for administrators: provider credentials, an ordered model fallback chain, the feature flag, and import quotas.
 
@@ -311,7 +310,7 @@ set is_admin = true
 where email = 'you@example.com';
 ```
 
-Administrators can then assign roles and sections from the Users page.
+Administrators can then assign roles and sections from Settings.
 
 ### 6. Run locally
 
@@ -424,7 +423,7 @@ CI runs lint, the registry check, coverage, and the production build on every pu
 
 ### Stable
 
-- Patient registry, profiles, attachments, global search, dashboard, price reporting, and Excel export.
+- Patient registry, profiles, attachments, global search, dashboard with financial summary, and Excel export.
 - User management, section-scoped access, and editable option lists.
 - Complete English/Arabic interface with RTL support.
 

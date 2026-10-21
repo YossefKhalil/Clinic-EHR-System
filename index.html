@@ -76,16 +76,6 @@
                                 <i class="bi bi-speedometer2 me-1"></i><span x-text="t('Dashboard')"></span>
                             </span>
                         </li>
-                        <li class="nav-item" x-show="isSuperAdmin">
-                            <span class="nav-link" :class="{ 'active fw-semibold': currentPage === 'users' }" @click="navigate('users')" style="cursor:pointer">
-                                <i class="bi bi-person-badge me-1"></i><span x-text="t('Users')"></span>
-                            </span>
-                        </li>
-                        <li class="nav-item" x-show="isSuperAdmin">
-                            <span class="nav-link" :class="{ 'active fw-semibold': currentPage === 'prices' }" @click="navigate('prices')" style="cursor:pointer">
-                                <i class="bi bi-currency-dollar me-1"></i><span x-text="t('Prices')"></span>
-                            </span>
-                        </li>
                         <li class="nav-item">
                             <span class="nav-link" :class="{ 'active fw-semibold': currentPage === 'patients' }" @click="navigate('patients')" style="cursor:pointer">
                                 <i class="bi bi-people me-1"></i><span x-text="t('Patients')"></span>
@@ -289,6 +279,106 @@
                         </div>
                     </div>
 
+                </div>
+
+                <!-- Financial Summary (super admin): the Prices page (#15) merged into the dashboard -->
+                <div class="card border-0 shadow-sm mb-4" x-show="isSuperAdmin" x-cloak>
+                    <div class="card-header bg-white border-bottom py-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
+                        <h5 class="mb-0 fw-semibold"><i class="bi bi-currency-dollar me-2 text-primary"></i><span x-text="t('Financial Summary')"></span></h5>
+                        <span class="text-muted small" x-text="t('Financial summary across all patients')"></span>
+                    </div>
+                    <div class="card-body p-4">
+                        <!-- A failed summary request never takes the dashboard down: warning + retry. -->
+                        <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2 mb-0" x-show="priceStatsError">
+                            <i class="bi bi-exclamation-triangle-fill"></i>
+                            <span x-text="t('The financial summary could not be loaded.')"></span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" @click="loadPriceStats()" x-text="t('Retry')"></button>
+                        </div>
+
+                        <!-- Loading state -->
+                        <div class="text-center text-muted py-3" x-show="!priceStatsError && !priceStats">
+                            <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+                            <span x-text="t('Loading the financial summary...')"></span>
+                        </div>
+
+                        <!-- Empty state: nothing priced yet -->
+                        <div class="text-center text-muted py-3" x-show="priceStats && !hasFinancialData()">
+                            <i class="bi bi-cash-stack fs-2 d-block mb-2"></i>
+                            <span x-text="t('No financial data recorded yet.')"></span>
+                        </div>
+
+                        <!-- Grand total, By Section, By Source of Money -->
+                        <div class="row g-4" x-show="hasFinancialData()">
+                            <div class="col-lg-4">
+                                <div class="card h-100 border-0 bg-primary text-white shadow-sm">
+                                    <div class="card-body d-flex align-items-center gap-3 p-4">
+                                        <i class="bi bi-cash-stack fs-2"></i>
+                                        <div>
+                                            <div class="small opacity-75" x-text="t('Grand Total')"></div>
+                                            <div class="fs-4 fw-bold"><span x-text="formatMoney(priceStats?.grandTotal)"></span> <span class="small fw-normal opacity-75" x-text="t('EGP')"></span></div>
+                                            <div class="small opacity-75"><span x-text="priceStats?.totalPatients ?? 0"></span> <span x-text="t('patients')"></span></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-lg-4">
+                                <div class="card h-100 border-0 shadow-sm">
+                                    <div class="card-body p-0">
+                                        <h6 class="fw-semibold text-secondary px-3 py-3 mb-0 border-bottom d-flex align-items-center gap-2">
+                                            <i class="bi bi-building text-primary"></i><span x-text="t('By Section')"></span>
+                                        </h6>
+                                        <div class="fin-summary-grid p-2">
+                                            <template x-for="entry in sectionFinancialEntries()" :key="'fin-sec-' + entry.key">
+                                                <div class="fin-entry">
+                                                    <div class="rounded-circle d-flex align-items-center justify-content-center text-white flex-shrink-0" :class="'bg-' + sectionColor(entry.key)" style="width:32px;height:32px;">
+                                                        <i class="bi" :class="sectionIcon(entry.key)"></i>
+                                                    </div>
+                                                    <div class="fin-entry-label">
+                                                        <div class="fw-semibold text-truncate" x-text="entry.label"></div>
+                                                        <div class="small text-muted"><span x-text="entry.count"></span> <span x-text="t('patients')"></span></div>
+                                                    </div>
+                                                    <div class="fin-entry-total">
+                                                        <div class="fw-bold" :class="'text-' + sectionColor(entry.key)" x-text="formatMoney(entry.total)"></div>
+                                                        <div class="small text-muted" x-text="t('EGP')"></div>
+                                                    </div>
+                                                </div>
+                                            </template>
+                                            <div class="small text-muted px-2 py-2" x-show="sectionFinancialEntries().length === 0" x-text="t('No financial data recorded yet.')"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-lg-4">
+                                <div class="card h-100 border-0 shadow-sm">
+                                    <div class="card-body p-0">
+                                        <h6 class="fw-semibold text-secondary px-3 py-3 mb-0 border-bottom d-flex align-items-center gap-2">
+                                            <i class="bi bi-wallet2 text-primary"></i><span x-text="t('By Source of Money')"></span>
+                                        </h6>
+                                        <div class="fin-summary-grid p-2">
+                                            <template x-for="entry in sourceFinancialEntries()" :key="'fin-src-' + entry.key">
+                                                <div class="fin-entry">
+                                                    <div class="rounded-circle d-flex align-items-center justify-content-center text-white flex-shrink-0" :class="'bg-' + sourceColor(entry.key)" style="width:32px;height:32px;">
+                                                        <i class="bi" :class="sourceIcon(entry.key)"></i>
+                                                    </div>
+                                                    <div class="fin-entry-label">
+                                                        <div class="fw-semibold text-truncate" x-text="entry.label"></div>
+                                                        <div class="small text-muted"><span x-text="entry.count"></span> <span x-text="t('patients')"></span></div>
+                                                    </div>
+                                                    <div class="fin-entry-total">
+                                                        <div class="fw-bold" :class="'text-' + sourceColor(entry.key)" x-text="formatMoney(entry.total)"></div>
+                                                        <div class="small text-muted" x-text="t('EGP')"></div>
+                                                    </div>
+                                                </div>
+                                            </template>
+                                            <div class="small text-muted px-2 py-2" x-show="sourceFinancialEntries().length === 0" x-text="t('No financial data recorded yet.')"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Recent Patients -->
@@ -1749,167 +1839,34 @@
                 </style>
             </div>
 
-            <!-- PRICES PAGE -->
-            <div x-show="currentPage === 'prices'" x-cloak>
-                <div class="row mb-4 align-items-center">
-                    <div class="col">
-                        <h2 class="fw-bold text-dark mb-0">
-                            <i class="bi bi-currency-dollar me-2 text-primary"></i><span x-text="t('Prices')"></span>
-                        </h2>
-                        <p class="text-muted mb-0 mt-1" x-text="t('Financial summary across all patients')"></p>
-                    </div>
-                    <div class="col-auto">
-                        <div class="card border-0 bg-primary text-white shadow-sm px-4 py-3">
-                            <div class="d-flex align-items-center gap-3">
-                                <i class="bi bi-cash-stack fs-2"></i>
-                                <div>
-                                    <div class="small opacity-75" x-text="t('Grand Total')"></div>
-                                    <div class="fs-4 fw-bold"><span x-text="formatMoney(priceStats?.grandTotal)"></span> <span x-text="t('EGP')"></span></div>
-                                    <div class="small opacity-75"><span x-text="priceStats?.totalPatients || 0"></span> <span x-text="t('patients')"></span></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="bg-white rounded-3 shadow-sm border p-4 mb-4">
-                    <h5 class="fw-semibold text-secondary mb-4 pb-2 border-bottom">
-                        <i class="bi bi-building me-2 text-primary"></i><span x-text="t('By Section')"></span>
-                    </h5>
-                    <div class="row g-4">
-                        <template x-for="(data, key) in (priceStats?.sectionTotals || {})" :key="key">
-                            <div class="col-md-6">
-                                <div class="card h-100 shadow-sm border-0" :style="'border-top: 4px solid var(--bs-' + sectionColor(key) + ') !important;'">
-                                    <div class="card-header border-0 d-flex align-items-center gap-3 py-3" :class="'bg-' + sectionColor(key) + ' bg-opacity-10'">
-                                        <div class="rounded-circle d-flex align-items-center justify-content-center text-white flex-shrink-0" :class="'bg-' + sectionColor(key)" style="width:44px;height:44px;">
-                                            <i class="bi fs-5" :class="sectionIcon(key)"></i>
-                                        </div>
-                                        <div>
-                                            <div class="fw-bold fs-5 lh-1" x-text="optionLabel('section', key)"></div>
-                                            <div class="text-muted small mt-1"><span x-text="data.count"></span> <span x-text="t('patients')"></span></div>
-                                        </div>
-                                    </div>
-                                    <div class="card-body px-4 py-3">
-                                        <div class="text-muted small mb-1" x-text="t('Total Revenue')"></div>
-                                        <div class="fw-bold display-6 lh-1" :class="'text-' + sectionColor(key)">
-                                            <span x-text="formatMoney(data.total)"></span>
-                                            <span class="fs-6 fw-normal text-muted ms-1" x-text="t('EGP')"></span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                </div>
-
-                <div class="bg-white rounded-3 shadow-sm border p-4 mb-4">
-                    <h5 class="fw-semibold text-secondary mb-4 pb-2 border-bottom">
-                        <i class="bi bi-wallet2 me-2 text-primary"></i><span x-text="t('By Source of Money')"></span>
-                    </h5>
-                    <div class="row g-4">
-                        <template x-for="(data, key) in (priceStats?.sourceTotals || {})" :key="key">
-                            <div class="col-md-6">
-                                <div class="card h-100 shadow-sm border-0" :style="'border-top: 4px solid var(--bs-' + sourceColor(key) + ') !important;'">
-                                    <div class="card-header border-0 d-flex align-items-center gap-3 py-3" :class="'bg-' + sourceColor(key) + ' bg-opacity-10'">
-                                        <div class="rounded-circle d-flex align-items-center justify-content-center text-white flex-shrink-0" :class="'bg-' + sourceColor(key)" style="width:44px;height:44px;">
-                                            <i class="bi fs-5" :class="sourceIcon(key)"></i>
-                                        </div>
-                                        <div>
-                                            <div class="fw-bold fs-5 lh-1" x-text="optionLabel('source', key)"></div>
-                                            <div class="text-muted small mt-1"><span x-text="data.count"></span> <span x-text="t('patients')"></span></div>
-                                        </div>
-                                    </div>
-                                    <div class="card-body px-4 py-3">
-                                        <div class="text-muted small mb-1" x-text="t('Total Revenue')"></div>
-                                        <div class="fw-bold display-6 lh-1" :class="'text-' + sourceColor(key)">
-                                            <span x-text="formatMoney(data.total)"></span>
-                                            <span class="fs-6 fw-normal text-muted ms-1" x-text="t('EGP')"></span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                </div>
-            </div>
-
-            <!-- USERS PAGE -->
-            <div x-show="currentPage === 'users'" x-cloak>
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <h2 class="text-secondary fw-bold"><i class="bi bi-people-fill me-2 text-primary"></i><span x-text="t('Users Management')"></span></h2>
-                    </div>
-                    <div class="col-md-6 text-end">
-                        <button class="btn btn-success" @click="openUserForm()">
-                            <i class="bi bi-person-plus-fill me-1"></i> <span x-text="t('Create New User')"></span>
-                        </button>
-                    </div>
-                </div>
-
-                <div class="card shadow-sm border-0">
-                    <div class="card-body p-0">
-                        <div class="table-responsive">
-                            <table class="table table-hover align-middle mb-0">
-                                <thead class="table-primary text-white">
-                                    <tr>
-                                        <th class="ps-4" x-text="t('Name')"></th>
-                                        <th x-text="t('Email')"></th>
-                                        <th x-text="t('Role')"></th>
-                                        <th x-text="t('Section')"></th>
-                                        <th class="text-end pe-4" x-text="t('Actions')"></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <template x-for="u in users" :key="u.id">
-                                        <tr>
-                                            <td class="ps-4 fw-semibold" x-text="u.name"></td>
-                                            <td x-text="u.email"></td>
-                                            <td>
-                                                <span class="badge rounded-pill px-2" :class="u.is_admin ? 'bg-danger' : 'bg-secondary'">
-                                                    <span x-text="u.is_admin ? t('Admin') : t('Staff')"></span>
-                                                </span>
-                                            </td>
-                                            <td>
-                                                <template x-if="u.section">
-                                                    <span x-text="optionLabel('section', u.section)"></span>
-                                                </template>
-                                                <template x-if="!u.section">
-                                                    <span></span>
-                                                </template>
-                                            </td>
-                                            <td class="text-end pe-4">
-                                                <div class="btn-group" role="group">
-                                                    <button class="btn btn-sm btn-outline-primary" @click="editUser(u)">
-                                                        <i class="bi bi-pencil-square"></i>
-                                                    </button>
-                                                    <button class="btn btn-sm btn-outline-danger" @click="removeUser(u)">
-                                                        <i class="bi bi-trash"></i>
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    </template>
-                                    <tr x-show="users.length === 0">
-                                        <td colspan="5" class="text-center py-4 text-muted" x-text="t('No users found.')"></td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
             <!-- SETTINGS PAGE (Super Admin only) -->
             <div x-show="currentPage === 'settings'" x-cloak>
                 <div class="row mb-3">
                     <div class="col-12">
                         <h2 class="text-secondary fw-bold"><i class="bi bi-gear-fill me-2 text-primary"></i><span x-text="t('Settings')"></span></h2>
-                        <p class="text-muted mb-0" x-text="t('These lists feed the patient form, filters, dashboard and Excel export. Deactivating an option hides it from new selections while existing patients keep their value.')"></p>
+                        <p class="text-muted mb-0" x-text="t('Manage clinic option lists, user accounts, and AI import settings.')"></p>
                     </div>
                 </div>
 
-                <!-- Editable option lists -->
-                <template x-for="kind in optionKinds" :key="kind">
+                <!-- Settings tabs (#16): Clinic options, Users, AI & Import -->
+                <ul class="nav nav-tabs mb-4" role="tablist" @keydown="settingsTabKeydown($event)">
+                    <li class="nav-item" role="presentation">
+                        <button type="button" id="settings-tab-options" class="nav-link" :class="{ active: settingsTab === 'options' }" role="tab" :aria-selected="settingsTab === 'options' ? 'true' : 'false'" aria-controls="settings-panel-options" @click="openSettingsTab('options')" x-text="t('Clinic Options')"></button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button type="button" id="settings-tab-users" class="nav-link" :class="{ active: settingsTab === 'users' }" role="tab" :aria-selected="settingsTab === 'users' ? 'true' : 'false'" aria-controls="settings-panel-users" @click="openSettingsTab('users')" x-text="t('Users')"></button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button type="button" id="settings-tab-ai" class="nav-link" :class="{ active: settingsTab === 'ai' }" role="tab" :aria-selected="settingsTab === 'ai' ? 'true' : 'false'" aria-controls="settings-panel-ai" @click="openSettingsTab('ai')" x-text="t('AI &amp; Import')"></button>
+                    </li>
+                </ul>
+
+                <!-- Clinic Options tab -->
+                <div id="settings-panel-options" role="tabpanel" aria-labelledby="settings-tab-options" x-show="settingsTab === 'options'" tabindex="0">
+                    <p class="text-muted small" x-text="t('These lists feed the patient form, filters, dashboard and Excel export. Deactivating an option hides it from new selections while existing patients keep their value.')"></p>
+
+                    <!-- Editable option lists -->
+                    <template x-for="kind in optionKinds" :key="kind">
                     <div class="card shadow-sm border-0 mb-4">
                         <div class="card-header bg-white py-3 d-flex align-items-center">
                             <i class="bi me-2 text-primary fs-5" :class="optionKindIcon(kind)"></i>
@@ -1964,8 +1921,94 @@
                         </div>
                     </div>
                 </template>
-                <!-- AI Import settings (super admin) -->
-                <div class="card shadow-sm border-0 mb-4" x-show="isSuperAdmin" x-cloak>
+                </div>
+
+                <!-- Users tab (#16): the Users page merged into Settings -->
+                <div id="settings-panel-users" role="tabpanel" aria-labelledby="settings-tab-users" x-show="settingsTab === 'users'" x-cloak tabindex="0">
+                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                        <div>
+                            <h2 class="text-secondary fw-bold mb-0"><i class="bi bi-people-fill me-2 text-primary"></i><span x-text="t('Users Management')"></span></h2>
+                            <p class="text-muted small mb-0" x-text="t('Create staff and administrator accounts and assign their section access.')"></p>
+                        </div>
+                        <button type="button" class="btn btn-success" @click="openUserForm()">
+                            <i class="bi bi-person-plus-fill me-1"></i> <span x-text="t('Create New User')"></span>
+                        </button>
+                    </div>
+
+                    <div class="card shadow-sm border-0">
+                        <div class="card-body p-0">
+                            <!-- Loading state -->
+                            <template x-if="usersLoading">
+                                <div class="d-flex align-items-center gap-2 text-muted small py-4 px-4">
+                                    <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                                    <span x-text="t('Loading users...')"></span>
+                                </div>
+                            </template>
+
+                            <!-- Error state with retry -->
+                            <template x-if="usersError">
+                                <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2 my-3 mx-3 mb-0">
+                                    <i class="bi bi-exclamation-triangle-fill"></i>
+                                    <span x-text="usersError"></span>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" @click="loadUsers()" x-text="t('Retry')"></button>
+                                </div>
+                            </template>
+
+                            <div class="table-responsive" x-show="!usersLoading && !usersError">
+                                <table class="table table-hover align-middle mb-0 settings-user-table">
+                                    <thead class="table-primary text-white">
+                                        <tr>
+                                            <th class="ps-4" x-text="t('Name')"></th>
+                                            <th x-text="t('Email')"></th>
+                                            <th x-text="t('Role')"></th>
+                                            <th x-text="t('Section')"></th>
+                                            <th class="text-end pe-4" x-text="t('Actions')"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-for="u in users" :key="u.id">
+                                            <tr>
+                                                <td class="ps-4 fw-semibold" x-text="u.name"></td>
+                                                <td x-text="u.email"></td>
+                                                <td>
+                                                    <span class="badge rounded-pill px-2" :class="u.is_admin ? 'bg-danger' : 'bg-secondary'">
+                                                        <span x-text="u.is_admin ? t('Admin') : t('Staff')"></span>
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <template x-if="u.section">
+                                                        <span x-text="optionLabel('section', u.section)"></span>
+                                                    </template>
+                                                    <template x-if="!u.section">
+                                                        <span></span>
+                                                    </template>
+                                                </td>
+                                                <td class="text-end pe-4">
+                                                    <div class="btn-group" role="group">
+                                                        <button class="btn btn-sm btn-outline-primary" @click="editUser(u)">
+                                                            <i class="bi bi-pencil-square"></i>
+                                                        </button>
+                                                        <button class="btn btn-sm btn-outline-danger" @click="removeUser(u)">
+                                                            <i class="bi bi-trash"></i>
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                        <tr x-show="users.length === 0">
+                                            <td colspan="5" class="text-center py-4 text-muted" x-text="t('No users found.')"></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AI &amp; Import tab -->
+                <div id="settings-panel-ai" role="tabpanel" aria-labelledby="settings-tab-ai" x-show="settingsTab === 'ai'" x-cloak tabindex="0">
+                    <!-- AI Import settings (super admin) -->
+                    <div class="card shadow-sm border-0 mb-4" x-show="isSuperAdmin" x-cloak>
                     <div class="card-header bg-white py-3 d-flex flex-wrap align-items-center gap-2">
                         <i class="bi bi-stars text-primary fs-5"></i>
                         <div class="me-auto">
@@ -2184,7 +2227,92 @@
                         </template>
                     </div>
                 </div>
+                </div>
 
+                <!-- User create/edit modal (#16): replaces the standalone user-form page -->
+                <div class="modal fade" id="userFormModal" tabindex="-1" aria-labelledby="userFormModalTitle">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header py-3">
+                                <h5 class="modal-title fw-bold" id="userFormModalTitle">
+                                    <template x-if="editingUser">
+                                        <span><i class="bi bi-person-gear me-2"></i><span x-text="t('Edit User')"></span>, <span x-text="editingUser.name"></span></span>
+                                    </template>
+                                    <template x-if="!editingUser">
+                                        <span><i class="bi bi-person-plus-fill me-2"></i><span x-text="t('Register New Staff/Admin')"></span></span>
+                                    </template>
+                                </h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" :aria-label="t('Close')"></button>
+                            </div>
+
+                            <div class="modal-body p-4">
+                                <form @submit.prevent="submitUserForm()">
+                                    <div class="mb-3">
+                                        <label for="uf-name" class="form-label fw-semibold" x-text="t('Full Name')"></label>
+                                        <div class="input-group">
+                                            <span class="input-group-text bg-light"><i class="bi bi-person"></i></span>
+                                            <input type="text" id="uf-name" class="form-control" x-model="userForm.name" placeholder="e.g. Dr. John Doe" required>
+                                        </div>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="uf-email" class="form-label fw-semibold" x-text="t('Email Address')"></label>
+                                        <div class="input-group">
+                                            <span class="input-group-text bg-light"><i class="bi bi-envelope"></i></span>
+                                            <input type="email" id="uf-email" class="form-control" x-model="userForm.email" placeholder="name@clinic.com" :disabled="!!editingUser" required>
+                                        </div>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="uf-password" class="form-label fw-semibold">
+                                            <span x-text="editingUser ? t('New Password') : t('Password')"></span>
+                                            <template x-if="editingUser">
+                                                <span class="text-muted fw-normal" x-text="t('(leave blank to keep current)')"></span>
+                                            </template>
+                                        </label>
+                                        <div class="input-group">
+                                            <span class="input-group-text bg-light"><i class="bi bi-lock"></i></span>
+                                            <input type="password" id="uf-password" class="form-control" x-model="userForm.password" placeholder="••••••••" :required="!editingUser">
+                                        </div>
+                                    </div>
+
+                                    <div class="mb-4 pt-2">
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" role="switch" id="is_admin" x-model="userForm.is_admin">
+                                            <label class="form-check-label fw-semibold ms-2" for="is_admin">
+                                                <span x-text="t('Grant Administrator Privileges')"></span>
+                                            </label>
+                                        </div>
+                                        <div class="form-text ms-4 text-muted">
+                                            <span x-text="t('Admins can manage system settings, users, and delete clinic data records.')"></span>
+                                        </div>
+                                    </div>
+
+                                    <div class="mb-4">
+                                        <label for="uf-section" class="form-label fw-semibold" x-text="t('Section')"></label>
+                                        <select id="uf-section" class="form-select" x-model="userForm.section">
+                                            <option value="" x-text="t('- None (Super Admin) -')"></option>
+                                            <template x-if="userForm.section && !activeOptions('section').some(o => o.key === userForm.section)">
+                                                <option :value="userForm.section" x-text="optionLabel('section', userForm.section)"></option>
+                                            </template>
+                                            <template x-for="opt in activeOptions('section')" :key="'uf-sec-' + opt.key">
+                                                <option :value="opt.key" x-text="optionLabel('section', opt.key)"></option>
+                                            </template>
+                                        </select>
+                                        <div class="form-text text-muted" x-text="t('Leave empty if this user is a Super Admin.')"></div>
+                                    </div>
+
+                                    <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-3">
+                                        <button type="button" class="btn btn-light me-md-2" data-bs-dismiss="modal"><span x-text="t('Cancel')"></span></button>
+                                        <button type="submit" class="btn btn-primary px-4">
+                                            <i class="bi bi-save me-1"></i> <span x-text="editingUser ? t('Update User') : t('Save User')"></span>
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- PATIENT PROFILE PAGE -->
@@ -2647,103 +2775,6 @@
                     </div>
                 </div>
             </div>
-
-            <!-- USER FORM PAGE -->
-            <div x-show="currentPage === 'user-form'" x-cloak>
-                <div class="row justify-content-center">
-                    <div class="col-md-6">
-
-                        <div class="mb-3">
-                            <a href="#" class="text-decoration-none text-muted" @click="navigate('users')">
-                                <i class="bi bi-arrow-left"></i> <span x-text="t('Back to Users List')"></span>
-                            </a>
-                        </div>
-
-                        <div class="card shadow-sm border-0">
-                            <div class="card-header bg-primary text-white py-3">
-                                <h5 class="card-title mb-0 fw-bold">
-                                    <template x-if="editingUser">
-                                        <span><i class="bi bi-person-gear me-2"></i><span x-text="t('Edit User')"></span>, <span x-text="editingUser.name"></span></span>
-                                    </template>
-                                    <template x-if="!editingUser">
-                                        <span><i class="bi bi-person-plus-fill me-2"></i><span x-text="t('Register New Staff/Admin')"></span></span>
-                                    </template>
-                                </h5>
-                            </div>
-
-                            <div class="card-body p-4">
-                                <form @submit.prevent="submitUserForm()">
-
-                                    <div class="mb-3">
-                                        <label for="uf-name" class="form-label fw-semibold" x-text="t('Full Name')"></label>
-                                        <div class="input-group">
-                                            <span class="input-group-text bg-light"><i class="bi bi-person"></i></span>
-                                            <input type="text" id="uf-name" class="form-control" x-model="userForm.name" placeholder="e.g. Dr. John Doe" required>
-                                        </div>
-                                    </div>
-
-                                    <div class="mb-3">
-                                        <label for="uf-email" class="form-label fw-semibold" x-text="t('Email Address')"></label>
-                                        <div class="input-group">
-                                            <span class="input-group-text bg-light"><i class="bi bi-envelope"></i></span>
-                                            <input type="email" id="uf-email" class="form-control" x-model="userForm.email" placeholder="name@clinic.com" :disabled="!!editingUser" required>
-                                        </div>
-                                    </div>
-
-                                    <div class="mb-3">
-                                        <label for="uf-password" class="form-label fw-semibold">
-                                            <span x-text="editingUser ? t('New Password') : t('Password')"></span>
-                                            <template x-if="editingUser">
-                                                <span class="text-muted fw-normal" x-text="t('(leave blank to keep current)')"></span>
-                                            </template>
-                                        </label>
-                                        <div class="input-group">
-                                            <span class="input-group-text bg-light"><i class="bi bi-lock"></i></span>
-                                            <input type="password" id="uf-password" class="form-control" x-model="userForm.password" placeholder="••••••••" :required="!editingUser">
-                                        </div>
-                                    </div>
-
-                                    <div class="mb-4 pt-2">
-                                        <div class="form-check form-switch">
-                                            <input class="form-check-input" type="checkbox" role="switch" id="is_admin" x-model="userForm.is_admin">
-                                            <label class="form-check-label fw-semibold ms-2" for="is_admin">
-                                                <span x-text="t('Grant Administrator Privileges')"></span>
-                                            </label>
-                                        </div>
-                                        <div class="form-text ms-4 text-muted">
-                                            <span x-text="t('Admins can manage system settings, users, and delete clinic data records.')"></span>
-                                        </div>
-                                    </div>
-
-                                    <div class="mb-4">
-                                        <label for="uf-section" class="form-label fw-semibold" x-text="t('Section')"></label>
-                                        <select id="uf-section" class="form-select" x-model="userForm.section">
-                                            <option value="" x-text="t('- None (Super Admin) -')"></option>
-                                            <template x-if="userForm.section && !activeOptions('section').some(o => o.key === userForm.section)">
-                                                <option :value="userForm.section" x-text="optionLabel('section', userForm.section)"></option>
-                                            </template>
-                                            <template x-for="opt in activeOptions('section')" :key="'uf-sec-' + opt.key">
-                                                <option :value="opt.key" x-text="optionLabel('section', opt.key)"></option>
-                                            </template>
-                                        </select>
-                                        <div class="form-text text-muted" x-text="t('Leave empty if this user is a Super Admin.')"></div>
-                                    </div>
-
-                                    <hr class="text-muted opacity-25">
-
-                                    <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-3">
-                                        <button type="button" class="btn btn-light me-md-2" @click="navigate('users')"><span x-text="t('Cancel')"></span></button>
-                                        <button type="submit" class="btn btn-primary px-4">
-                                            <i class="bi bi-save me-1"></i> <span x-text="editingUser ? t('Update User') : t('Save User')"></span>
-                                        </button>
-                                    </div>
-
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
     </div>
 
@@ -2761,14 +2792,6 @@
             <button class="bottom-bar-item" :class="{ 'active': currentPage === 'patient-form' }" @click="openPatientForm()">
                 <i class="bi bi-plus-circle-fill"></i>
                 <small x-text="t('Add')"></small>
-            </button>
-            <button class="bottom-bar-item" x-show="isSuperAdmin" :class="{ 'active': currentPage === 'prices' }" @click="navigate('prices')">
-                <i class="bi bi-currency-dollar"></i>
-                <small x-text="t('Prices')"></small>
-            </button>
-            <button class="bottom-bar-item" x-show="isSuperAdmin" :class="{ 'active': currentPage === 'users' }" @click="navigate('users')">
-                <i class="bi bi-person-badge"></i>
-                <small x-text="t('Users')"></small>
             </button>
         </div>
     </nav>
