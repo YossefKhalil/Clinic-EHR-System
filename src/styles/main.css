@@ -11,9 +11,11 @@
     background-color: #ffffff;
 }
 
+/* The text of an input follows its own direction: an English field in an
+   Arabic page is still written from the left. */
 [dir="rtl"] .form-control,
 [dir="rtl"] .form-select {
-    text-align: right;
+    text-align: start;
 }
 
 .page-loader {
@@ -79,121 +81,17 @@
 /*
  * RTL button / dropdown geometry (issue #17).
  *
- * The app always loads Bootstrap's LTR stylesheet (src/main.js) and flips
- * `dir` at runtime, and the group rules in that build are physical, so they
- * do not mirror on their own:
- *   - .btn-group / .input-group trim radii and pull members together on the
- *     WRONG physical side, which is what makes the groups read as separately
- *     clipped buttons in RTL;
- *   - .dropdown-menu-end is an LTR-only anchoring concept
- *     (.dropdown-menu-end[data-bs-popper] { right: 0; left: auto }) and its
- *     --bs-position: end makes Popper place the menu on the physical right.
+ * The Arabic interface loads the RTL build of Bootstrap (src/main.js swaps
+ * the stylesheet when the language changes), so the button groups, the input
+ * groups, the dropdown anchors and the text alignment mirror with the
+ * reading direction on their own.
  *
- * Pattern: every rule below mirrors the matching Bootstrap selector under
- * [dir="rtl"] with its physical sides swapped, zeroing inner corners and
- * restoring the outer ones. New directional rules must follow the same
- * shape (same selectors, sides swapped, restore after zero) instead of
- * one-off pixel nudges, so a component that later switches to a real RTL
- * build can drop this section wholesale.
+ * These rules used to mirror the LTR build by hand. They fought the RTL
+ * build - the dropdown anchoring ended up on the wrong side - so they are
+ * gone. A new directional rule must use the logical properties
+ * (margin-inline, padding-inline, inset-inline, border-start-*-radius) so it
+ * works in both directions without a second rule.
  */
-
-/* --- Button groups / split buttons ----------------------------------- */
-
-/* Members overlap their neighbour with one shared border: in RTL the next
-   DOM member sits on the LEFT, so the pull-in margin is margin-right. */
-[dir="rtl"] .btn-group > :not(.btn-check:first-child) + .btn,
-[dir="rtl"] .btn-group > .btn-group:not(:first-child) {
-    margin-left: 0;
-    margin-right: calc(var(--bs-border-width) * -1);
-}
-
-/* Inner corners square: everything that is not the flow-end member loses
-   its inline-start radius; everything that is not the flow-start member
-   loses its inline-end radius. */
-[dir="rtl"] .btn-group > .btn:not(:last-child) {
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 0;
-}
-
-[dir="rtl"] .btn-group > .btn:not(:first-child) {
-    border-top-right-radius: 0;
-    border-bottom-right-radius: 0;
-}
-
-/* Outer corners restored. The LTR rules they cancel reach the same
-   specificity count (0,4,0), so the restores must EXCEED it — one extra
-   :not() — instead of relying on sheet order, which differs between dev
-   and build. :not(.dropdown-toggle) keeps the first-member rule pointed
-   at plain members; the caret's own restore stays the selector below. */
-[dir="rtl"] .btn-group > .btn:first-child:not(.dropdown-toggle) {
-    border-top-right-radius: var(--bs-btn-border-radius);
-    border-bottom-right-radius: var(--bs-btn-border-radius);
-}
-
-[dir="rtl"] .btn-group > .btn:last-child,
-[dir="rtl"] .btn-group > .btn.dropdown-toggle-split {
-    border-top-left-radius: var(--bs-btn-border-radius);
-    border-bottom-left-radius: var(--bs-btn-border-radius);
-}
-
-/* Focus rings must sit above the neighbours instead of being overdrawn by
-   the next member's background. */
-[dir="rtl"] .btn-group > .btn:focus-visible,
-[dir="rtl"] .input-group > .btn:focus-visible,
-[dir="rtl"] .input-group > .form-control:focus-visible,
-[dir="rtl"] .input-group > .form-select:focus-visible {
-    position: relative;
-    z-index: 5;
-}
-
-/* --- Input groups (icon prepends) ------------------------------------- */
-
-[dir="rtl"] .input-group > :not(:first-child):not(.dropdown-menu):not(.valid-tooltip):not(.valid-feedback):not(.invalid-tooltip):not(.invalid-feedback) {
-    margin-left: 0;
-    margin-right: calc(var(--bs-border-width) * -1);
-    border-top-right-radius: 0;
-    border-bottom-right-radius: 0;
-    border-top-left-radius: var(--bs-border-radius);
-    border-bottom-left-radius: var(--bs-border-radius);
-}
-
-/* After the margin rule so a member that matches both (a prepend) ends
-   with square inner corners and rounded outer ones. */
-[dir="rtl"] .input-group:not(.has-validation) > :not(:last-child):not(.dropdown-toggle):not(.dropdown-menu):not(.form-floating),
-[dir="rtl"] .input-group.has-validation > :nth-last-child(n + 3):not(.dropdown-toggle):not(.dropdown-menu):not(.form-floating) {
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 0;
-    border-top-right-radius: var(--bs-border-radius);
-    border-bottom-right-radius: var(--bs-border-radius);
-}
-
-/* --- Dropdowns --------------------------------------------------------- */
-/* Anchoring itself needs no side-mirroring: `.dropdown-menu-end` leaves
-   --bs-position at Bootstrap's own "end", whose PHYSICAL Popper placement
-   (bottom-end) and static anchor (right: 0) already sit the menu flush with
-   the trigger's inline-start edge in RTL and let it extend toward the
-   inline-end; Popper's flip/preventOverflow keep it on screen. Feeding
-   "start" into --bs-position here would actually push the menu to the
-   wrong side, because Bootstrap computes the placement constants once at
-   module-eval (still LTR in this app) while reading the var at popup time
-   (dropdown.js line 62-66: `PLACEMENT_BOTTOMEND = isRTL() ? ...`, isRTL
-   frozen when the bundle loads). What DOES need mirroring is the plain-menu
-   base anchor: the RTL build (bootstrap.rtl.min.css) moves
-   `.dropdown-menu[data-bs-popper]` from left: 0 to right: 0, so plain menus
-   in RTL also drop from the trigger's inline-start edge instead of from its
-   inline-end edge. Verified live: split-button caret and navbar menus land
-   flush with their trigger's right edge at every tested width. */
-[dir="rtl"] .dropdown-menu[data-bs-popper] {
-    right: 0;
-    left: auto;
-}
-
-/* Bootstrap's .text-start is physical (text-align: left !important) in the
-   LTR build; dropdown items use it to align with the trigger. Make it
-   direction-aware again for RTL. */
-[dir="rtl"] .text-start {
-    text-align: start !important;
-}
 
 /*
  * Dashboard summary cards (issue #14).
@@ -397,6 +295,15 @@ button.stat-link {
    tables had to scroll sideways. */
 .page-container {
     max-width: 1680px;
+}
+
+/* The patients table breaks out of the page container on a wide screen:
+   ten columns need the room and the empty margins beside them did not. */
+@media (min-width: 1200px) {
+    .patients-table-card {
+        margin-inline: calc((100% - 100vw) / 2 + 1rem);
+        width: calc(100vw - 2rem);
+    }
 }
 
 /* The patients table can be scaled down (the reviewer's own setting). */

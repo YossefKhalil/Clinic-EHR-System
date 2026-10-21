@@ -287,13 +287,17 @@ function app() {
                 };
                 
                 // The import wizard tells the shell when an import was committed:
-            // the job is no longer open.
-            window.addEventListener('import-committed', () => this.refreshImportResume());
-            window.localeChanged = () => {
+                // the job is no longer open.
+                window.addEventListener('import-committed', () => this.refreshImportResume());
+                window.localeChanged = () => {
                     this.localeLabel = t('locale_label');
+                    this.currentDate = this.formatToday();
                 };
-                
+
                 this.localeLabel = t('locale_label');
+                this.currentDate = this.formatToday();
+                this.patientTableFont = this.loadPatientTableFont();
+                this.applyBootstrapDirection();
 
                 // Visual preview of the import review screen: `?mock=review`.
                 if (new URLSearchParams(window.location.search).get('mock') === 'review') {
