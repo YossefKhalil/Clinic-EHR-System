@@ -1,5 +1,9 @@
 <div align="center">
 
+<p align="center">
+  <img src="docs/project-image.png" alt="Clinic EHR" width="200">
+</p>
+
 # Clinic EHR
 
 **A serverless electronic health record system for multi-section clinics.**
