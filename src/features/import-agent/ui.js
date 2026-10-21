@@ -137,12 +137,8 @@ export function importAgentWizard() {
                     // The section select degrades to empty; the job still works.
                 }
             }
-            if (this.step === 'add' && !this.resumable) {
-                try {
-                    this.resumable = await api.latestResumableJob();
-                } catch {
-                    this.resumable = null;
-                }
+            if (this.step === 'add') {
+                await this.loadOpenJobs();
             }
         },
 
@@ -162,6 +158,8 @@ export function importAgentWizard() {
         section: '',
         showMore: false,
         resumable: null,
+        // Every import of this account that is still open.
+        openJobs: [],
 
         // extraction
         job: null,
@@ -565,6 +563,34 @@ export function importAgentWizard() {
         },
 
         // ------------------------------------------------------ resume
+        /** The imports of this account that are still open, newest first. */
+        async loadOpenJobs() {
+            try {
+                this.openJobs = await api.listOpenJobs();
+            } catch {
+                this.openJobs = [];
+            }
+        },
+
+        /** Cancel one open import and drop it from the list. */
+        async cancelOpenJob(job) {
+            if (!job?.id) return;
+            try {
+                await api.callJob('cancel', { job_id: job.id });
+            } catch (error) {
+                this.showFailure(error);
+            }
+            await this.loadOpenJobs();
+        },
+
+        /** A short label for an open import: when it started. */
+        openJobLabel(job) {
+            if (!job?.created_at) return '';
+            const when = new Date(job.created_at);
+            if (Number.isNaN(when.getTime())) return '';
+            return when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        },
+
         async resume() {
             if (!this.resumable) return;
             const jobId = this.resumable.id;

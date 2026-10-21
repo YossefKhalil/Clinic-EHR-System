@@ -172,6 +172,29 @@ export function fetchRejects(jobId) {
     return fetchAll('import_rejects', [['job_id', jobId]]);
 }
 
+/**
+ * Every own job that is still open, newest first.
+ *
+ * The wizard can run more than one import at a time, so the "Continue
+ * import" entries are one per job: each one can be continued or cancelled on
+ * its own.
+ */
+export async function listOpenJobs() {
+    const client = supabase();
+    if (!client) return [];
+    const user = getCurrentUser();
+    if (!user) return [];
+    const { data, error } = await client
+        .from('import_jobs')
+        .select('id, status, created_at, section, hints, config, tokens_in, tokens_out')
+        .eq('created_by', user.id)
+        .in('status', ['uploaded', 'extracting', 'review', 'failed'])
+        .order('created_at', { ascending: false })
+        .limit(20);
+    if (error) throw loadFailure(error, { table: 'import_jobs' });
+    return data ?? [];
+}
+
 /** The newest own job that can still be resumed (spec §10.1 resumability). */
 export async function latestResumableJob() {
     const client = supabase();

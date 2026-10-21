@@ -312,8 +312,8 @@
   "importAgent.error.INTERNAL": "Something went wrong on the server, please try again.",
   "importAgent.error.CONFLICT": "The import changed underneath, reload and try again.",
   "importAgent.error.HINTS_TOO_LONG": "Hints are too long.",
-  "importAgent.error.TOO_MANY_JOBS": "You already have a running import, wait for it to finish.",
-  "importAgent.error.JOBS_PER_DAY": "The daily limit of imports for this account is reached, try again tomorrow.",
+  "importAgent.error.TOO_MANY_JOBS": "Another import of this account is still running (:limit at a time). Cancel it or wait until it is finished.",
+  "importAgent.error.JOBS_PER_DAY": "The daily import quota is reached.",
   "importAgent.error.UNAUTHORIZED": "Your session expired, please log in again.",
   "importAgent.error.NOT_CONFIGURED": "AI extraction is not configured yet, an administrator must add the provider credentials.",
   "importAgent.error.DECRYPT_FAILED": "The stored AI credentials cannot be read, an administrator must re-enter them.",
@@ -632,5 +632,7 @@
   "aiSettings.limits.maxFiles": "Files per import",
   "aiSettings.limits.maxFilesHint": "Default: :default files.",
   "aiSettings.limits.tokensPerMinute": "Provider tokens per minute",
-  "aiSettings.limits.tokensPerMinuteHint": "The budget the pump respects. Default: :default."
+  "aiSettings.limits.tokensPerMinuteHint": "The budget the pump respects. Default: :default.",
+  "importAgent.wizard.openImports": "Imports you can continue",
+  "importAgent.progress.rounds": "Still working - a big file is extracted in rounds, the next one starts automatically."
 }

@@ -138,6 +138,9 @@ function app() {
         // "Continue import" dropdown item can resume.
         importEnabled: true,
         importResumable: null,
+        // Every import of this account that is still open (the "Continue
+        // import" entries in the drop-down, one per job).
+        importOpenJobs: [],
         
         // Users
         users: [],
@@ -327,29 +330,55 @@ function app() {
             if (!this.importEnabled) this.importResumable = null;
         },
 
-        /** The "Continue import" item appears only for an unfinished job. */
+        /** The "Continue import" entries appear only for unfinished jobs. */
         async refreshImportResume() {
             if (!this.isLoggedIn || !this.importEnabled) {
                 this.importResumable = null;
+                this.importOpenJobs = [];
                 return;
             }
             try {
-                const { latestResumableJob } = await import('./features/import-agent/api.js');
-                this.importResumable = await latestResumableJob();
+                const { listOpenJobs } = await import('./features/import-agent/api.js');
+                this.importOpenJobs = await listOpenJobs();
+                this.importResumable = this.importOpenJobs[0] ?? null;
             } catch {
                 this.importResumable = null;
+                this.importOpenJobs = [];
             }
         },
 
-        async continueImport() {
-            const job = this.importResumable;
-            if (!job) return;
+        /** Continue one specific import. */
+        async continueImport(job = null) {
+            const target = job ?? this.importResumable;
+            if (!target) return;
             await this.navigate('import');
             const wizard = window.__iaWizard;
             if (wizard) {
-                wizard.resumable = job;
+                wizard.resumable = target;
                 await wizard.resume();
             }
+        },
+
+        /** Cancel one import and drop it from the list. */
+        async cancelImport(job) {
+            if (!job?.id) return;
+            try {
+                const { callJob } = await import('./features/import-agent/api.js');
+                await callJob('cancel', { job_id: job.id });
+            } catch (error) {
+                console.error('Cancel import failed:', error);
+            }
+            await this.refreshImportResume();
+        },
+
+        /** A short label for an open import: when it started and its state. */
+        importJobLabel(job) {
+            if (!job) return '';
+            const when = job.created_at ? new Date(job.created_at) : null;
+            const time = when
+                ? when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : '';
+            return time ? `· ${time}` : '';
         },
         
         // Role = what the account is allowed to do, straight from the users

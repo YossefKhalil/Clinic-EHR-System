@@ -375,14 +375,20 @@
                                         </button>
                                     </li>
                                 </template>
-                                <template x-if="importEnabled && importResumable">
+                                <template x-if="importEnabled && importOpenJobs.length > 0">
                                     <li><hr class="dropdown-divider"></li>
                                 </template>
-                                <template x-if="importEnabled && importResumable">
-                                    <li>
-                                        <button type="button" class="dropdown-item text-secondary" @click="continueImport()">
+                                <template x-for="job in (importEnabled ? importOpenJobs : [])" :key="job.id">
+                                    <li class="d-flex align-items-center gap-1 px-2">
+                                        <button type="button" class="dropdown-item text-secondary flex-grow-1 text-start"
+                                            @click="continueImport(job)">
                                             <i class="bi bi-arrow-counterclockwise me-2"></i><span x-text="t('Continue import')"></span>
-                                            <span class="badge text-bg-light border ms-1 fw-normal" x-text="t('importAgent.wizard.status.' + importResumable.status)"></span>
+                                            <span class="badge text-bg-light border ms-1 fw-normal" x-text="t('importAgent.wizard.status.' + job.status)"></span>
+                                            <span class="small text-muted ms-1" x-text="importJobLabel(job)"></span>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-link text-danger text-decoration-none p-0 px-1"
+                                            @click.stop="cancelImport(job)" :title="t('importAgent.wizard.cancel')" :aria-label="t('importAgent.wizard.cancel')">
+                                            <i class="bi bi-x-lg"></i>
                                         </button>
                                     </li>
                                 </template>
@@ -562,7 +568,29 @@
 
                 <!-- STEP: ADD (spec 5) -->
                 <template x-if="step === 'add'">
-                    <div class="card shadow-sm border-0">
+                    <div>
+                        <div class="card shadow-sm border-0 mb-3" x-show="openJobs.length > 0" x-cloak>
+                            <div class="card-body py-2">
+                                <div class="small fw-semibold text-muted mb-2" x-text="t('importAgent.wizard.openImports')"></div>
+                                <div class="d-flex flex-column gap-1">
+                                    <template x-for="job in openJobs" :key="job.id">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="badge text-bg-light border fw-normal"
+                                                x-text="t('importAgent.wizard.status.' + job.status)"></span>
+                                            <span class="small text-muted" x-text="openJobLabel(job)"></span>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-auto"
+                                                @click="resumeJob(job.id)" x-text="t('importAgent.wizard.resume')"></button>
+                                            <button type="button" class="btn btn-sm btn-link text-danger text-decoration-none p-0 px-1"
+                                                @click="cancelOpenJob(job)" :title="t('importAgent.wizard.cancel')"
+                                                :aria-label="t('importAgent.wizard.cancel')">
+                                                <i class="bi bi-x-lg"></i>
+                                            </button>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card shadow-sm border-0">
                         <div class="card-body">
                             <label class="dropzone-hero d-block border border-2 border-dashed rounded-4 text-center px-4 py-5 position-relative" style="cursor:pointer">
                                 <span class="dropzone-icon d-inline-flex align-items-center justify-content-center rounded-circle bg-primary-subtle text-primary mb-3">
@@ -631,6 +659,7 @@
                                 </button>
                             </div>
                         </div>
+                        </div>
                     </div>
                 </template>
 
@@ -653,7 +682,9 @@
                                 <div class="progress-bar progress-bar-striped progress-bar-animated" :style="'width:' + (progress.total > 0 ? Math.round(100 * progress.done / progress.total) : 0) + '%'"></div>
                             </div>
                             <p class="small text-muted mb-2" x-show="progress.nextLabel" x-text="t('importAgent.progress.next', { label: progress.nextLabel })"></p>
-                            <div class="alert alert-warning py-2 small" role="alert" x-show="banners.some(b => b.code !== 'CHUNKS_FAILED' || failedChunks.length === 0)">
+                            <p class="small text-muted mb-2" x-show="banners.some(b => b.code === 'PUMP_DEADLINE')"
+                                x-text="t('importAgent.progress.rounds')"></p>
+                            <div class="alert alert-warning py-2 small" role="alert" x-show="banners.some(b => b.code !== 'CHUNKS_FAILED' && b.code !== 'PUMP_DEADLINE' || (b.code === 'CHUNKS_FAILED' && failedChunks.length === 0))">
                                 <template x-for="(banner, bIndex) in banners" :key="bIndex">
                                     <div>
                                         <div x-text="bannerText(banner)"></div>

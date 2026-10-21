@@ -167,19 +167,6 @@ async function loadJobForUser(service: Service, userId: string, jobId: string) {
     return { job: data };
 }
 
-async function sumUsageToday(service: Service, userId: string): Promise<number> {
-    const dayStart = new Date();
-    dayStart.setUTCHours(0, 0, 0, 0);
-    const { data } = await service
-        .from('ai_usage')
-        .select('tokens_in, tokens_out')
-        .eq('user_id', userId)
-        .gte('created_at', dayStart.toISOString());
-    let total = 0;
-    for (const row of data ?? []) total += (row.tokens_in ?? 0) + (row.tokens_out ?? 0);
-    return total;
-}
-
 /**
  * The tokens this account already spent in the last minute. The provider's
  * per-minute budget is checked against it, so a big import slows itself
@@ -257,7 +244,12 @@ async function actionCreate(body: Record<string, unknown>, ctx: Context) {
 
     if (!settingsRow || settingsRow.enabled !== true) return fail('FEATURE_DISABLED', 403);
 
-    // Rate limits (spec §13.5): concurrent jobs, jobs per day.
+    // Rate limits: the provider's own limits are the only ones. The app does
+    // not count imports per day and does not cut a job off after a token
+    // budget - a provider that refuses a request says so, and that error is
+    // what the user sees. (The daily job quota and the daily token cap were
+    // removed: they blocked accounts while the provider was wide open.)
+    // The only guard left is the concurrency of one account's own imports.
     const { data: active } = await service
         .from('import_jobs')
         .select('id')
@@ -265,25 +257,7 @@ async function actionCreate(body: Record<string, unknown>, ctx: Context) {
         .in('status', ['extracting', 'committing']);
     if ((active?.length ?? 0) >= limits.MAX_CONCURRENT_JOBS) {
         await audit(service, user.id, 'job.rejected', 'n/a', { code: 'TOO_MANY_JOBS' });
-        return fail('TOO_MANY_JOBS', 429);
-    }
-    // Daily quota: the imports that actually ran. A cancelled or failed
-    // import was stopped (or broke) before it produced anything, so it does
-    // not count - otherwise every retry burns the quota and the account is
-    // locked out for a day after a few attempts. The real cost guard is the
-    // daily token cap; this cap only stops the provider from being spammed.
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { count } = await service
-        .from('import_jobs')
-        .select('id', { count: 'exact', head: true })
-        .eq('created_by', user.id)
-        .not('status', 'in', '(cancelled,failed)')
-        .gte('created_at', since);
-    if ((count ?? 0) >= limits.JOBS_PER_USER_DAY) {
-        await audit(service, user.id, 'job.rejected', 'n/a', { code: 'JOBS_PER_DAY' });
-        // The message names the numbers: the account hit the app's own
-        // quota, not the provider's.
-        return fail('JOBS_PER_DAY', 429, { count: count ?? 0, limit: limits.JOBS_PER_USER_DAY });
+        return fail('TOO_MANY_JOBS', 429, { limit: limits.MAX_CONCURRENT_JOBS });
     }
 
     // Freeze the live option lists into the job (spec §4.3, §9.3 config).
@@ -347,9 +321,22 @@ async function actionCreate(body: Record<string, unknown>, ctx: Context) {
     return json({ ok: true, job_id: job.id, upload_urls: uploadUrls });
 }
 
-function validateChunkPayload(payload: unknown): payload is { kind?: string; lines: { id: string; text: string }[] } {
-    const chunk = payload as { lines?: unknown };
-    if (!chunk || !Array.isArray(chunk.lines) || chunk.lines.length === 0) return false;
+function validateChunkPayload(payload: unknown): payload is { kind?: string; lines: { id: string; text: string }[]; images?: unknown[] } {
+    const chunk = payload as { kind?: unknown; lines?: unknown; images?: unknown };
+    if (!chunk) return false;
+    // A photo of a note is a chunk without text lines: it carries the image
+    // tiles instead (spec §5.4).
+    if (chunk.kind === 'image') {
+        if (!Array.isArray(chunk.images) || chunk.images.length === 0) return false;
+        return chunk.images.every((image) => {
+            const entry = image as { id?: unknown; dataUrl?: unknown };
+            return entry
+                && typeof entry.id === 'string'
+                && typeof entry.dataUrl === 'string'
+                && entry.dataUrl.startsWith('data:image/');
+        });
+    }
+    if (!Array.isArray(chunk.lines) || chunk.lines.length === 0) return false;
     return chunk.lines.every((line) => {
         const entry = line as { id?: unknown; text?: unknown };
         return entry && typeof entry.id === 'string' && typeof entry.text === 'string';
@@ -810,26 +797,11 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
         return fail('JOB_STATE', 409);
     }
 
-    // Caps before any call (spec §9.5): job token cap stops extraction.
-    const tokens = (job.tokens_in ?? 0) + (job.tokens_out ?? 0);
-    if (job.token_cap && tokens >= job.token_cap) {
-        await settleToReview(service, job.id);
-        job = { ...job, status: 'review' };
-        return progressPayload(ctx, job, [{ code: 'JOB_TOKEN_CAP', params: { limit: job.token_cap } }]);
-    }
-    const dailyTokens = await sumUsageToday(service, user.id);
-    if (dailyTokens >= limits.USER_DAILY_TOKEN_CAP) {
-        // The daily cap must settle the job as well: leaving it `extracting`
-        // keeps it in the "extracting" state forever, holds one of the two
-        // concurrent-job slots and never lets the user reach the review of
-        // the rows that were already extracted.
-        await settleToReview(service, job.id);
-        job = { ...job, status: 'review' };
-        return progressPayload(ctx, job, [{
-            code: 'USER_DAILY_TOKEN_CAP',
-            params: { limit: limits.USER_DAILY_TOKEN_CAP },
-        }]);
-    }
+    // No local budget stops the extraction: the provider's own limits are the
+    // only ones, and a provider that refuses a request says so (the error
+    // reaches the user). `token_cap` stays on the job as the number the
+    // progress bar shows (the model's context window), but it never cuts a
+    // job short.
 
     let chain;
     try {

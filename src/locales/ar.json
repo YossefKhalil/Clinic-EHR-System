@@ -312,8 +312,8 @@
   "importAgent.error.INTERNAL": "حدث خطأ في الخادم، برجاء المحاولة من جديد.",
   "importAgent.error.CONFLICT": "تغيّر الاستيراد في الوقت نفسه، أعد التحميل ثم حاول من جديد.",
   "importAgent.error.HINTS_TOO_LONG": "التلميحات طويلة جداً.",
-  "importAgent.error.TOO_MANY_JOBS": "لديك استيراد قيد التنفيذ بالفعل، انتظر انتهاءه.",
-  "importAgent.error.JOBS_PER_DAY": "بلغ الحد اليومي لعدد عمليات الاستيراد لهذا الحساب، حاول غداً.",
+  "importAgent.error.TOO_MANY_JOBS": "ما زال هناك استيراد آخر يعمل لهذا الحساب (:limit في الوقت نفسه). ألغِه أو انتظر حتى ينتهي.",
+  "importAgent.error.JOBS_PER_DAY": "تم بلوغ الحصة اليومية للاستيراد.",
   "importAgent.error.UNAUTHORIZED": "انتهت جلستك، برجاء تسجيل الدخول من جديد.",
   "importAgent.error.NOT_CONFIGURED": "لم يُضبَط الاستخراج بالذكاء الاصطناعي بعد، على المدير إدخال بيانات المزوّد.",
   "importAgent.error.DECRYPT_FAILED": "تعذّرت قراءة بيانات المزوّد المحفوظة، على المدير إدخالها من جديد.",
@@ -632,5 +632,7 @@
   "aiSettings.limits.maxFiles": "الملفات لكل استيراد",
   "aiSettings.limits.maxFilesHint": "الافتراضي: :default ملف.",
   "aiSettings.limits.tokensPerMinute": "رموز المزوّد في الدقيقة",
-  "aiSettings.limits.tokensPerMinuteHint": "الميزانية التي يلتزم بها الضخ. الافتراضي: :default."
+  "aiSettings.limits.tokensPerMinuteHint": "الميزانية التي يلتزم بها الضخ. الافتراضي: :default.",
+  "importAgent.wizard.openImports": "استيرادات يمكنك استئنافها",
+  "importAgent.progress.rounds": "ما زال يعمل - يُستخرج الملف الكبير على جولات، وتبدأ الجولة التالية تلقائيًا."
 }
