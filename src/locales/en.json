@@ -601,5 +601,19 @@
   "importAgent.chunkError.INTERNAL": "Something went wrong while saving the result.",
   "importAgent.review.chunksFailed": ":count chunks failed to extract",
   "importAgent.reject.PARSE_FAILED": "This file could not be read as patient data.",
-  "importAgent.chunkError.OUTPUT_TRUNCATED": "The model used its whole answer budget and stopped before it finished."
+  "importAgent.chunkError.OUTPUT_TRUNCATED": "The model used its whole answer budget and stopped before it finished.",
+  "importAgent.error.WORKER_RESOURCE_LIMIT": "The import worker ran out of resources and was stopped. The import is saved - resume it, or split the file into smaller parts.",
+  "importAgent.error.WORKER_LIMIT": "The import worker ran out of resources and was stopped. The import is saved - resume it, or split the file into smaller parts.",
+  "importAgent.error.BOOTSTRAP_TIMEOUT": "The import worker did not start in time. Resume the import.",
+  "importAgent.warn.PROVIDER_RATE_LIMITED": "The provider is at its per-minute limit. The import waits for the next minute and continues.",
+  "importAgent.warn.PUMP_DEADLINE": "This round of the import reached its time limit. The rest continues in the next round.",
+  "importAgent.progress.waiting": "Waiting for the provider...",
+  "importAgent.progress.resume": "Resume import",
+  "importAgent.chunkError.NO_VISION_MODEL": "No vision model in the chain: this import needs a model that can read images.",
+  "importAgent.error.NO_VISION_MODEL": "No vision model in the chain: this import needs a model that can read images.",
+  "importAgent.reject.IMAGE_READER_NOT_READY": "The image could not be prepared for the model.",
+  "importAgent.reject.IMAGE_NO_CANVAS": "The image was sent to the model without being resized.",
+  "importAgent.reject.IMAGE_DECODE_FAILED": "The image could not be opened.",
+  "importAgent.reject.IMAGE_TOO_TALL": "The photo is very tall: it was cut into several parts for the model.",
+  "importAgent.review.source.imageNote": "The source of this row is a photo of a note."
 }

@@ -125,15 +125,22 @@ export async function runChunk({
 
     if (aborted()) return { ...base, status: 'cancelled' };
 
+    // A photo of a note travels with the request as image parts (spec §5.4).
+    const images = Array.isArray(chunk.images) ? chunk.images : [];
+    const imageParts = images
+        .filter((image) => typeof image?.dataUrl === 'string' && image.dataUrl.length > 0)
+        .map((image) => ({ type: 'image', dataUrl: image.dataUrl }));
+
     const user = buildExtractorUser({
         header: chunk.header ?? null,
         lines,
         hints,
         delimiter: delimiter ?? makeDelimiter('SRC'),
+        images: imageParts.length > 0 ? images : [],
     });
     const request = {
         system: EXTRACTOR_SYSTEM,
-        user: [{ type: 'text', text: user }],
+        user: [{ type: 'text', text: user }, ...imageParts],
         maxTokens: maxTokensFor(lines.length, limits),
         temperature: 0,
         signal,
@@ -185,7 +192,12 @@ export async function runChunk({
         });
         let repaired = null;
         try {
-            repaired = await provider.complete({ ...request, user: [{ type: 'text', text: repairUser }] });
+            repaired = await provider.complete({
+                ...request,
+                // The repair call needs the images again: the broken document
+                // has to be read from the same photo.
+                user: [{ type: 'text', text: repairUser }, ...imageParts],
+            });
         } catch {
             repaired = null;
         }

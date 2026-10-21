@@ -555,7 +555,7 @@
 
                 <div class="alert alert-danger" role="alert" x-show="errorBanner" x-cloak>
                     <div class="d-flex justify-content-between align-items-start gap-3">
-                        <span x-text="errorBanner ? (t(errorBanner.messageKey, errorBanner.params) || t('importAgent.error.INTERNAL')) : ''"></span>
+                        <span x-text="errorBanner ? errorMessage({ messageKey: errorBanner.messageKey, params: errorBanner.params }) : ''"></span>
                         <button type="button" class="btn-close" @click="errorBanner = null" :aria-label="t('Cancel')"></button>
                     </div>
                 </div>
@@ -641,7 +641,7 @@
                             <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
                                 <h5 class="card-title mb-0">
                                     <span class="spinner-border spinner-border-sm text-primary me-2"></span>
-                                    <span x-text="t('importAgent.progress.working')"></span>
+                                    <span x-text="banners.some(b => b.code === 'PROVIDER_RATE_LIMITED' || b.code === 'CHUNKS_RATE_LIMITED') ? t('importAgent.progress.waiting') : t('importAgent.progress.working')"></span>
                                 </h5>
                                 <button type="button" class="btn btn-sm btn-outline-danger" @click="cancelJob()" x-text="t('importAgent.wizard.cancel')"></button>
                             </div>
@@ -666,6 +666,12 @@
                                 </template>
                                 <button type="button" class="btn btn-sm btn-outline-warning mt-2" x-show="banners.some(b => b.code === 'CHUNKS_RATE_LIMITED' || b.code === 'DATA_POLICY_BLOCKED' || b.code === 'CHUNKS_FAILED')"
                                     @click="navigate('settings')" x-text="t('importAgent.warn.openSettings')"></button>
+                            </div>
+                            <div class="alert alert-danger py-2 small" role="alert" x-show="pumpFailed" x-cloak>
+                                <div x-text="pumpError ? errorMessage(pumpError) : t('importAgent.error.INTERNAL')"></div>
+                                <div class="small text-muted mt-1" x-show="pumpError?.code" x-text="pumpError?.code"></div>
+                                <button type="button" class="btn btn-sm btn-outline-danger mt-2 me-2" @click="resumeImport()"
+                                    x-text="t('importAgent.progress.resume')"></button>
                             </div>
                             <button type="button" class="btn btn-sm btn-outline-warning" @click="retryFailed()" x-show="progress.failed > 0"
                                 x-text="t('importAgent.review.retryChunk') + ' (' + progress.failed + ')'"></button>
@@ -1207,7 +1213,10 @@
                                                                             <div class="text-muted mb-1">
                                                                                 <i class="bi bi-file-earmark-text me-1" aria-hidden="true"></i><span x-text="sourceLabel(row)"></span>
                                                                             </div>
-                                                                            <span x-text="sourceSnippet(row) || t('importAgent.review.source.manual')"></span>
+                                                                            <template x-if="sourceImages(row).length > 0">
+                                                                                <img :src="sourceImages(row)[0].dataUrl" class="img-fluid rounded border" style="max-height:160px" alt="">
+                                                                            </template>
+                                                                            <span x-show="sourceImages(row).length === 0" x-text="sourceSnippet(row) || t('importAgent.review.source.manual')"></span>
                                                                         </div>
                                                                         <button type="button" class="btn btn-sm btn-outline-secondary mt-2" @click="showSource(row, null)">
                                                                             <i class="bi bi-search me-1" aria-hidden="true"></i><span x-text="t('importAgent.review.drawer.openSource')"></span>
@@ -1558,6 +1567,16 @@
                                         </template>
                                     </tbody>
                                 </table>
+                            </div>
+                        </template>
+                        <template x-if="sourceModel && sourceModel.kind === 'image'">
+                            <div>
+                                <p class="small text-muted" x-text="t('importAgent.review.source.imageNote')"></p>
+                                <div class="d-flex flex-column gap-2">
+                                    <template x-for="image in (sourceModel.images || [])" :key="image.id">
+                                        <img :src="image.dataUrl" class="img-fluid rounded border" :alt="image.id">
+                                    </template>
+                                </div>
                             </div>
                         </template>
                         <template x-if="sourceModel && sourceModel.kind === 'text'">

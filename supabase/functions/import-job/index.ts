@@ -19,6 +19,8 @@ import { createOpenRouterProvider } from '../_shared/llm/openrouter.ts';
 import { createCloudflareProvider } from '../_shared/llm/cloudflare.ts';
 import { createOpenAiCompatibleProvider } from '../_shared/llm/openai-compatible.ts';
 import { runChunkWithFallback } from '../_shared/llm/fallback.js';
+import { isVisionModel, modelList, visionEntries } from '../_shared/llm/vision.ts';
+import { affordableChunks, paceMs, rateFor } from '../_shared/llm/provider-rate.ts';
 import { jobTokenCapForContext, resolveModelContext } from '../_shared/llm/model-context.ts';
 import { runChunk } from '../import-extract/run-chunk.js';
 
@@ -173,6 +175,22 @@ async function sumUsageToday(service: Service, userId: string): Promise<number> 
         .select('tokens_in, tokens_out')
         .eq('user_id', userId)
         .gte('created_at', dayStart.toISOString());
+    let total = 0;
+    for (const row of data ?? []) total += (row.tokens_in ?? 0) + (row.tokens_out ?? 0);
+    return total;
+}
+
+/**
+ * The tokens this account already spent in the last minute. The provider's
+ * per-minute budget is checked against it, so a big import slows itself
+ * down instead of collecting 429s.
+ */
+async function sumUsageSince(service: Service, userId: string, since: Date): Promise<number> {
+    const { data } = await service
+        .from('ai_usage')
+        .select('tokens_in, tokens_out')
+        .eq('user_id', userId)
+        .gte('created_at', since.toISOString());
     let total = 0;
     for (const row of data ?? []) total += (row.tokens_in ?? 0) + (row.tokens_out ?? 0);
     return total;
@@ -477,7 +495,12 @@ async function chunkProgress(service: Service, jobId: string) {
     return progress;
 }
 
-async function progressPayload(ctx: Context, job: Record<string, unknown>, banners: unknown[] = []) {
+async function progressPayload(
+    ctx: Context,
+    job: Record<string, unknown>,
+    banners: unknown[] = [],
+    extra: { paceMs?: number } = {},
+) {
     const progress = await chunkProgress(ctx.service, job.id as string);
     return json({
         ok: true,
@@ -492,6 +515,9 @@ async function progressPayload(ctx: Context, job: Record<string, unknown>, banne
             out: job.tokens_out ?? 0,
             cap: job.token_cap ?? null,
         },
+        // How long the client should wait before the next call (the provider's
+        // per-minute budget decides).
+        pace_ms: extra.paceMs ?? 0,
         banners,
     });
 }
@@ -576,10 +602,13 @@ async function persistChunkResult(
     const lineRecords = lines.map((line: { id: string; text: string }) => ({ id: line.id, text: line.text }));
     const chunkLineIds = lineRecords.map((line: { id: string }) => line.id);
     const extractedByIndex = new Map(result.documents.map((doc) => [doc.index, doc.record]));
+    // A photo of a note has no text lines: the model read the image, so the
+    // values cannot be grounded against a source text.
+    const isImage = payload.kind === 'image';
     const pipeline = runPipeline({
         records: result.documents.map((doc) => ({ ...doc.record, _chunkIndex: doc.index })),
         sourceId: (payload.source_id as string) ?? 'S1',
-        kind: payload.kind === 'sheet' ? 'sheet' : 'text',
+        kind: payload.kind === 'sheet' ? 'sheet' : isImage ? 'image' : 'text',
         lines: lineRecords,
         chunkLineIds,
         dataLineIds: payload.kind === 'sheet' ? chunkLineIds : null,
@@ -587,6 +616,7 @@ async function persistChunkResult(
         today: todayIso(),
         defaults: (job.config as { defaults?: object })?.defaults ?? {},
         requireSection: false,
+        ground: !isImage,
     });
 
     const rowPayload = pipeline.rows.map((row, offset) => ({
@@ -827,15 +857,44 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
         }
     }, 2000);
 
+    // The platform kills a function that runs too long (150 s on the free
+    // plan). The pump answers before that: the chunks that did not fit are
+    // re-queued and the next pump continues them.
+    let deadlineHit = false;
+    const deadline = setTimeout(() => {
+        deadlineHit = true;
+        controller.abort();
+    }, limits.PUMP_DEADLINE_MS);
+
     const splitRequests: { parentId: string; sourceId: string | null; children: { kind?: string }[] }[] = [];
     const parallel = pumpParallelFor(chain[0]?.provider, chain[0]?.model, limits);
     // The lease must outlive the work it protects, otherwise a second worker
     // claims the same chunk while the first one is still calling the provider.
     const leaseSeconds = leaseSecondsFor(chain.length, limits);
+
+    // The provider's per-minute budget decides how much may start now.
+    const rate = rateFor(chain[0]?.provider ?? '', limits);
+    const usedInWindow = await sumUsageSince(service, user.id, new Date(Date.now() - 60_000));
+    const doneChunks = Math.max(1, Number(job.chunks_done ?? 0) || 1);
+    const tokensPerChunk = Math.max(0, (Number(job.tokens_in ?? 0) + Number(job.tokens_out ?? 0)) / doneChunks);
+    const affordable = affordableChunks({ usedInWindow, tokensPerChunk, max: parallel, rate });
+    const claimLimit = Math.max(1, Math.min(parallel, affordable));
+
     try {
+        if (usedInWindow >= rate.tokensPerMinute) {
+            // The provider is full for this minute: do not call it, let the
+            // window empty.
+            const wait = paceMs({ usedInWindow, rate });
+            const banners = [{
+                code: 'PROVIDER_RATE_LIMITED',
+                params: { limit: rate.tokensPerMinute },
+                retryAfterMs: wait,
+            }];
+            return progressPayload(ctx, job, banners, { paceMs: wait });
+        }
         const { data, error } = await service.rpc('import_claim_chunks', {
             p_job_id: job.id,
-            p_limit: parallel,
+            p_limit: claimLimit,
             p_lease_seconds: leaseSeconds,
             p_max_attempts: limits.MAX_ATTEMPTS,
         });
@@ -855,8 +914,38 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
 
         await Promise.all(claimed.map(async (row) => {
             try {
+                // A photo of a note needs a model that can look at it. When
+                // the chain has none, the chunk fails with an explicit
+                // "no vision model" instead of a provider error the admin
+                // cannot act on.
+                const chunkImages = Array.isArray((row.payload as { images?: unknown })?.images)
+                    ? (row.payload as { images: unknown[] }).images
+                    : [];
+                let chunkChain = chain;
+                if (chunkImages.length > 0) {
+                    chunkChain = visionEntries(chain);
+                    if (chunkChain.length === 0) {
+                        const detail = `No vision model in the chain (${modelList(chain) || 'no models configured'})`;
+                        console.error('no vision model for an image chunk', job.id, row.id, detail);
+                        await service
+                            .from('import_chunks')
+                            .update({ status: 'failed', error_code: 'NO_VISION_MODEL', lease_until: null })
+                            .eq('id', row.id);
+                        if (!lastProviderFailure) {
+                            lastProviderFailure = {
+                                code: 'NO_VISION_MODEL',
+                                detail,
+                                retryAfterMs: null,
+                                model: chain[0]?.model ?? null,
+                                provider: chain[0]?.provider ?? null,
+                            };
+                        }
+                        return;
+                    }
+                }
+
                 const outcome = await runChunkWithFallback({
-                    chain,
+                    chain: chunkChain,
                     run: (entry) => runChunk({
                         provider: entry.client as never,
                         chunk: row.payload,
@@ -938,6 +1027,7 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
         }
     } finally {
         clearInterval(watcher);
+        clearTimeout(deadline);
     }
 
     await failExhausted(service, job.id, limits);
@@ -976,14 +1066,23 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
         await settleToReview(service, job.id);
         job = { ...job, status: 'review' };
     }
-    if (controller.signal.aborted) banners.push({ code: 'JOB_CANCELLED' });
+    if (controller.signal.aborted && !deadlineHit) banners.push({ code: 'JOB_CANCELLED' });
+    if (deadlineHit) {
+        // The pump answered before the platform killed it: the chunks that
+        // did not fit are re-queued and the next pump continues.
+        banners.push({ code: 'PUMP_DEADLINE', params: { ms: limits.PUMP_DEADLINE_MS } });
+    }
 
     const { data: fresh } = await service
         .from('import_jobs')
         .select('status, tokens_in, tokens_out, token_cap')
         .eq('id', job.id)
         .maybeSingle();
-    return progressPayload(ctx, { ...job, ...(fresh ?? {}) }, banners);
+    // How long the client should wait before the next call: the provider's
+    // per-minute budget decides.
+    const usedNow = await sumUsageSince(service, user.id, new Date(Date.now() - 60_000));
+    const pace = paceMs({ usedInWindow: usedNow, rate });
+    return progressPayload(ctx, { ...job, ...(fresh ?? {}) }, banners, { paceMs: pace });
 }
 
 async function actionCancel(body: Record<string, unknown>, ctx: Context) {
@@ -1191,11 +1290,4 @@ Deno.serve(async (req) => {
             case 'status': return await actionStatus(body, ctx);
             case 'retry_chunk': return await actionRetryChunk(body, ctx);
             case 'add_row': return await actionAddRow(body, ctx);
-            case 'enabled': return actionEnabled(ctx);
-            default: return fail('BAD_REQUEST');
-        }
-    } catch (err) {
-        console.error('import-job failed', action, (err as Error)?.message);
-        return fail('INTERNAL', 500);
-    }
-});
+            case 'enabled': return actionEnabled(ctx                                                                                                                                                                                                               

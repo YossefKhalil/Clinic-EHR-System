@@ -277,11 +277,21 @@ describe('openrouter adapter (spec §7.1)', () => {
 });
 
 describe('cloudflare adapter (spec §7.1)', () => {
-    it('rejects image requests before any network call', () => {
-        expect(() => buildCloudflareBody({
+    it('refuses an image for a text-only model and sends it for a vision model', () => {
+        const request = {
             ...REQUEST,
-            user: [{ type: 'image', dataUrl: 'data:image/png;base64,AAAA' }],
-        })).toThrowError(/text-only/);
+            user: [{ type: 'text', text: 'read this' }, { type: 'image', dataUrl: 'data:image/png;base64,AAAA' }],
+        };
+        // A model that cannot look at an image: the chain moves on and the
+        // user gets "no vision model" instead of a provider error.
+        expect(() => buildCloudflareBody(request, '@cf/meta/llama-3.3-70b-instruct'))
+            .toThrowError(/cannot read images/);
+        // A vision model: the image travels with the message.
+        const body = buildCloudflareBody(request, '@cf/meta/llama-3.2-11b-vision-instruct');
+        expect(body.messages[1].content).toEqual([
+            { type: 'text', text: 'read this' },
+            { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+        ]);
     });
 
     it('maps the Workers AI envelope and its failure shape', () => {

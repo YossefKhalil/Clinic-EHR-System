@@ -40,6 +40,17 @@ export const LIMITS = {
     // chunk up and bill the patient twice.
     LEASE_SECONDS_MAX: 3_600,
     MAX_ATTEMPTS: 3,
+    // The pump must answer before the platform kills the function (150 s on
+    // the free plan, 400 s on a paid one). The chunks that did not fit are
+    // re-queued and the next pump continues.
+    PUMP_DEADLINE_MS: 90_000,
+    // The provider's token budget per minute. A provider that allows 8 000
+    // tokens a minute refuses the third parallel chunk of a big import, so
+    // the pump paces itself instead of collecting 429s.
+    PROVIDER_TOKENS_PER_MINUTE: 6_000,
+    PROVIDER_REQUESTS_PER_MINUTE: 30,
+    // The client waits this long between pumps when the provider is busy.
+    PUMP_PACE_MS: 1_000,
 
     // ---- Extraction (spec §7) ----
     YAML_MAX_BYTES: 200 * 1024,

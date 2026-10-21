@@ -7,6 +7,7 @@ import {
 } from './provider.ts';
 import { isReasoningModel, openAiErrorFor, timeoutSignal } from './openai-compatible.ts';
 import { answerText, contentText, reasoningText } from './content-text.ts';
+import { isVisionModel } from './vision.ts';
 import { LIMITS } from '../import-core/limits.js';
 
 export interface CloudflareOptions {
@@ -22,19 +23,31 @@ export interface CloudflareOptions {
 }
 
 export function buildCloudflareBody(request: LlmRequest, model = '') {
-    if (request.user.some((part) => part.type === 'image')) {
-        throw new LlmError('IMAGES_UNSUPPORTED', 'The Cloudflare adapter is text-only in this build', {
-            retryable: false,
-        });
+    const hasImages = request.user.some((part) => part.type === 'image');
+    if (hasImages && !isVisionModel(model)) {
+        // A photo needs a model that can look at it. Saying so is better than
+        // a provider error the admin cannot act on.
+        throw new LlmError(
+            'NO_VISION_MODEL',
+            `The model ${model} cannot read images (no vision model in the chain)`,
+            { retryable: false },
+        );
     }
     const userText = request.user
         .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
         .map((part) => part.text)
         .join('\n\n');
+    // With images the message carries content parts (the Workers AI
+    // OpenAI-compatible endpoint expects the same shape as OpenAI).
+    const userContent = hasImages
+        ? request.user.map((part) => (part.type === 'image'
+            ? { type: 'image_url', image_url: { url: part.dataUrl } }
+            : { type: 'text', text: part.text }))
+        : userText;
     const body: Record<string, unknown> = {
         messages: [
             { role: 'system', content: request.system },
-            { role: 'user', content: userText },
+            { role: 'user', content: userContent },
         ],
         temperature: 0,
     };

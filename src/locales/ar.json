@@ -601,5 +601,19 @@
   "importAgent.chunkError.INTERNAL": "حدث خطأ أثناء حفظ النتيجة.",
   "importAgent.review.chunksFailed": "فشل استخراج :count جزء",
   "importAgent.reject.PARSE_FAILED": "تعذّرت قراءة هذا الملف كبيانات مرضى.",
-  "importAgent.chunkError.OUTPUT_TRUNCATED": "استهلك النموذج كامل ميزانية الإجابة وتوقف قبل أن يكمل."
+  "importAgent.chunkError.OUTPUT_TRUNCATED": "استهلك النموذج كامل ميزانية الإجابة وتوقف قبل أن يكمل.",
+  "importAgent.error.WORKER_RESOURCE_LIMIT": "استنفد عامل الاستيراد موارده وتم إيقافه. الاستيراد محفوظ - استأنفه أو قسّم الملف إلى أجزاء أصغر.",
+  "importAgent.error.WORKER_LIMIT": "استنفد عامل الاستيراد موارده وتم إيقافه. الاستيراد محفوظ - استأنفه أو قسّم الملف إلى أجزاء أصغر.",
+  "importAgent.error.BOOTSTRAP_TIMEOUT": "لم يبدأ عامل الاستيراد في الوقت المحدد. استأنف الاستيراد.",
+  "importAgent.warn.PROVIDER_RATE_LIMITED": "المزوّد وصل إلى حده في الدقيقة. ينتظر الاستيراد الدقيقة التالية ويكمل.",
+  "importAgent.warn.PUMP_DEADLINE": "بلغت جولة الاستيراد حدّها الزمني. يكمل الباقي في الجولة التالية.",
+  "importAgent.progress.waiting": "في انتظار المزوّد...",
+  "importAgent.progress.resume": "استئناف الاستيراد",
+  "importAgent.chunkError.NO_VISION_MODEL": "لا يوجد نموذج رؤية في السلسلة: هذا الاستيراد يحتاج نموذجًا يقرأ الصور.",
+  "importAgent.error.NO_VISION_MODEL": "لا يوجد نموذج رؤية في السلسلة: هذا الاستيراد يحتاج نموذجًا يقرأ الصور.",
+  "importAgent.reject.IMAGE_READER_NOT_READY": "تعذّر تجهيز الصورة للنموذج.",
+  "importAgent.reject.IMAGE_NO_CANVAS": "أُرسلت الصورة إلى النموذج دون تغيير حجمها.",
+  "importAgent.reject.IMAGE_DECODE_FAILED": "تعذّر فتح الصورة.",
+  "importAgent.reject.IMAGE_TOO_TALL": "الصورة طويلة جدًا: قُسّمت إلى عدة أجزاء للنموذج.",
+  "importAgent.review.source.imageNote": "مصدر هذا الصف صورة لملاحظة."
 }

@@ -24,6 +24,8 @@ import { supabase, getCurrentUser } from '../../services/supabase.js';
 import { activeOptions, loadOptions } from '../../services/options.js';
 
 const PUMP_DELAY = 800;
+const PUMP_RETRIES = 3;
+const PUMP_RETRY_DELAY = 2_000;
 const UNDO_LIMIT = 100;
 
 /** The review page, like the pump, needs "today": caller-side clock only. */
@@ -168,6 +170,11 @@ export function importAgentWizard() {
         progress: { done: 0, total: 0, failed: 0, truncated: 0, nextLabel: '', tokens: null },
         cancelRequested: false,
         pumpActive: false,
+        // A pump that died (the worker hit its own limit): the import is
+        // still there and can be resumed.
+        pumpFailed: false,
+        pumpAttempts: 0,
+        pumpError: null,
 
         // review
         reviewState: null,
@@ -278,6 +285,19 @@ export function importAgentWizard() {
                 messageKey: error?.messageKey || error?.message || 'importAgent.error.INTERNAL',
                 params: error?.params ?? {},
             };
+        },
+
+        /**
+         * The text of a failure. An unknown code (a platform error the
+         * function never saw) must not show a raw translation key.
+         */
+        errorMessage(error) {
+            const key = error?.messageKey || 'importAgent.error.INTERNAL';
+            const text = this.t(key, error?.params ?? {});
+            if (text !== key) return text;
+            const fallback = this.t('importAgent.error.INTERNAL');
+            const code = error?.code ? ` (${error.code})` : '';
+            return fallback === 'importAgent.error.INTERNAL' ? `${fallback}${code}` : fallback;
         },
 
         bannerText(banner) {
@@ -455,9 +475,30 @@ export function importAgentWizard() {
             if (this.pumpActive) return;
             this.pumpActive = true;
             this.cancelRequested = false;
+            this.pumpFailed = false;
             try {
                 while (!this.cancelRequested && this.step === 'extracting') {
-                    const response = await api.callJob('pump', { job_id: this.job.id });
+                    let response;
+                    try {
+                        response = await api.callJob('pump', { job_id: this.job.id });
+                    } catch (error) {
+                        // The worker can die (its own resource limit, a gateway
+                        // timeout). The job is still there: retry a few times,
+                        // then let the user resume instead of leaving a
+                        // "Working..." that never ends.
+                        this.pumpAttempts += 1;
+                        if (this.pumpAttempts <= PUMP_RETRIES) {
+                            this.pumpError = error;
+                            await sleep(PUMP_RETRY_DELAY * this.pumpAttempts);
+                            continue;
+                        }
+                        this.pumpError = error;
+                        this.pumpFailed = true;
+                        this.showFailure(error);
+                        break;
+                    }
+                    this.pumpAttempts = 0;
+                    this.pumpError = null;
                     this.jobStatus = response.status;
                     this.banners = response.banners ?? [];
                     this.progress = {
@@ -470,7 +511,10 @@ export function importAgentWizard() {
                     };
                     if (response.status !== 'extracting') break;
                     if ((response.banners ?? []).some((banner) => banner.code === 'USER_DAILY_TOKEN_CAP')) break;
-                    await sleep(PUMP_DELAY);
+                    // The provider's per-minute budget decides how fast we
+                    // may go: a big import on Groq has to wait between chunks.
+                    const pace = Math.max(PUMP_DELAY, Number(response.pace_ms ?? 0) || 0);
+                    await sleep(pace);
                 }
                 if (this.cancelRequested) return;
                 if (this.jobStatus === 'review') {
@@ -484,6 +528,16 @@ export function importAgentWizard() {
             } finally {
                 this.pumpActive = false;
             }
+        },
+
+        /** Continue an import that stopped (the worker died, the user paused). */
+        async resumeImport() {
+            if (!this.job || this.busy) return;
+            this.pumpFailed = false;
+            this.errorBanner = null;
+            this.jobStatus = 'extracting';
+            this.step = 'extracting';
+            this.pumpLoop();
         },
 
         async retryChunk(jobId, chunkId) {
@@ -919,6 +973,12 @@ export function importAgentWizard() {
             if (!model) return '';
             const line = model.lines.find((entry) => entry.cited) ?? model.lines[0];
             return line?.text ?? '';
+        },
+
+        /** The photos of a note, when the row came from an image. */
+        sourceImages(row) {
+            const model = this.sourceForRow(row);
+            return model?.kind === 'image' ? (model.images ?? []) : [];
         },
 
         sourceLabel(row) {

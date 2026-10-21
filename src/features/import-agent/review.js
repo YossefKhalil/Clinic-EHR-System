@@ -292,10 +292,13 @@ function pipelineInput(state, chunkId, group) {
     // Mirrors the pump exactly (lines reduced to id + text).
     const lineRecords = lines.map((line) => ({ id: line.id, text: line.text }));
     const lineIds = lineRecords.map((line) => line.id);
+    // A photo of a note has no text lines: the model read the image, so
+    // there is nothing to ground the values against.
+    const isImage = payload.kind === 'image';
     return {
         records: group.map(buildRecord),
         sourceId: manual ? 'MANUAL' : (payload.source_id ?? 'S1'),
-        kind: payload.kind === 'sheet' ? 'sheet' : 'text',
+        kind: payload.kind === 'sheet' ? 'sheet' : isImage ? 'image' : 'text',
         lines: manual ? [] : lineRecords,
         chunkLineIds: manual ? [] : lineIds,
         dataLineIds: payload.kind === 'sheet' ? lineIds : null,
@@ -305,10 +308,10 @@ function pipelineInput(state, chunkId, group) {
         existing: state.existing ?? new Map(),
         nameDobMatches: state.nameDobMatches ?? new Set(),
         requireSection: false,
-        // Review-time rules: phantom rows stay on screen and manual rows have
-        // no source to ground against.
+        // Review-time rules: phantom rows stay on screen, manual rows and
+        // image rows have no source text to ground against.
         keepPhantoms: true,
-        ground: !manual,
+        ground: !manual && !isImage,
     };
 }
 
@@ -586,6 +589,18 @@ export function sourceModel(state, row, fieldKey = null) {
     const chunk = row.chunk_id ? state.chunksById.get(row.chunk_id) : null;
     const payload = chunk?.payload ?? null;
     if (!payload) return { kind: 'manual', header: null, lines: [], sheet: null, highlight: null };
+
+    // A photo of a note: the source is the image itself.
+    if (Array.isArray(payload.images) && payload.images.length > 0) {
+        return {
+            kind: 'image',
+            header: null,
+            lines: [],
+            sheet: null,
+            highlight: null,
+            images: payload.images,
+        };
+    }
 
     const cited = new Set(Array.isArray(row.src) ? row.src : []);
     const lines = (Array.isArray(payload.lines) ? payload.lines : []).map((line) => ({

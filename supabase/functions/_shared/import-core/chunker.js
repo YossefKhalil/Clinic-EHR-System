@@ -61,6 +61,9 @@ export function poolSources(sources) {
             name: source.name,
             header: source.header ? poolLine(id, source.header) : null,
             lines: source.lines.map((line) => poolLine(id, line)),
+            // A photo of a note carries its tiles with it: the model reads the
+            // images, not text lines.
+            images: source.images ?? [],
             meta: source.meta ?? {},
             warnings: source.warnings ?? [],
             stats: source.stats ?? {},
@@ -141,6 +144,24 @@ export function chunkPool(sources, limits = LIMITS) {
 
     for (const source of sources) {
         if (capReached) break;
+
+        if (source.layout === 'image') {
+            // A photo of a note is one chunk with the tiles attached: the
+            // model reads the image and answers with the same YAML contract.
+            const images = source.images ?? [];
+            if (images.length === 0) continue;
+            const ok = push({
+                source_id: source.id,
+                kind: 'image',
+                header: null,
+                lines: [],
+                images,
+                boundary_uncertain: false,
+                image_ref: images[0].id,
+            });
+            if (!ok) break;
+            continue;
+        }
 
         if (source.layout === 'rows') {
             const header = source.header ? lineForModel(source.header).text : null;

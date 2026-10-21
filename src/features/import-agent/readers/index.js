@@ -237,8 +237,14 @@ export async function readFile({
                 result = await readPdf(bytes, { name, limits, pdfjs });
                 break;
             case 'image': {
-                const { source } = readImageSource({ name, meta: { file: name, format: sniffed.detail } });
-                result = { sources: [source], warnings: [] };
+                const { source } = await readImageSource({
+                    name,
+                    bytes,
+                    format: sniffed.detail,
+                    meta: { file: name, format: sniffed.detail },
+                    limits,
+                });
+                result = { sources: [source], warnings: source.warnings ?? [] };
                 break;
             }
             case 'text':
