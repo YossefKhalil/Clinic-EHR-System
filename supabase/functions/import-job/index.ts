@@ -1238,7 +1238,10 @@ async function commitAction(body: Record<string, unknown>, ctx: Context) {
     });
     if (error) {
         console.error('import_commit failed', job.id, error.message);
-        return fail('COMMIT_FAILED', 500);
+        // The database's own message: "the patients could not be written
+        // (column ... violates not-null constraint)" beats "something went
+        // wrong".
+        return fail('COMMIT_FAILED', 500, { detail: String(error.message ?? '').slice(0, 200) });
     }
 
     const summary = (result ?? {}) as { created?: number; filled?: number; skipped?: number; idempotent?: boolean };

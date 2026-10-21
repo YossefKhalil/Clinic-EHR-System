@@ -1136,6 +1136,14 @@ BEGIN
             WHERE id = v_row_id;
             v_skipped := v_skipped + 1;
             CONTINUE;
+        WHEN not_null_violation OR data_exception OR numeric_value_out_of_range THEN
+            -- A value the database cannot store (an empty name, a date that
+            -- is not a date). The row is reported, the batch continues.
+            UPDATE public.import_rows
+            SET commit_result = jsonb_build_object('result', 'skipped', 'code', 'INVALID_VALUE')
+            WHERE id = v_row_id;
+            v_skipped := v_skipped + 1;
+            CONTINUE;
         END;
 
         SELECT to_jsonb(p) - 'id' - 'created_at' - 'updated_at'

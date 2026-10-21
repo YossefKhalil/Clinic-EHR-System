@@ -195,6 +195,22 @@
                             </button>
                         </div>
 
+                        <!-- The sections come first: they are the breakdown of
+                             the total above them. -->
+                        <div x-show="isSuperAdmin || profile?.section" class="mb-3">
+                            <div class="text-muted small fw-semibold text-uppercase mb-2" x-text="t('By Section')"></div>
+                            <div class="stat-entries">
+                                <template x-for="entry in sectionStatEntries()" :key="'sec-' + entry.key">
+                                    <div class="stat-entry">
+                                        <span class="stat-entry-value fs-4 fw-bold" :class="'text-' + sectionColor(entry.key)" x-text="entry.count"></span>
+                                        <div class="stat-entry-label text-muted small" x-text="entry.label"></div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+
+                        <hr class="text-muted opacity-25 mb-3">
+
                         <div class="row g-3 align-items-center">
                             <div class="col-6 col-lg-3">
                                 <div class="d-flex align-items-center gap-2">
@@ -213,17 +229,6 @@
                                         <div class="text-muted small" x-text="t('Pending')"></div>
                                     </div>
                                 </div>
-                            </div>
-                            <div class="col-12 col-lg-6" x-show="isSuperAdmin || profile?.section">
-                                <div class="stat-entries">
-                                    <template x-for="entry in sectionStatEntries()" :key="'sec-' + entry.key">
-                                        <div class="stat-entry">
-                                            <span class="stat-entry-value fs-4 fw-bold" :class="'text-' + sectionColor(entry.key)" x-text="entry.count"></span>
-                                            <div class="stat-entry-label text-muted small" x-text="entry.label"></div>
-                                        </div>
-                                    </template>
-                                </div>
-                                <div class="text-muted small mt-2" x-text="t('By Section')"></div>
                             </div>
                         </div>
                     </div>
@@ -388,74 +393,10 @@
                             <i class="bi bi-people-fill me-2 text-primary"></i><span x-text="t('Patients Management')"></span>
                         </h2>
                     </div>
-                    <div class="col-md-6 text-end">
-                        <button class="btn btn-success shadow-sm me-2" @click="exportPatients()" :disabled="exporting">
-                            <span x-show="exporting" class="spinner-border spinner-border-sm me-1" x-cloak></span>
-                            <i class="bi bi-file-earmark-spreadsheet me-1" x-show="!exporting"></i>
-                            <span x-text="exporting ? t('Preparing...') : t('Excel')"></span>
-                        </button>
-                        <!-- The split-button group classes are conditional
-                             (issue #17): with the import caret hidden there is
-                             only one member, so the control must keep a normal
-                             button's radius in both LTR and RTL instead of
-                             carrying the 'rounded-end' patch-up hack. -->
-                        <div class="shadow-sm me-2" :class="importEnabled ? 'btn-group' : ''">
-                            <button type="button" class="btn btn-primary" @click="openPatientForm()">
-                                <i class="bi bi-person-plus-fill me-1"></i> <span x-text="t('Add New Patient')"></span>
-                            </button>
-                            <button type="button" class="btn btn-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false" x-show="importEnabled" x-cloak :aria-label="t('Add New Patient')"></button>
-                            <ul class="dropdown-menu dropdown-menu-end" style="min-width:19rem">
-                                <template x-if="importEnabled">
-                                    <li>
-                                        <button type="button" class="dropdown-item fw-semibold" @click="openNewImport()">
-                                            <i class="bi bi-stars me-2 text-primary"></i><span x-text="t('Import from file or paste')"></span>
-                                        </button>
-                                    </li>
-                                </template>
-                                <template x-if="importEnabled && importOpenJobs.length > 0">
-                                    <li><hr class="dropdown-divider"></li>
-                                </template>
-                                <template x-for="job in (importEnabled ? importVisibleJobs : [])" :key="job.id">
-                                    <li class="d-flex align-items-center gap-1 px-2">
-                                        <button type="button" class="dropdown-item text-secondary flex-grow-1 text-start"
-                                            @click="continueImport(job)">
-                                            <i class="bi bi-arrow-counterclockwise me-2"></i><span x-text="t('Continue import')"></span>
-                                            <span class="badge text-bg-light border ms-1 fw-normal" x-text="t('importAgent.wizard.status.' + job.status)"></span>
-                                            <span class="small text-muted ms-1" x-text="importJobLabel(job)"></span>
-                                        </button>
-                                        <button type="button" class="btn btn-sm btn-link text-danger text-decoration-none p-0 px-1"
-                                            @click.stop="cancelImport(job)" :title="t('importAgent.wizard.cancel')" :aria-label="t('importAgent.wizard.cancel')">
-                                            <i class="bi bi-x-lg"></i>
-                                        </button>
-                                    </li>
-                                </template>
-                                <template x-if="importEnabled && importOpenJobs.length > 3">
-                                    <li>
-                                        <button type="button" class="dropdown-item text-secondary small" @click="importJobsExpanded = !importJobsExpanded">
-                                            <i class="bi bi-chevron-down me-2" x-show="!importJobsExpanded"></i>
-                                            <i class="bi bi-chevron-up me-2" x-show="importJobsExpanded"></i>
-                                            <span x-text="importJobsExpanded ? t('importAgent.wizard.lessImports') : t('importAgent.wizard.moreImports', { count: importOpenJobs.length - 3 })"></span>
-                                        </button>
-                                    </li>
-                                </template>
-                                <template x-if="importEnabled && importOpenJobs.length > 0">
-                                    <li>
-                                        <button type="button" class="dropdown-item text-danger small" @click="clearAllImports()">
-                                            <i class="bi bi-trash me-2"></i><span x-text="t('importAgent.wizard.clearAllImports')"></span>
-                                        </button>
-                                    </li>
-                                </template>
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Filters toolbar (issue #13): every filter lives behind one
-                     Filters control. Desktop: anchored popover. Mobile: bottom
-                     sheet. The chips show the APPLIED filters; the panel stages
-                     edits until Apply. The toolbar acts on outside clicks for
-                     both the popover and the sheet, so the wrapper owns
-                     @click.outside (clicking the button/scrim is inside it). -->
+                    <div class="col-md-6 text-end d-flex flex-wrap justify-content-end align-items-center gap-2">
+                        <!-- The filter control (issue #13) lives in the toolbar row:
+                             its panel is anchored to it, the applied-filter chips
+                             stay under the toolbar. -->
                 <div class="filter-toolbar mb-4" @click.outside="showFilters && closeFilters()">
                     <div class="d-flex flex-wrap align-items-center gap-2">
                         <button type="button" id="patientFiltersToggle" x-ref="patientFiltersToggle"
@@ -464,7 +405,7 @@
                             :class="(showFilters || activeFilterCount()) ? 'btn-primary' : 'btn-outline-secondary'"
                             class="btn filter-toggle"
                             @click="showFilters ? closeFilters() : openFilters()">
-                            <i class="bi bi-funnel-pe"></i>
+                            <i class="bi bi-funnel"></i>
                             <span x-text="t('Filters')"></span>
                             <span class="badge text-bg-light border" x-show="activeFilterCount()" x-cloak x-text="activeFilterCount()"></span>
                         </button>
@@ -474,16 +415,6 @@
                     </div>
 
                     <!-- Applied-filter chips (removed one without reopening the panel) -->
-                    <div class="filter-chips d-flex flex-wrap gap-2 mt-2" x-show="activeFilterCount()" x-cloak :aria-label="t('Active filters')">
-                        <template x-for="chip in appliedFilterChips()" :key="chip.key">
-                            <span class="chip">
-                                <span class="chip-label" x-text="chip.label"></span>
-                                <button type="button" class="chip-remove" :aria-label="chip.aria" @click="removeAppliedFilter(chip.key)">
-                                    <i class="bi bi-x-lg" aria-hidden="true"></i>
-                                </button>
-                            </span>
-                        </template>
-                    </div>
 
                     <div class="filter-scrim" x-show="showFilters" x-cloak @click="closeFilters()"></div>
 
@@ -559,6 +490,76 @@
                         </form>
                     </div>
                 </div>
+                        <button class="btn btn-success shadow-sm me-2" @click="exportPatients()" :disabled="exporting">
+                            <span x-show="exporting" class="spinner-border spinner-border-sm me-1" x-cloak></span>
+                            <i class="bi bi-file-earmark-spreadsheet me-1" x-show="!exporting"></i>
+                            <span x-text="exporting ? t('Preparing...') : t('Excel export')"></span>
+                        </button>
+                        <!-- The split-button group classes are conditional
+                             (issue #17): with the import caret hidden there is
+                             only one member, so the control must keep a normal
+                             button's radius in both LTR and RTL instead of
+                             carrying the 'rounded-end' patch-up hack. -->
+                        <div class="shadow-sm me-2" :class="importEnabled ? 'btn-group' : ''">
+                            <button type="button" class="btn btn-primary" @click="openPatientForm()">
+                                <i class="bi bi-person-plus-fill me-1"></i> <span x-text="t('Add New Patient')"></span>
+                            </button>
+                            <button type="button" class="btn btn-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false" x-show="importEnabled" x-cloak :aria-label="t('Add New Patient')"></button>
+                            <ul class="dropdown-menu dropdown-menu-end" style="min-width:19rem">
+                                <template x-if="importEnabled">
+                                    <li>
+                                        <button type="button" class="dropdown-item fw-semibold" @click="openNewImport()">
+                                            <i class="bi bi-stars me-2 text-primary"></i><span x-text="t('Import from file or paste')"></span>
+                                        </button>
+                                    </li>
+                                </template>
+                                <template x-if="importEnabled && importOpenJobs.length > 0">
+                                    <li><hr class="dropdown-divider"></li>
+                                </template>
+                                <template x-for="job in (importEnabled ? importVisibleJobs : [])" :key="job.id">
+                                    <li class="d-flex align-items-center gap-1 px-2">
+                                        <button type="button" class="dropdown-item text-secondary flex-grow-1 text-start"
+                                            @click="continueImport(job)">
+                                            <i class="bi bi-arrow-counterclockwise me-2"></i><span x-text="t('Continue import')"></span>
+                                            <span class="badge text-bg-light border ms-1 fw-normal" x-text="t('importAgent.wizard.status.' + job.status)"></span>
+                                            <span class="small text-muted ms-1" x-text="importJobLabel(job)"></span>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-link text-danger text-decoration-none p-0 px-1"
+                                            @click.stop="cancelImport(job)" :title="t('importAgent.wizard.cancel')" :aria-label="t('importAgent.wizard.cancel')">
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    </li>
+                                </template>
+                                <template x-if="importEnabled && importOpenJobs.length > 3">
+                                    <li>
+                                        <button type="button" class="dropdown-item text-secondary small" @click="importJobsExpanded = !importJobsExpanded">
+                                            <i class="bi bi-chevron-down me-2" x-show="!importJobsExpanded"></i>
+                                            <i class="bi bi-chevron-up me-2" x-show="importJobsExpanded"></i>
+                                            <span x-text="importJobsExpanded ? t('importAgent.wizard.lessImports') : t('importAgent.wizard.moreImports', { count: importOpenJobs.length - 3 })"></span>
+                                        </button>
+                                    </li>
+                                </template>
+                                <template x-if="importEnabled && importOpenJobs.length > 0">
+                                    <li>
+                                        <button type="button" class="dropdown-item text-danger small" @click="clearAllImports()">
+                                            <i class="bi bi-trash me-2"></i><span x-text="t('importAgent.wizard.clearAllImports')"></span>
+                                        </button>
+                                    </li>
+                                </template>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                    <div class="filter-chips d-flex flex-wrap gap-2 mb-4" x-show="activeFilterCount()" x-cloak :aria-label="t('Active filters')">
+                        <template x-for="chip in appliedFilterChips()" :key="chip.key">
+                            <span class="chip">
+                                <span class="chip-label" x-text="chip.label"></span>
+                                <button type="button" class="chip-remove" :aria-label="chip.aria" @click="removeAppliedFilter(chip.key)">
+                                    <i class="bi bi-x-lg" aria-hidden="true"></i>
+                                </button>
+                            </span>
+                        </template>
+                    </div>
 
                 <div class="card shadow-sm border-0">
                     <div class="card-body p-0">

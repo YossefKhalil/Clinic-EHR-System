@@ -48,7 +48,44 @@ export function buildRecord(row) {
     return base;
 }
 
-/** The patient columns a row writes (the registry's importable columns). */
+/** The columns the database stores as a date. */
+const DATE_COLUMNS = new Set(['date_of_birth', 'visit_date']);
+/** The columns the database stores as a number. */
+const NUMBER_COLUMNS = new Set(['age', 'children_count', 'price']);
+
+/** An ISO date (yyyy-mm-dd) or null: the database casts it. */
+export function toIsoDate(value) {
+    if (value === null || value === undefined || value === '') return null;
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return value.toISOString().slice(0, 10);
+    }
+    const text = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+    // A date the model wrote as dd/mm/yyyy: the rules engine normalizes it,
+    // but a value that arrives in another shape must not break the insert.
+    const match = /^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})$/.exec(text);
+    if (match) {
+        const [, day, month, year] = match;
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    }
+    const parsed = new Date(text);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
+}
+
+/** A number or null: the database casts it. */
+export function toNumber(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const number = Number(String(value).replace(/[^0-9.\-]/g, ''));
+    return Number.isFinite(number) ? number : null;
+}
+
+/**
+ * The patient columns a row writes (the registry's importable columns).
+ *
+ * The values are the ones the database can store: a date that is not a date
+ * and a price that is not a number are dropped here, so one bad cell cannot
+ * fail the whole import.
+ */
 export function patientValues(row) {
     const values = {};
     for (const field of FIELDS) {
@@ -62,6 +99,16 @@ export function patientValues(row) {
             continue;
         }
         if (String(value).trim() === '') continue;
+        if (DATE_COLUMNS.has(field.column)) {
+            const date = toIsoDate(value);
+            if (date) values[field.column] = date;
+            continue;
+        }
+        if (NUMBER_COLUMNS.has(field.column)) {
+            const number = toNumber(value);
+            if (number !== null) values[field.column] = number;
+            continue;
+        }
         values[field.column] = value;
     }
     return values;
