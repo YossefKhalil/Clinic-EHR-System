@@ -164,6 +164,8 @@ function app() {
         // Settings tabs (#16): Clinic options / Users / AI & Import. Users are
         // fetched when their tab is shown, not on every Settings entry.
         settingsTab: 'options',
+        // The patients table text size (a personal preference).
+        patientTableFont: 0.9,
         // The dashboard cards can be folded into one line.
         statsCardOpen: true,
         financialCardOpen: true,
@@ -548,6 +550,30 @@ function app() {
             setLocale(newLocale);
             this.localeLabel = t('locale_label');
             this.currentDate = this.formatToday();
+        },
+
+        // The table text size is remembered per browser.
+        loadPatientTableFont() {
+            try {
+                const stored = Number(localStorage.getItem('patientsTableFont'));
+                if (Number.isFinite(stored) && stored >= 0.75 && stored <= 1.1) return stored;
+            } catch {
+                // No storage (private mode): the default is fine.
+            }
+            return 0.9;
+        },
+
+        savePatientTableFont() {
+            try {
+                localStorage.setItem('patientsTableFont', String(this.patientTableFont));
+            } catch {
+                // No storage: the setting lasts for this page only.
+            }
+        },
+
+        resetPatientTableFont() {
+            this.patientTableFont = 0.9;
+            this.savePatientTableFont();
         },
 
         /**

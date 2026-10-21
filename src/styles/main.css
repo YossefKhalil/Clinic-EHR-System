@@ -392,6 +392,19 @@ button.stat-link {
     min-width: 6.5rem;
 }
 
+/* The patients table can be scaled down (the reviewer's own setting). */
+.patients-table {
+    font-size: calc(1rem * var(--patients-table-font, 1));
+}
+
+.patients-table > :not(caption) > * > * {
+    padding-block: calc(.85rem * var(--patients-table-font, 1));
+}
+
+.patients-table thead th {
+    font-size: calc(1rem * var(--patients-table-font, 1));
+}
+
 /* The folded dashboard cards: one dense line with every number. */
 .stat-compact {
     display: flex;

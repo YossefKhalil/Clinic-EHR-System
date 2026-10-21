@@ -451,6 +451,17 @@
                         <h2 class="text-secondary fw-bold mb-0">
                             <i class="bi bi-people-fill me-2 text-primary"></i><span x-text="t('Patients Management')"></span>
                         </h2>
+                        <!-- The table size is a personal preference: the rows
+                             carry a lot of data and the text can be tighter. -->
+                        <div class="d-flex align-items-center gap-2 mt-2">
+                            <label class="small text-muted text-nowrap" for="patientTableFont" x-text="t('Text size')"></label>
+                            <input type="range" class="form-range" style="max-width:8rem" id="patientTableFont"
+                                min="0.75" max="1.1" step="0.05" x-model.number="patientTableFont"
+                                @input="savePatientTableFont()">
+                            <span class="small text-muted" style="min-width:2.6rem" x-text="Math.round(patientTableFont * 100) + '%'"></span>
+                            <button type="button" class="btn btn-sm btn-link text-secondary text-decoration-none p-0"
+                                @click="resetPatientTableFont()" x-text="t('Reset')"></button>
+                        </div>
                     </div>
                     <div class="col-md-6 text-end d-flex flex-wrap justify-content-end align-items-center gap-2">
                         <!-- The filter control (issue #13) lives in the toolbar row:
@@ -623,7 +634,8 @@
                 <div class="card shadow-sm border-0">
                     <div class="card-body p-0">
                         <div class="table-responsive">
-                            <table class="table table-hover align-middle mb-0">
+                            <table class="table table-hover align-middle mb-0 patients-table"
+                                :style="'--patients-table-font: ' + patientTableFont">
                                 <thead class="table-light border-bottom text-muted">
                                     <tr>
                                         <th class="ps-4 py-3" x-text="t('Patient Name')"></th>
