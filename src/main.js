@@ -110,7 +110,7 @@ function app() {
         loginError: null,
         loginLoading: false,
         
-        currentDate: new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }),
+        currentDate: '',
         
         // Dashboard
             stats: { total: 0, completed: 0, pending: 0, sections: {}, sources: {} },
@@ -547,6 +547,28 @@ function app() {
             const newLocale = getLocale() === 'en' ? 'ar' : 'en';
             setLocale(newLocale);
             this.localeLabel = t('locale_label');
+            this.currentDate = this.formatToday();
+        },
+
+        /**
+         * Today, in the app's language: the full day and month name, and the
+         * Hijri date next to it.
+         */
+        formatToday(date = new Date()) {
+            const arabic = getLocale() === 'ar';
+            const gregorian = new Intl.DateTimeFormat(arabic ? 'ar-EG' : 'en-GB', {
+                weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+            }).format(date);
+            let hijri = '';
+            try {
+                hijri = new Intl.DateTimeFormat(
+                    arabic ? 'ar-SA-u-ca-islamic-umalqura' : 'en-GB-u-ca-islamic',
+                    { day: 'numeric', month: 'long', year: 'numeric' },
+                ).format(date);
+            } catch {
+                hijri = '';
+            }
+            return hijri ? `${gregorian} · ${hijri}` : gregorian;
         },
         
         async showDashboard() {
