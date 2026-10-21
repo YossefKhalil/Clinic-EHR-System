@@ -509,6 +509,63 @@ i.bi {
  * language does the mirroring. No extra rules, so nothing can fight.
  */
 
+/* The sort of the patients table: the button next to the Filters button
+   and the headers of the table. The arrow of the header shows the direction
+   of the current sort; a faint one on hover hints that the column can be
+   sorted at all. */
+.sort-toggle::after {
+    display: none;
+}
+
+.sort-toggle .bi {
+    font-size: 1.05rem;
+    line-height: 1;
+}
+
+.sort-menu {
+    min-width: 13.5rem;
+}
+
+.sort-menu .dropdown-item.active {
+    font-weight: 600;
+}
+
+.table-sort-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    line-height: inherit;
+    text-align: start;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.table-sort-btn:hover {
+    color: var(--bs-primary);
+}
+
+.table-sort-btn .sort-arrow {
+    font-size: 0.8em;
+    opacity: 0;
+    transition: opacity 0.15s ease-in-out;
+}
+
+.patients-table thead th:hover .sort-arrow {
+    opacity: 0.35;
+}
+
+.patients-table thead th[aria-sort="ascending"] .sort-arrow,
+.patients-table thead th[aria-sort="descending"] .sort-arrow {
+    opacity: 1;
+    color: var(--bs-primary);
+}
+
 /* Navbar global search */
 .global-search {
     flex: 1 1 100%;
@@ -578,11 +635,18 @@ i.bi {
     margin-inline: 0 !important;
 }
 
+/* The spinner takes the place of the magnifier while the search runs,
+   so the box carries one sign at a time. The rotation of the spinner owns
+   the `transform`, so the centring uses `translate` - the two do not
+   fight each other and the circle stays in the middle of the field. */
 .global-search-spinner {
     position: absolute;
     top: 50%;
-    inset-inline-end: 0.9rem;
-    transform: translateY(-50%);
+    inset-inline-start: 0.9rem;
+    translate: 0 -50%;
+    width: 1rem;
+    height: 1rem;
+    border-width: 0.15em;
 }
 
 .global-search-menu {

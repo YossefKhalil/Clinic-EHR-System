@@ -29,22 +29,36 @@ export function normalizeText(value) {
  * label). Tokens must all match, but they may hit different fields, so
  * "احمد agamy" finds the Ahmed registered in Agamy.
  */
-export function patientMatchesQuery(patient, query, followerLabel = (k) => k ?? '') {
+export function patientMatchesQuery(patient, query, labels = {}) {
     if (!patient || !query || !String(query).trim()) return !patient ? false : true;
 
     const tokens = normalizeText(query).split(/\s+/).filter((tok) => tok.length > 1);
     if (!tokens.length) return true;
 
-    const followKey = patient.follower ?? '';
+    // The names that mean the same thing: the row carries the English name
+    // of the governorate and the key of an option, the people write the
+    // Arabic name, so both are looked for.
+    const labelOf = (kind, value) => {
+        if (!value) return '';
+        const fn = typeof labels === 'function'
+            ? (kind === 'follower' ? labels : null)
+            : labels[kind];
+        if (typeof fn !== 'function') return '';
+        return fn(value) ?? '';
+    };
+
     const statusWords = patient.is_completed ? ['complete', 'مكتمل'] : ['pending', 'قيد'];
 
     const fields = [
         patient.name, patient.national_id, patient.mobile,
-        patient.governorate, patient.address, patient.problem, patient.solution,
-        patient.marital_status, patient.age, patient.children_count,
+        patient.governorate, labelOf('governorate', patient.governorate),
+        patient.address, patient.problem, patient.solution,
+        patient.marital_status, labelOf('marital', patient.marital_status),
+        patient.age, patient.children_count,
         patient.visit_date, patient.created_at, patient.price,
-        followKey, followerLabel(followKey),
-        patient.section, patient.source_of_money,
+        patient.follower, labelOf('follower', patient.follower),
+        patient.section, labelOf('section', patient.section),
+        patient.source_of_money, labelOf('source', patient.source_of_money),
         patient.is_completed ? 'complete completed' : 'pending',
         Array.isArray(patient.notes) ? patient.notes.join(' ') : (patient.notes ?? ''),
     ];

@@ -36,6 +36,7 @@ import { emptyPatientFilters, activeFilterKeys } from './services/patient-filter
 import { patientMatchesQuery } from './services/fuzzy.js';
 import { getPriceStats } from './services/prices.js';
 import { loadOptions as fetchOptions, allOptions, createOption, updateOption, countOptionUsage, deleteOption, optionLabel as lookupOptionLabel } from './services/options.js';
+import { buildSearchDictionary, searchTermVariants, maritalStatusLabel } from './services/search-terms.js';
 import { importAgentWizard, importAgentEnter } from './features/import-agent/ui.js';
 
 // A tab left open across a deploy still points at the previous build's
@@ -142,6 +143,10 @@ function app() {
         patients: [],
         patientsLoading: false,
         patientFilters: emptyPatientFilters(),
+        // The sort of the patients table: the key is the column that was
+        // pressed, the direction is 'asc' or 'desc'. The newest row first is
+        // the start, like before the table could be sorted.
+        patientSort: { key: 'created_at', dir: 'desc' },
         
         // Filters toolbar/panel (issue #13): `filterDraft` is the staged copy
         // shown while the panel is open; it is applied to `patientFilters`
@@ -665,11 +670,12 @@ function app() {
             this.saveCardState();
         },
 
-        // The table text size is remembered per browser.
+        // The table text size is remembered per browser. The size runs from
+        // 90% to 150%: smaller than that the ten columns do not fit.
         loadPatientTableFont() {
             try {
                 const stored = Number(localStorage.getItem('patientsTableFont'));
-                if (Number.isFinite(stored) && stored >= 0.5 && stored <= 1.5) return stored;
+                if (Number.isFinite(stored) && stored >= 0.9 && stored <= 1.5) return stored;
             } catch {
                 // No storage (private mode): the default is fine.
             }
@@ -682,11 +688,6 @@ function app() {
             } catch {
                 // No storage: the setting lasts for this page only.
             }
-        },
-
-        resetPatientTableFont() {
-            this.patientTableFont = 0.9;
-            this.savePatientTableFont();
         },
 
         /**
@@ -1778,7 +1779,12 @@ function app() {
                 Object.entries(this.patientFilters).forEach(([k, v]) => {
                     if (v !== '' && v !== null && v !== undefined) noEmpty[k] = v;
                 });
-                this.patients = await getPatients(noEmpty, this.isSuperAdmin, this.profile?.section);
+                if (noEmpty.search) noEmpty.search_terms = this.searchTerms(noEmpty.search);
+                this.patients = await getPatients({
+                    ...noEmpty,
+                    sort: this.patientSort.key,
+                    dir: this.patientSort.dir,
+                }, this.isSuperAdmin, this.profile?.section);
             } finally {
                 this.patientsLoading = false;
             }
@@ -1899,6 +1905,69 @@ function app() {
             await this.loadPatients();
         },
         
+        // The terms a search runs with: the word that was typed and every word
+        // that means the same thing - the Arabic name of a governorate and
+        // the English name that is stored, and so on.
+        searchTerms(term) {
+            return searchTermVariants(term, buildSearchDictionary({
+                follower: allOptions('follower'),
+                section: allOptions('section'),
+                source: allOptions('source'),
+            }));
+        },
+
+        // ---- The sort of the patients table ---------------------------------
+
+        // The columns the table can be sorted by, with the label of their
+        // header - the menu of the sort button and the header of the table
+        // always say the same thing.
+        sortOptions() {
+            return [
+                { key: 'name', label: this.t('Patient Name') },
+                { key: 'national_id', label: this.t('National ID') },
+                { key: 'mobile', label: this.t('Mobile No.') },
+                { key: 'governorate', label: this.t('Governorate') },
+                { key: 'is_completed', label: this.t('Status') },
+                { key: 'follower', label: this.t('Follower') },
+                { key: 'source_of_money', label: this.t('Source of Money') },
+                { key: 'section', label: this.t('Section') },
+                { key: 'created_at', label: this.t('Registered Date') },
+            ];
+        },
+
+        // Sort by a column: the same column again flips the direction, a new
+        // column starts at the beginning - ascending, and the newest first
+        // for the date.
+        async sortPatientsBy(key) {
+            const current = this.patientSort;
+            const dir = current.key === key
+                ? (current.dir === 'asc' ? 'desc' : 'asc')
+                : (key === 'created_at' ? 'desc' : 'asc');
+            this.patientSort = { key, dir };
+            await this.loadPatients();
+        },
+
+        // The arrow of a column: the direction of the current sort, or a
+        // faint sign that the column can be sorted at all.
+        sortIcon(key) {
+            if (this.patientSort.key !== key) return 'bi-arrow-down-up';
+            return this.patientSort.dir === 'asc' ? 'bi-sort-up' : 'bi-sort-down';
+        },
+
+        // What the sort button says right now.
+        sortSummary() {
+            const option = this.sortOptions().find((o) => o.key === this.patientSort.key);
+            const label = option ? option.label : this.t('Registered Date');
+            const dir = this.patientSort.dir === 'asc' ? this.t('Ascending') : this.t('Descending');
+            return `${this.t('Sort')}: ${label} (${dir})`;
+        },
+
+        // For the screen readers: what the column is sorted by.
+        ariaSort(key) {
+            if (this.patientSort.key !== key) return 'none';
+            return this.patientSort.dir === 'asc' ? 'ascending' : 'descending';
+        },
+
         // Navbar search. One box, zero options: it searches every patient
         // field at once server-side (anysearch) and shows a handful of live
         // suggestions; picking one opens that patient, Enter opens the full
@@ -1914,7 +1983,7 @@ function app() {
                 this.globalSearchLoading = true;
                 try {
                     const results = await getPatients(
-                        { search: query, filter_by: 'all' },
+                        { search: query, filter_by: 'all', search_terms: this.searchTerms(query) },
                         this.isSuperAdmin, this.profile?.section
                     );
                     // Ignore stale responses: only the latest request may
@@ -1938,7 +2007,13 @@ function app() {
             const query = (this.globalSearch || '').trim();
             if (!query) return [];
             return this.patients.slice(0, 50)
-                .filter((patient) => patientMatchesQuery(patient, query, (key) => lookupOptionLabel('follower', key)))
+                .filter((patient) => patientMatchesQuery(patient, query, {
+                    governorate: (value) => governorateLabel(value),
+                    marital: (value) => maritalStatusLabel(value),
+                    follower: (key) => lookupOptionLabel('follower', key),
+                    section: (key) => lookupOptionLabel('section', key),
+                    source: (key) => lookupOptionLabel('source', key),
+                }))
                 .slice(0, 5);
         },
         

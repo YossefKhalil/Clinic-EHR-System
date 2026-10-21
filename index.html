@@ -27,7 +27,7 @@
                      hiding behind the hamburger. -->
                 <div class="global-search position-relative" @click.outside="closeGlobalSearch({ clearFocus: true })">
                         <div class="position-relative">
-                            <i class="bi bi-search global-search-icon" aria-hidden="true"></i>
+                            <i class="bi bi-search global-search-icon" aria-hidden="true" x-show="!globalSearchLoading"></i>
                             <input
                                 type="search"
                                 class="form-control global-search-input"
@@ -460,11 +460,9 @@
                         <div class="d-flex align-items-center gap-2 mt-2">
                             <label class="small text-muted text-nowrap" for="patientTableFont" x-text="t('Text size')"></label>
                             <input type="range" class="form-range" style="max-width:8rem" id="patientTableFont"
-                                min="0.5" max="1.5" step="0.05" x-model.number="patientTableFont"
+                                min="0.9" max="1.5" step="0.05" x-model.number="patientTableFont"
                                 @input="savePatientTableFont()">
                             <span class="small text-muted" style="min-width:2.6rem" x-text="Math.round(patientTableFont * 100) + '%'"></span>
-                            <button type="button" class="btn btn-sm btn-link text-secondary text-decoration-none p-0"
-                                @click="resetPatientTableFont()" x-text="t('Reset')"></button>
                         </div>
                     </div>
                     <div class="col-12 col-md-6 text-end d-flex flex-wrap justify-content-end align-items-center gap-2">
@@ -473,16 +471,40 @@
                              stay under the toolbar. -->
                 <div class="filter-toolbar" @click.outside="showFilters && closeFilters()">
                     <div class="d-flex flex-wrap align-items-center gap-2">
-                        <button type="button" id="patientFiltersToggle" x-ref="patientFiltersToggle"
-                            aria-haspopup="dialog" aria-controls="patientFiltersPanel"
-                            :aria-expanded="showFilters ? 'true' : 'false'"
-                            :class="(showFilters || activeFilterCount()) ? 'btn-primary' : 'btn-outline-secondary'"
-                            class="btn filter-toggle"
-                            @click="showFilters ? closeFilters() : openFilters()">
-                            <i class="bi bi-funnel"></i>
-                            <span x-text="t('Filters')"></span>
-                            <span class="badge text-bg-light border" x-show="activeFilterCount()" x-cloak x-text="activeFilterCount()"></span>
-                        </button>
+                        <!-- Filters and sorting in one control: the button opens
+                             the filters, the arrow next to it opens the sort
+                             menu. One thing to look at, two things to do. -->
+                        <div class="btn-group filter-sort-group">
+                            <button type="button" id="patientFiltersToggle" x-ref="patientFiltersToggle"
+                                aria-haspopup="dialog" aria-controls="patientFiltersPanel"
+                                :aria-expanded="showFilters ? 'true' : 'false'"
+                                :class="(showFilters || activeFilterCount()) ? 'btn-primary' : 'btn-outline-secondary'"
+                                class="btn filter-toggle"
+                                @click="showFilters ? closeFilters() : openFilters()">
+                                <i class="bi bi-funnel"></i>
+                                <span x-text="t('Filters')"></span>
+                                <span class="badge text-bg-light border" x-show="activeFilterCount()" x-cloak x-text="activeFilterCount()"></span>
+                            </button>
+                            <button type="button" class="btn dropdown-toggle sort-toggle" data-bs-toggle="dropdown" aria-expanded="false"
+                                :class="(showFilters || activeFilterCount()) ? 'btn-primary' : 'btn-outline-secondary'"
+                                :title="sortSummary()" :aria-label="t('Sort')">
+                                <i class="bi" :class="sortIcon(patientSort.key)"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end sort-menu">
+                                <li class="dropdown-header" x-text="t('Sort by')"></li>
+                                <template x-for="option in sortOptions()" :key="option.key">
+                                    <li>
+                                        <button type="button" class="dropdown-item d-flex align-items-center justify-content-between gap-3"
+                                            :class="{ active: patientSort.key === option.key }"
+                                            @click="sortPatientsBy(option.key)">
+                                            <span x-text="option.label"></span>
+                                            <i class="bi" x-show="patientSort.key === option.key"
+                                                :class="patientSort.dir === 'asc' ? 'bi-sort-up' : 'bi-sort-down'"></i>
+                                        </button>
+                                    </li>
+                                </template>
+                            </ul>
+                        </div>
                         <button type="button" class="btn filter-clear-all text-secondary" x-show="activeFilterCount()" x-cloak @click="clearAllFilters()">
                             <i class="bi bi-x-circle"></i><span x-text="t('Clear all')"></span>
                         </button>
@@ -642,15 +664,60 @@
                                 :style="'--patients-table-font: ' + patientTableFont">
                                 <thead class="table-light border-bottom text-muted">
                                     <tr>
-                                        <th class="ps-4 py-3" x-text="t('Patient Name')"></th>
-                                        <th class="py-3" x-text="t('National ID')"></th>
-                                        <th class="py-3" x-text="t('Mobile No.')"></th>
-                                        <th class="py-3" x-text="t('Governorate')"></th>
-                                        <th class="py-3" x-text="t('Status')"></th>
-                                        <th class="py-3" x-text="t('Follower')"></th>
-                                        <th class="py-3" x-text="t('Source')"></th>
-                                        <th class="py-3" x-text="t('Section')"></th>
-                                        <th class="py-3" x-text="t('Registered Date')"></th>
+                                        <th class="py-3 sortable-head ps-4" :aria-sort="ariaSort('name')">
+                                            <button type="button" class="table-sort-btn" @click="sortPatientsBy('name')">
+                                                <span x-text="t('Patient Name')"></span>
+                                                <i class="bi sort-arrow" :class="sortIcon('name')"></i>
+                                            </button>
+                                        </th>
+                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('national_id')">
+                                            <button type="button" class="table-sort-btn" @click="sortPatientsBy('national_id')">
+                                                <span x-text="t('National ID')"></span>
+                                                <i class="bi sort-arrow" :class="sortIcon('national_id')"></i>
+                                            </button>
+                                        </th>
+                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('mobile')">
+                                            <button type="button" class="table-sort-btn" @click="sortPatientsBy('mobile')">
+                                                <span x-text="t('Mobile No.')"></span>
+                                                <i class="bi sort-arrow" :class="sortIcon('mobile')"></i>
+                                            </button>
+                                        </th>
+                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('governorate')">
+                                            <button type="button" class="table-sort-btn" @click="sortPatientsBy('governorate')">
+                                                <span x-text="t('Governorate')"></span>
+                                                <i class="bi sort-arrow" :class="sortIcon('governorate')"></i>
+                                            </button>
+                                        </th>
+                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('is_completed')">
+                                            <button type="button" class="table-sort-btn" @click="sortPatientsBy('is_completed')">
+                                                <span x-text="t('Status')"></span>
+                                                <i class="bi sort-arrow" :class="sortIcon('is_completed')"></i>
+                                            </button>
+                                        </th>
+                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('follower')">
+                                            <button type="button" class="table-sort-btn" @click="sortPatientsBy('follower')">
+                                                <span x-text="t('Follower')"></span>
+                                                <i class="bi sort-arrow" :class="sortIcon('follower')"></i>
+                                            </button>
+                                        </th>
+                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('source_of_money')">
+                                            <button type="button" class="table-sort-btn" @click="sortPatientsBy('source_of_money')">
+                                                <span x-text="t('Source')"></span>
+                                                <i class="bi sort-arrow" :class="sortIcon('source_of_money')"></i>
+                                            </button>
+                                        </th>
+                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('section')">
+                                            <button type="button" class="table-sort-btn" @click="sortPatientsBy('section')">
+                                                <span x-text="t('Section')"></span>
+                                                <i class="bi sort-arrow" :class="sortIcon('section')"></i>
+                                            </button>
+                                        </th>
+                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('created_at')">
+                                            <button type="button" class="table-sort-btn" @click="sortPatientsBy('created_at')">
+                                                <span x-text="t('Registered Date')"></span>
+                                                <i class="bi sort-arrow" :class="sortIcon('created_at')"></i>
+                                            </button>
+                                        </th>
                                         <th class="text-end pe-4 py-3" x-text="t('Actions')"></th>
                                     </tr>
                                 </thead>
@@ -2176,7 +2243,7 @@
                                         </template>
                                     </div>
 
-                                    <button type="button" class="btn btn-sm btn-link text-secondary text-decoration-none p-0 mt-1" style="font-size: .8rem;" x-show="aiCloudConsent" @click="aiResetCloudConsent()" x-text="t('aiSettings.local.resetConsent')"></button>
+                                    <button type="button" class="btn btn-sm btn-link text-secondary text-decoration-none p-0 mt-1" style="font-size: .8rem;" x-show="aiCloudConsent" @click="aiResetCloudConsent()" x-text="t('aiSettings.consent.resetConsent')"></button>
 
                                 <div class="mt-3">
                                     <div x-show="aiSettingsProvider === 'openrouter'" x-cloak>
@@ -2476,6 +2543,7 @@
                                                         <div class="col-6 col-md-3">
                                                             <label class="form-label small mb-1" x-text="t('aiSettings.local.threads')"></label>
                                                             <input type="number" class="form-control form-control-sm" min="1" max="16" :value="aiLocal.config.text.threads" @change="aiLocalSetConfig('text', 'threads', $event.target.value)">
+                                                            <div class="form-text" x-text="t('aiSettings.local.threadsHint')"></div>
                                                         </div>
                                                         <div class="col-6 col-md-3">
                                                             <label class="form-label small mb-1" x-text="t('aiSettings.local.batch')"></label>
@@ -2547,6 +2615,7 @@
                                 <hr class="my-4">
 
                                 <div class="d-flex flex-wrap align-items-center justify-content-end gap-2">
+                                    <span class="small text-warning me-auto" x-show="aiSettingsDirty" x-cloak x-text="t('aiSettings.unsaved')"></span>
                                     <button type="button" class="btn btn-link text-secondary text-decoration-none" @click="aiDiscardChanges()" :disabled="aiSettingsSaving" x-text="t('aiSettings.discard')"></button>
                                     <button type="button" class="btn btn-primary" @click="saveAiSettings()" :disabled="aiSettingsSaving || aiSettingsLoading">
                                         <span class="spinner-border spinner-border-sm me-1" x-show="aiSettingsSaving" x-cloak></span>

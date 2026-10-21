@@ -4,11 +4,35 @@ import { getLocale } from './i18n.js';
 // stored value is the English name, the Arabic name comes with it.
 import { GOVERNORATES as GOVERNORATE_ENTRIES } from '@import-core/enums.js';
 
+// The columns the patients table can be sorted by. The key is what the
+// table uses, the value is the column of the database - nothing else can be
+// sorted by, so the query cannot be bent.
+const SORTABLE_COLUMNS = {
+    name: 'name',
+    national_id: 'national_id',
+    mobile: 'mobile',
+    governorate: 'governorate',
+    is_completed: 'is_completed',
+    follower: 'follower',
+    source_of_money: 'source_of_money',
+    section: 'section',
+    created_at: 'created_at',
+};
+
+export function sortableColumns() {
+    return Object.keys(SORTABLE_COLUMNS);
+}
+
+// The filter of PostgREST is a list, so a comma, a bracket or a quote
+// inside the term would cut the list in two. They are spaces in a search.
+function escapeSearchTerm(term) {
+    return String(term).replace(/[,()*"]/g, ' ').trim();
+}
+
 export async function getPatients(filters = {}, isSuperAdmin = false, userSection = null) {
     let query = supabase()
         .from('patients')
-        .select('*')
-        .order('created_at', { ascending: false });
+        .select('*');
     
     if (!isSuperAdmin && userSection) {
         query = query.eq('section', userSection);
@@ -20,8 +44,21 @@ export async function getPatients(filters = {}, isSuperAdmin = false, userSectio
             // Any-value search across every patient field at once via the
             // anysearch computed field (see schema.sql). It renders every
             // column, including numbers/dates/jsonb, as text.
-            const term = `%${filters.search}%`;
-            query = query.ilike('anysearch', term);
+            //
+            // The terms are the word that was typed and every word that
+            // means the same thing (the Arabic name of a governorate and the
+            // English one that is stored), so both are found.
+            const terms = (filters.search_terms && filters.search_terms.length)
+                ? filters.search_terms
+                : [filters.search];
+            if (terms.length > 1) {
+                const filter = terms
+                    .map((term) => `anysearch.ilike.%${escapeSearchTerm(term)}%`)
+                    .join(',');
+                query = query.or(filter);
+            } else {
+                query = query.ilike('anysearch', `%${filters.search}%`);
+            }
         } else if (['name', 'national_id', 'mobile'].includes(field)) {
             query = query.ilike(field, `%${filters.search}%`);
         }
@@ -42,6 +79,15 @@ export async function getPatients(filters = {}, isSuperAdmin = false, userSectio
     if (filters.date_from) query = query.gte('created_at', new Date(`${filters.date_from}T00:00:00`).toISOString());
     if (filters.date_to) query = query.lte('created_at', new Date(`${filters.date_to}T23:59:59.999`).toISOString());
     
+    // The sort: the newest row first is the start, a column that was pressed
+    // takes over. A second key keeps rows with the same value in the same
+    // order, so the table never shuffles itself.
+    const sortColumn = SORTABLE_COLUMNS[filters.sort] || 'created_at';
+    const ascending = filters.dir === 'asc';
+    query = query.order(sortColumn, { ascending });
+    if (sortColumn === 'created_at') query = query.order('id', { ascending: true });
+    else query = query.order('created_at', { ascending: false });
+
     const { data, error } = await query;
     if (error) throw error;
     return data;
