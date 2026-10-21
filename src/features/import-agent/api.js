@@ -106,6 +106,16 @@ export async function callJob(action, payload = {}) {
     return data;
 }
 
+/**
+ * The commit (spec §11): the reviewed rows become patients.
+ *
+ * `commit_key` makes a retry of the same commit a no-op instead of a second
+ * batch of patients.
+ */
+export async function commitJob(jobId, commitKey) {
+    return callJob('commit', { job_id: jobId, commit_key: commitKey });
+}
+
 /** Per-file signed upload; mirrors the create step's `upload_urls`. */
 export async function uploadToSignedCell(path, token, file) {
     const client = supabase();

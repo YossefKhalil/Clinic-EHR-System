@@ -45,4 +45,8 @@ describe('RLS / DB', () => {
     it('03-integrity: idempotent delivery, the edit guard and retention', async () => {
         await runRlsScript(db, '03-integrity.sql');
     }, 60000);
+
+    it('04-commit: the reviewed rows become patients, once', async () => {
+        await runRlsScript(db, '04-commit.sql');
+    }, 60000);
 });

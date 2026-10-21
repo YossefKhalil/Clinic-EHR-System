@@ -277,7 +277,10 @@ function app() {
                     this.updateAuthState();
                 };
                 
-                window.localeChanged = () => {
+                // The import wizard tells the shell when an import was committed:
+            // the job is no longer open.
+            window.addEventListener('import-committed', () => this.refreshImportResume());
+            window.localeChanged = () => {
                     this.localeLabel = t('locale_label');
                 };
                 

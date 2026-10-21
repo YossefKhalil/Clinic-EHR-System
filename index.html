@@ -717,13 +717,24 @@
                 <div class="alert alert-danger" role="alert" x-show="errorBanner" x-cloak>
                     <div class="d-flex justify-content-between align-items-start gap-3">
                         <span x-text="errorBanner ? errorMessage({ messageKey: errorBanner.messageKey, params: errorBanner.params }) : ''"></span>
-                        <button type="button" class="btn-close" @click="errorBanner = null" :aria-label="t('Cancel')"></button>
+                        <div class="d-flex align-items-center gap-2 flex-shrink-0">
+                            <button type="button" class="btn btn-sm btn-outline-danger" x-show="job && jobStatus === 'review'"
+                                @click="reloadReview()" x-text="t('importAgent.review.reload')"></button>
+                            <button type="button" class="btn-close" @click="errorBanner = null" :aria-label="t('Cancel')"></button>
+                        </div>
                     </div>
                 </div>
 
                 <!-- STEP: ADD (spec 5) -->
                 <template x-if="step === 'add'">
                     <div>
+                        <!-- The result of the last commit. -->
+                        <div class="alert alert-success py-2 small d-flex flex-wrap align-items-center gap-2 mb-3" x-show="commitResult" x-cloak>
+                            <i class="bi bi-check-circle-fill"></i>
+                            <span x-text="commitResult ? t('importAgent.review.confirm.done', commitResult) : ''"></span>
+                            <button type="button" class="btn btn-sm btn-link text-secondary text-decoration-none p-0 ms-auto"
+                                @click="commitResult = null" x-text="t('Dismiss')"></button>
+                        </div>
                         <div class="card shadow-sm border-0 mb-3" x-show="openJobs.length > 0" x-cloak>
                             <div class="card-body py-2">
                                 <div class="small fw-semibold text-muted mb-2" x-text="t('importAgent.wizard.openImports')"></div>
@@ -1604,8 +1615,10 @@
                                         <span class="small" x-text="t('importAgent.review.bar.confirmText', { count: confirmCounts?.importable ?? 0 })"></span>
                                         <div class="ms-auto d-flex gap-2">
                                             <button type="button" class="btn btn-sm btn-outline-secondary" @click="closeConfirmStrip()" x-text="t('Cancel')"></button>
-                                            <button type="button" class="btn btn-sm btn-success" @click="confirmImportNow()" :disabled="confirmImportDisabled" :title="confirmImportTitle()">
-                                                <i class="bi bi-check2 me-1" aria-hidden="true"></i><span x-text="t('importAgent.review.confirm.go')"></span>
+                                            <button type="button" class="btn btn-sm btn-success" @click="confirmImportNow()" :disabled="confirmImportDisabled || committing" :title="confirmImportTitle()">
+                                                <span class="spinner-border spinner-border-sm me-1" x-show="committing" x-cloak></span>
+                                                <i class="bi bi-check2 me-1" x-show="!committing" aria-hidden="true"></i>
+                                                <span x-text="committing ? t('importAgent.review.confirm.importing') : t('importAgent.review.confirm.go')"></span>
                                             </button>
                                         </div>
                                     </div>

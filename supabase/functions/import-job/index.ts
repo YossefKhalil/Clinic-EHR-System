@@ -24,6 +24,8 @@ import { modelList, visionEntries } from '../_shared/llm/vision.ts';
 import { affordableChunks, paceMs, rateFor } from '../_shared/llm/provider-rate.ts';
 import { jobTokenCapForContext, resolveModelContext } from '../_shared/llm/model-context.ts';
 import { runChunk } from '../import-extract/run-chunk.js';
+import { buildRecord, planRow } from '../_shared/import-core/commit-plan.js';
+import { nameDobKey } from '../_shared/import-core/dedupe.js';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
@@ -1102,6 +1104,139 @@ async function actionRetryChunk(body: Record<string, unknown>, ctx: Context) {
     return json({ ok: true, status: 'extracting' });
 }
 
+/**
+ * The commit (spec §11): the reviewed rows become patients.
+ *
+ * The browser's verdict is not trusted: the plan is rebuilt here with the
+ * shared rules engine over the stored rows, and the write happens in one
+ * transaction (the `import_commit` RPC).
+ */
+async function actionCommit(body: Record<string, unknown>, ctx: Context) {
+    const { user, service, limits } = ctx;
+    const jobId = String(body.job_id ?? '');
+    const loaded = await loadJobForUser(service, user.id, jobId);
+    if ('error' in loaded) return fail(loaded.error, loaded.error === 'NOT_FOUND' ? 404 : 403);
+    const job = loaded.job;
+    if (job.status !== 'review') return fail('JOB_STATE', 409);
+
+    // The key makes a retry of the same commit a no-op instead of a second
+    // batch of patients.
+    const commitKey = String(body.commit_key ?? '');
+    if (!/^[0-9a-fA-F-]{36}$/.test(commitKey)) return fail('BAD_REQUEST');
+
+    const [{ data: chunkRows }, { data: rowRows }] = await Promise.all([
+        service.from('import_chunks').select('*').eq('job_id', job.id).order('idx'),
+        service.from('import_rows').select('*').eq('job_id', job.id).order('seq'),
+    ]);
+    const chunks = chunkRows ?? [];
+    const rows = rowRows ?? [];
+    if (rows.length === 0) return fail('NO_CHUNKS');
+
+    // The patients that already exist: the existence context the rules
+    // engine needs (a national id that is taken is a duplicate).
+    const nids = [...new Set(rows
+        .map((row) => String((row as { cells?: Record<string, { value?: unknown }> }).cells?.national_id?.value ?? ''))
+        .filter((value) => /^\d{14}$/.test(value)))].slice(0, 500);
+    const existing = new Map<string, { visible: boolean }>();
+    const nameDobMatches = new Set<string>();
+    if (nids.length > 0) {
+        const { data: patients } = await service
+            .from('patients')
+            .select('id, national_id, name, date_of_birth')
+            .in('national_id', nids);
+        for (const patient of patients ?? []) {
+            existing.set(String(patient.national_id), { visible: true });
+            const key = nameDobKey(patient.name, patient.date_of_birth);
+            if (key) nameDobMatches.add(key);
+        }
+    }
+
+    const config = (job.config ?? {}) as { enum_snapshot?: object; defaults?: object };
+    const jobSection = String(job.section ?? '') || null;
+    const byChunk = new Map<string, typeof rows>();
+    for (const row of rows) {
+        const key = String((row as { chunk_id?: string | null }).chunk_id ?? 'MANUAL');
+        if (!byChunk.has(key)) byChunk.set(key, []);
+        byChunk.get(key)!.push(row as never);
+    }
+
+    const plan: unknown[] = [];
+    for (const [chunkId, group] of byChunk) {
+        const chunk = chunks.find((entry) => entry.id === chunkId);
+        const payload = (chunk?.payload ?? {}) as { lines?: { id: string; text: string }[]; kind?: string; source_id?: string };
+        const lines = Array.isArray(payload.lines) ? payload.lines : [];
+        const lineRecords = lines.map((line) => ({ id: line.id, text: line.text }));
+        const isImage = payload.kind === 'image';
+        const outcome = runPipeline({
+            records: group.map((row) => buildRecord(row as never)),
+            sourceId: payload.source_id ?? 'S1',
+            kind: payload.kind === 'sheet' ? 'sheet' : isImage ? 'image' : 'text',
+            lines: lineRecords,
+            chunkLineIds: lineRecords.map((line) => line.id),
+            dataLineIds: payload.kind === 'sheet' ? lineRecords.map((line) => line.id) : null,
+            snapshot: config.enum_snapshot ?? {},
+            today: todayIso(),
+            defaults: config.defaults ?? {},
+            existing,
+            nameDobMatches,
+            // The section comes from the row or, when the job picked one, from
+            // the job. A missing section is not an error: the clinic may file
+            // a patient without one.
+            requireSection: false,
+            ground: !isImage,
+            keepPhantoms: true,
+        });
+        outcome.rows.forEach((fresh, index) => {
+            const stored = group[index] as {
+                id: string; seq: number; chunk_id: string | null; dup: unknown; acknowledged: string[] | null; extracted: unknown;
+            };
+            const row = {
+                ...fresh,
+                id: stored.id,
+                seq: stored.seq,
+                chunk_id: stored.chunk_id,
+                extracted: stored.extracted,
+                acknowledged: stored.acknowledged ?? [],
+                // The reviewer's duplicate decision wins over the pipeline's.
+                dup: (stored.dup as { kind?: string; action?: string } | null)
+                    ? { ...(stored.dup as object), kind: (fresh.dup as { kind?: string } | null)?.kind ?? (stored.dup as { kind?: string }).kind }
+                    : fresh.dup,
+            };
+            const entry = planRow(row as never) as { values: Record<string, unknown> };
+            if (!entry.values.section && jobSection) entry.values.section = jobSection;
+            plan.push(entry);
+        });
+    }
+
+    const { data: result, error } = await service.rpc('import_commit', {
+        p_job_id: job.id,
+        p_commit_key: commitKey,
+        p_actor: user.id,
+        p_rows: plan,
+        p_meta: { section: jobSection },
+    });
+    if (error) {
+        console.error('import_commit failed', job.id, error.message);
+        return fail('COMMIT_FAILED', 500);
+    }
+
+    const summary = (result ?? {}) as { created?: number; filled?: number; skipped?: number; idempotent?: boolean };
+    await audit(service, user.id, 'job.committed', job.id, {
+        created: summary.created ?? 0,
+        filled: summary.filled ?? 0,
+        skipped: summary.skipped ?? 0,
+        batch_id: (result as { batch_id?: string } | null)?.batch_id ?? null,
+    });
+    return json({
+        ok: true,
+        job_id: job.id,
+        created: summary.created ?? 0,
+        filled: summary.filled ?? 0,
+        skipped: summary.skipped ?? 0,
+        idempotent: summary.idempotent === true,
+    });
+}
+
 async function actionAddRow(body: Record<string, unknown>, ctx: Context) {
     const { user, service } = ctx;
     const loaded = await loadJobForUser(service, user.id, String(body.job_id ?? ''));
@@ -1248,6 +1383,7 @@ Deno.serve(async (req) => {
             case 'status': return await actionStatus(body, ctx);
             case 'retry_chunk': return await actionRetryChunk(body, ctx);
             case 'add_row': return await actionAddRow(body, ctx);
+            case 'commit': return await actionCommit(body, ctx);
             case 'enabled': return actionEnabled(ctx);
             default: return fail('BAD_REQUEST');
         }

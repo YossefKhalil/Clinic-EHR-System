@@ -346,6 +346,7 @@ CREATE TRIGGER patients_set_registered_by_name
 -- and edits nothing except its own rows' review fields; every state change
 -- goes through the import-* Edge Functions with the service role. Staged
 -- uploads live in the private `import-staging` bucket created below.
+
 -- ============================================================================
 
 -- Feature settings for the import agent (spec §14.4). Single row, like
@@ -932,3 +933,244 @@ DROP POLICY IF EXISTS "Import staging: owner reads" ON storage.objects;
 CREATE POLICY "Import staging: owner reads" ON storage.objects
     FOR SELECT TO authenticated
     USING (bucket_id = 'import-staging' AND split_part(name, '/', 1) = auth.uid()::text);
+
+-- ============================================================================
+-- ============================================================================
+-- The commit (spec §11): the reviewed rows become patients.
+--
+-- The Edge Function rebuilds the plan with the shared rules engine (it does
+-- not trust the browser) and hands this function the rows to write. The write
+-- happens in ONE transaction: either the whole batch lands, or nothing does.
+--
+--   * `create`  - a new patient row.
+--   * `fill`    - only the empty columns of the patient with the same
+--                 national id are filled (the partner may be a patient that
+--                 already exists or an earlier row of the same import).
+--   * `skip`    - nothing is written; the row keeps its result and code.
+--
+-- Every write is recorded in `import_batch_items` (before/after) so the undo
+-- (the next milestone) can reverse it, and the row's `commit_result` says
+-- what happened to it.
+-- ============================================================================
+--
+-- The Edge Function rebuilds the plan with the shared rules engine (it does
+-- not trust the browser) and hands this function the rows to write. The write
+-- happens in ONE transaction: either the whole batch lands, or nothing does.
+--
+--   * `create`  - a new patient row.
+--   * `fill`    - only the empty columns of the patient with the same
+--                 national id are filled (the partner may be a patient that
+--                 already exists or an earlier row of the same import).
+--   * `skip`    - nothing is written; the row keeps its result and code.
+--
+-- Every write is recorded in `import_batch_items` (before/after) so the undo
+-- (the next milestone) can reverse it, and the row's `commit_result` says
+-- what happened to it.
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.import_commit(
+    p_job_id UUID,
+    p_commit_key UUID,
+    p_actor UUID,
+    p_rows JSONB,
+    p_meta JSONB DEFAULT '{}'::jsonb
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $commit$
+DECLARE
+    v_job public.import_jobs%ROWTYPE;
+    v_batch_id UUID := uuid_generate_v4();
+    v_created INT := 0;
+    v_filled INT := 0;
+    v_skipped INT := 0;
+    v_row JSONB;
+    v_values JSONB;
+    v_fill JSONB;
+    v_patient UUID;
+    v_before JSONB;
+    v_after JSONB;
+    v_nid TEXT;
+    v_code TEXT;
+    v_action TEXT;
+    v_row_id UUID;
+BEGIN
+    -- The job is locked for the whole write: two concurrent commits cannot
+    -- both create the same patients.
+    SELECT * INTO v_job FROM public.import_jobs WHERE id = p_job_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'import job % not found', p_job_id USING ERRCODE = 'no_data_found';
+    END IF;
+    IF v_job.created_by <> p_actor THEN
+        RAISE EXCEPTION 'this import belongs to another account' USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    -- The same key twice is the same commit (the client retries with the same
+    -- key); a different key on a committed job is a conflict.
+    IF v_job.commit_key IS NOT NULL THEN
+        IF v_job.commit_key = p_commit_key THEN
+            RETURN jsonb_build_object(
+                'batch_id', v_job.batch_id,
+                'created', 0, 'filled', 0, 'skipped', 0,
+                'idempotent', true,
+                'counts', COALESCE(v_job.counts, '{}'::jsonb)
+            );
+        END IF;
+        RAISE EXCEPTION 'this import was already committed' USING ERRCODE = 'check_violation';
+    END IF;
+    IF v_job.status <> 'review' THEN
+        RAISE EXCEPTION 'this import is not ready (status %)', v_job.status USING ERRCODE = 'check_violation';
+    END IF;
+
+    INSERT INTO public.import_batches (id, job_id, committed_by, counts)
+    VALUES (v_batch_id, p_job_id, p_actor, '{}'::jsonb);
+
+    FOR v_row IN SELECT * FROM jsonb_array_elements(COALESCE(p_rows, '[]'::jsonb)) LOOP
+        v_action := v_row->>'action';
+        v_code := v_row->>'code';
+        v_values := COALESCE(v_row->'values', '{}'::jsonb);
+        v_fill := COALESCE(v_row->'fill', '{}'::jsonb);
+        v_nid := NULLIF(v_values->>'national_id', '');
+        v_row_id := NULLIF(v_row->>'row_id', '')::UUID;
+
+        IF v_action = 'skip' OR v_row_id IS NULL THEN
+            IF v_row_id IS NOT NULL THEN
+                UPDATE public.import_rows
+                SET commit_result = jsonb_build_object('result', 'skipped', 'code', COALESCE(v_code, 'SKIPPED'))
+                WHERE id = v_row_id;
+            END IF;
+            v_skipped := v_skipped + 1;
+            CONTINUE;
+        END IF;
+
+        IF v_action = 'fill' THEN
+            v_nid := COALESCE(NULLIF(v_row->>'target_national_id', ''), v_nid);
+            SELECT p.id, to_jsonb(p) - 'id' - 'created_at' - 'updated_at'
+            INTO v_patient, v_before
+            FROM public.patients p
+            WHERE p.national_id = v_nid
+            FOR UPDATE;
+
+            IF v_patient IS NULL THEN
+                -- The partner is not in the database (it was skipped): there is
+                -- nothing to fill.
+                UPDATE public.import_rows
+                SET commit_result = jsonb_build_object('result', 'skipped', 'code', 'PARTNER_MISSING')
+                WHERE id = v_row_id;
+                v_skipped := v_skipped + 1;
+                CONTINUE;
+            END IF;
+
+            -- Only the empty columns are filled: the stored patient wins.
+            UPDATE public.patients SET
+                mobile = COALESCE(NULLIF(mobile, ''), NULLIF(v_fill->>'mobile', '')),
+                date_of_birth = COALESCE(date_of_birth, NULLIF(v_fill->>'date_of_birth', '')::DATE),
+                marital_status = COALESCE(NULLIF(marital_status, ''), NULLIF(v_fill->>'marital_status', '')),
+                children_count = COALESCE(children_count, NULLIF(v_fill->>'children_count', '')::INT),
+                governorate = COALESCE(NULLIF(governorate, ''), NULLIF(v_fill->>'governorate', '')),
+                address = COALESCE(NULLIF(address, ''), NULLIF(v_fill->>'address', '')),
+                problem = COALESCE(NULLIF(problem, ''), NULLIF(v_fill->>'problem', '')),
+                solution = COALESCE(NULLIF(solution, ''), NULLIF(v_fill->>'solution', '')),
+                visit_date = COALESCE(visit_date, NULLIF(v_fill->>'visit_date', '')::DATE),
+                price = COALESCE(price, NULLIF(v_fill->>'price', '')::NUMERIC),
+                follower = COALESCE(NULLIF(follower, ''), NULLIF(v_fill->>'follower', ''))
+            WHERE id = v_patient
+            RETURNING to_jsonb(patients) - 'id' - 'created_at' - 'updated_at' INTO v_after;
+
+            INSERT INTO public.import_batch_items (batch_id, patient_id, action, before, after)
+            VALUES (v_batch_id, v_patient, 'filled', v_before, v_after);
+
+            UPDATE public.import_rows
+            SET commit_result = jsonb_build_object('result', 'filled', 'patient_id', v_patient)
+            WHERE id = v_row_id;
+            v_filled := v_filled + 1;
+            CONTINUE;
+        END IF;
+
+        -- create
+        BEGIN
+            INSERT INTO public.patients (
+                name, national_id, mobile, date_of_birth, age, marital_status,
+                children_count, governorate, address, problem, solution, notes,
+                visit_date, price, follower, section, source_of_money,
+                user_id, registered_by_name, import_batch_id
+            ) VALUES (
+                v_values->>'name',
+                v_nid,
+                NULLIF(v_values->>'mobile', ''),
+                NULLIF(v_values->>'date_of_birth', '')::DATE,
+                NULLIF(v_values->>'age', '')::INT,
+                NULLIF(v_values->>'marital_status', ''),
+                NULLIF(v_values->>'children_count', '')::INT,
+                NULLIF(v_values->>'governorate', ''),
+                NULLIF(v_values->>'address', ''),
+                NULLIF(v_values->>'problem', ''),
+                NULLIF(v_values->>'solution', ''),
+                COALESCE(v_values->'notes', '[]'::jsonb),
+                NULLIF(v_values->>'visit_date', '')::DATE,
+                NULLIF(v_values->>'price', '')::NUMERIC,
+                NULLIF(v_values->>'follower', ''),
+                NULLIF(v_values->>'section', ''),
+                NULLIF(v_values->>'source_of_money', ''),
+                p_actor,
+                p_meta->>'registered_by_name',
+                v_batch_id
+            )
+            RETURNING id INTO v_patient;
+        EXCEPTION WHEN unique_violation THEN
+            -- The national id is taken (a duplicate the reviewer kept, or a
+            -- patient that appeared meanwhile): the row is reported, the
+            -- batch continues.
+            UPDATE public.import_rows
+            SET commit_result = jsonb_build_object('result', 'skipped', 'code', 'NID_TAKEN')
+            WHERE id = v_row_id;
+            v_skipped := v_skipped + 1;
+            CONTINUE;
+        WHEN check_violation THEN
+            -- An unknown section or source of money: the option was deleted
+            -- after the snapshot. The row is reported, the batch continues.
+            UPDATE public.import_rows
+            SET commit_result = jsonb_build_object('result', 'skipped', 'code', 'INVALID_OPTION')
+            WHERE id = v_row_id;
+            v_skipped := v_skipped + 1;
+            CONTINUE;
+        END;
+
+        SELECT to_jsonb(p) - 'id' - 'created_at' - 'updated_at'
+        INTO v_after FROM public.patients p WHERE p.id = v_patient;
+
+        INSERT INTO public.import_batch_items (batch_id, patient_id, action, after)
+        VALUES (v_batch_id, v_patient, 'created', v_after);
+
+        UPDATE public.import_rows
+        SET commit_result = jsonb_build_object('result', 'created', 'patient_id', v_patient)
+        WHERE id = v_row_id;
+        v_created := v_created + 1;
+    END LOOP;
+
+    UPDATE public.import_batches
+    SET counts = jsonb_build_object('created', v_created, 'filled', v_filled, 'skipped', v_skipped)
+    WHERE id = v_batch_id;
+
+    UPDATE public.import_jobs
+    SET status = 'done',
+        commit_key = p_commit_key,
+        batch_id = v_batch_id,
+        counts = jsonb_build_object('created', v_created, 'filled', v_filled, 'skipped', v_skipped),
+        updated_at = NOW()
+    WHERE id = p_job_id;
+
+    RETURN jsonb_build_object(
+        'batch_id', v_batch_id,
+        'created', v_created,
+        'filled', v_filled,
+        'skipped', v_skipped,
+        'idempotent', false
+    );
+END;
+$commit$;
+
+REVOKE ALL ON FUNCTION public.import_commit(UUID, UUID, UUID, JSONB, JSONB) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.import_commit(UUID, UUID, UUID, JSONB, JSONB) TO service_role;

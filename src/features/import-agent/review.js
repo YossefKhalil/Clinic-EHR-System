@@ -12,9 +12,10 @@
 // are the only things the browser may change (schema guard trigger) and every
 // persisted change bumps `version` by one.
 
-import { BULK_FILL_FIELDS, FIELDS, fieldByKey } from '@import-core/field-registry.js';
+import { BULK_FILL_FIELDS, fieldByKey } from '@import-core/field-registry.js';
 import { runPipeline } from '@import-core/pipeline.js';
 import { deriveStatus, issueAckKey } from '@import-core/status.js';
+import { buildRecord, effectiveStatus as sharedEffectiveStatus } from '@import-core/commit-plan.js';
 import { GOVERNORATES, enumCandidates } from '@import-core/enums.js';
 
 /** Filter pills on the review header (spec §10.2). */
@@ -113,11 +114,9 @@ export function cellState(row, fieldKey) {
 // Sorting, filters and counts (§10.2, §10.6)
 // ---------------------------------------------------------------------------
 
-/** Codes dedupe owns; a resolved duplicate stops blocking (see effectiveStatus). */
-export const DUP_CODES = Object.freeze(new Set([
-    'DUP_IN_BATCH', 'DUP_POSSIBLE', 'DUP_NAME_DOB_POSSIBLE', 'DUP_OVERLAP_COLLAPSED',
-    'DUP_EXISTING_VISIBLE', 'DUP_EXISTING_HIDDEN',
-]));
+// The duplicate codes and the reviewer's status are shared with the Edge
+// Function: the commit path has to reach the same verdict (import-core).
+export { DUP_CODES } from '@import-core/commit-plan.js';
 
 /** True when the reviewer decided how to handle this duplicate. */
 export function resolvedDup(row) {
@@ -125,18 +124,13 @@ export function resolvedDup(row) {
 }
 
 /**
- * The status the review screen shows. Same rules as `deriveStatus`, except
+ * The status the review screen shows: the pipeline's verdict, except that
  * dedupe's own codes stop counting once the row's duplicate is resolved
- * (action fill/keep) — the kept row imports even though dedupe flagged it.
- * The stored `status` column keeps the pipeline's verdict.
+ * (action fill/keep) - the kept row imports even though dedupe flagged it.
+ * The shared module has the same rule, so the commit path agrees.
  */
 export function effectiveStatus(row) {
-    const dupResolved = resolvedDup(row);
-    const blocking = (row.issues ?? []).some((entry) => entry.severity === 'error'
-        && !(dupResolved && DUP_CODES.has(entry.code)));
-    if (blocking) return 'error';
-    const warnings = unacknowledgedWarns(row).some((entry) => !(dupResolved && DUP_CODES.has(entry.code)));
-    return warnings ? 'review' : 'ready';
+    return sharedEffectiveStatus(row);
 }
 
 /** A row can be imported (spec §10.9). */
@@ -236,19 +230,7 @@ export function confirmationCounts(rows) {
  * snapped and derived values reproduce themselves deterministically from the
  * same record (their raw inputs did not change).
  */
-export function buildRecord(row) {
-    const base = row.extracted && typeof row.extracted === 'object' ? { ...row.extracted } : {};
-    const prefills = {};
-    for (const field of FIELDS) {
-        const cell = row.cells?.[field.key];
-        if (!cell) continue;
-        if (cell.origin === 'user' || cell.origin === 'default') {
-            prefills[field.key] = { raw: cell.raw ?? '', origin: cell.origin };
-        }
-    }
-    if (Object.keys(prefills).length > 0) base._cells = prefills;
-    return base;
-}
+export { buildRecord };
 
 /** Keep the reviewer's duplicate decision (skip | fill | keep) when it still applies. */
 export function preserveDup(prev, next) {

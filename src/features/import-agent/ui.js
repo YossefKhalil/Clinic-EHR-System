@@ -37,6 +37,13 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Split a list into groups of `size` (the saves go out in parallel). */
+function chunksOf(list, size) {
+    const groups = [];
+    for (let i = 0; i < list.length; i += size) groups.push(list.slice(i, i + size));
+    return groups;
+}
+
 function isPlainDateValue(value) {
     return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
@@ -201,6 +208,14 @@ export function importAgentWizard() {
         bulkMode: 'blanks',
         confirmOpen: false,
         confirmNote: '',
+        // The number of the newest review load (an older one must stay quiet).
+        loadId: 0,
+        // The save queue: one batch at a time.
+        saveQueue: null,
+        // The commit: the key makes a retry idempotent.
+        commitKey: null,
+        committing: false,
+        commitResult: null,
         undoStack: [],
         redoStack: [],
         saveState: 'saved',
@@ -683,6 +698,12 @@ export function importAgentWizard() {
             this.loadError = null;
             this.busy = true;
             this.busyLabel = t('importAgent.review.loading');
+            // Every load gets a number; only the newest one may touch the
+            // screen. Leaving the page and coming back starts a second load -
+            // the first one must not report an error for a screen that is
+            // gone.
+            const loadId = (this.loadId ?? 0) + 1;
+            this.loadId = loadId;
             try {
                 const [job, sources, chunks, rows, rejects] = await Promise.all([
                     api.fetchJob(this.job.id),
@@ -729,16 +750,28 @@ export function importAgentWizard() {
                     this.redoStack = [];
                 }
             } catch (error) {
+                if (loadId !== this.loadId) return; // a newer load took over
+                // The screen stays where it is: the user can reload the import
+                // instead of losing their place.
                 this.loadError = error?.messageKey || 'importAgent.error.LOAD_FAILED';
                 this.errorBanner = {
                     messageKey: this.loadError,
                     params: error?.params ?? {},
                 };
-                this.step = 'add';
             } finally {
-                this.busy = false;
-                this.busyLabel = '';
+                if (loadId === this.loadId) {
+                    this.busy = false;
+                    this.busyLabel = '';
+                }
             }
+        },
+
+        /** Load the review again (the banner's "Reload"). */
+        async reloadReview() {
+            if (!this.job) return;
+            this.errorBanner = null;
+            this.loadError = null;
+            await this.enterReview();
         },
 
         measureGrid() {
@@ -1358,36 +1391,61 @@ export function importAgentWizard() {
             await this.saveChanges(changes);
         },
 
+        /**
+         * Save the changed rows.
+         *
+         * The saves run one after the other (never two at the same time):
+         * two loops that read the same row version would make the second one
+         * fail with "this row changed elsewhere" - which is what happened
+         * when the review was opened, left and opened again while the first
+         * save was still running. The rows of one batch go out in small
+         * parallel groups, so a 50-row re-validation is not 50 round-trips.
+         */
         async saveChanges(changes) {
-            if (!this.reviewState) return;
-            this.saveState = 'saving';
-            let failed = false;
-            for (const change of changes) {
-                const row = review.rowById(this.reviewState, change.id);
-                try {
-                    if (!row) continue;
-                    // The snapshot's stored version can go stale (undo/redo
-                    // restore, or a snapshot taken before an earlier save in
-                    // the same batch lands). The guard always wants the row's
-                    // CURRENT version: match on it, increment from it.
-                    const payload = { ...change.after, version: row.version ?? change.after.version ?? 1 };
-                    const saved = await api.saveRow(row, payload);
-                    row.version = saved?.version ?? row.version;
-                } catch (error) {
-                    failed = true;
-                    if (error?.code === 'SAVE_CONFLICT') {
-                        this.errorBanner = { messageKey: 'importAgent.error.SAVE_CONFLICT' };
-                    } else {
-                        this.errorBanner = {
-                            messageKey: error?.messageKey || 'importAgent.error.SAVE_FAILED',
-                            params: error?.params ?? {},
-                        };
-                    }
-                    break;
-                }
+            if (!this.reviewState || !changes || changes.length === 0) {
+                this.saveState = 'saved';
+                return;
             }
-            this.saveState = failed ? 'failed' : 'saved';
-            if (changes.length === 0) this.saveState = 'saved';
+            const run = async () => {
+                this.saveState = 'saving';
+                let failed = false;
+                for (const group of chunksOf(changes, 8)) {
+                    const results = await Promise.all(group.map(async (change) => {
+                        const row = review.rowById(this.reviewState, change.id);
+                        if (!row) return null;
+                        try {
+                            // The snapshot's stored version can go stale
+                            // (undo/redo restore, or a snapshot taken before
+                            // an earlier save in the same batch lands). The
+                            // guard always wants the row's CURRENT version:
+                            // match on it, increment from it.
+                            const payload = { ...change.after, version: row.version ?? change.after.version ?? 1 };
+                            const saved = await api.saveRow(row, payload);
+                            row.version = saved?.version ?? row.version;
+                            return null;
+                        } catch (error) {
+                            return error;
+                        }
+                    }));
+                    const error = results.find((entry) => entry);
+                    if (error) {
+                        failed = true;
+                        if (error.code === 'SAVE_CONFLICT') {
+                            this.errorBanner = { messageKey: 'importAgent.error.SAVE_CONFLICT' };
+                        } else {
+                            this.errorBanner = {
+                                messageKey: error.messageKey || 'importAgent.error.SAVE_FAILED',
+                                params: error.params ?? {},
+                            };
+                        }
+                        break;
+                    }
+                }
+                this.saveState = failed ? 'failed' : 'saved';
+            };
+            // Chain onto the queue: the next batch starts when this one is done.
+            this.saveQueue = (this.saveQueue ?? Promise.resolve()).then(run, run);
+            return this.saveQueue;
         },
 
         async undo() {
@@ -1729,8 +1787,39 @@ export function importAgentWizard() {
             this.confirmOpen = true;
         },
 
-        confirmImportNow() {
-            this.confirmNote = this.t('importAgent.review.confirm.commitPlaceholder');
+        /**
+         * The commit: the reviewed rows become patients.
+         *
+         * The key is generated once per job, so a retry after a network
+         * error commits the same batch instead of a second one.
+         */
+        async confirmImportNow() {
+            if (!this.job || this.committing) return;
+            this.committing = true;
+            this.confirmNote = '';
+            try {
+                if (!this.commitKey) this.commitKey = crypto.randomUUID();
+                const result = await api.commitJob(this.job.id, this.commitKey);
+                this.commitResult = {
+                    created: result.created ?? 0,
+                    filled: result.filled ?? 0,
+                    skipped: result.skipped ?? 0,
+                };
+                this.confirmStripOpen = false;
+                this.confirmOpen = false;
+                this.confirmNote = this.t('importAgent.review.confirm.done', this.commitResult);
+                // The job is done: it must not show up as an open import.
+                this.job = null;
+                this.reviewState = null;
+                this.step = 'add';
+                this.$root?.refreshImportResume?.();
+                window.dispatchEvent(new CustomEvent('import-committed'));
+            } catch (error) {
+                this.showFailure(error);
+                this.confirmNote = this.errorMessage(error);
+            } finally {
+                this.committing = false;
+            }
         },
 
         get confirmImportDisabled() {
