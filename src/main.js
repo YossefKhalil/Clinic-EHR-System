@@ -1,6 +1,10 @@
 import './styles/main.css';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
+// The RTL build of Bootstrap, as a separate asset. Without it the app flips
+// the direction of the document but keeps the physical utilities of the LTR
+// build, so some elements move with the text order and others do not.
+import bootstrapRtlUrl from 'bootstrap/dist/css/bootstrap.rtl.min.css?url';
 import bootstrapBundle from 'bootstrap/dist/js/bootstrap.bundle.min.js';
 import Alpine from 'alpinejs';
 import { initI18n, t, setLocale, getLocale } from './services/i18n.js';
@@ -550,13 +554,33 @@ function app() {
             setLocale(newLocale);
             this.localeLabel = t('locale_label');
             this.currentDate = this.formatToday();
+            this.applyBootstrapDirection();
+        },
+
+        /**
+         * Load the RTL build of Bootstrap for the Arabic interface (and
+         * remove it again for the others), so the physical utilities mirror
+         * with the text order.
+         */
+        applyBootstrapDirection() {
+            const rtl = getLocale() === 'ar';
+            const existing = document.getElementById('bs-rtl');
+            if (rtl && !existing) {
+                const link = document.createElement('link');
+                link.id = 'bs-rtl';
+                link.rel = 'stylesheet';
+                link.href = bootstrapRtlUrl;
+                document.head.appendChild(link);
+            } else if (!rtl && existing) {
+                existing.remove();
+            }
         },
 
         // The table text size is remembered per browser.
         loadPatientTableFont() {
             try {
                 const stored = Number(localStorage.getItem('patientsTableFont'));
-                if (Number.isFinite(stored) && stored >= 0.75 && stored <= 1.1) return stored;
+                if (Number.isFinite(stored) && stored >= 0.5 && stored <= 1.5) return stored;
             } catch {
                 // No storage (private mode): the default is fine.
             }

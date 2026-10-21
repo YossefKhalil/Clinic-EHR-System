@@ -392,6 +392,13 @@ button.stat-link {
     min-width: 6.5rem;
 }
 
+/* The content uses more of a wide screen. The navbar's own container is
+   full width, so a narrow page container left the two out of step and the
+   tables had to scroll sideways. */
+.page-container {
+    max-width: 1680px;
+}
+
 /* The patients table can be scaled down (the reviewer's own setting). */
 .patients-table {
     font-size: calc(1rem * var(--patients-table-font, 1));
@@ -423,6 +430,14 @@ button.stat-link {
 
 .stat-compact .sep {
     color: rgba(0, 0, 0, 0.3);
+}
+
+/* Where the line above is already drawn (the card header), the folded row
+   must not draw a second one. */
+.stat-compact-flush {
+    border-block-start: 0;
+    padding-block-start: 0;
+    margin-block-start: 0;
 }
 
 /* Applied-filter chips */
