@@ -19,7 +19,7 @@ import { createOpenRouterProvider } from '../_shared/llm/openrouter.ts';
 import { createCloudflareProvider } from '../_shared/llm/cloudflare.ts';
 import { createOpenAiCompatibleProvider } from '../_shared/llm/openai-compatible.ts';
 import { runChunkWithFallback } from '../_shared/llm/fallback.js';
-import { isVisionModel, modelList, visionEntries } from '../_shared/llm/vision.ts';
+import { modelList, visionEntries } from '../_shared/llm/vision.ts';
 import { affordableChunks, paceMs, rateFor } from '../_shared/llm/provider-rate.ts';
 import { jobTokenCapForContext, resolveModelContext } from '../_shared/llm/model-context.ts';
 import { runChunk } from '../import-extract/run-chunk.js';
@@ -515,8 +515,8 @@ async function progressPayload(
             out: job.tokens_out ?? 0,
             cap: job.token_cap ?? null,
         },
-        // How long the client should wait before the next call (the provider's
-        // per-minute budget decides).
+        // How long the client should wait before the next call (the
+        // provider's per-minute budget decides).
         pace_ms: extra.paceMs ?? 0,
         banners,
     });
@@ -879,7 +879,6 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
     const tokensPerChunk = Math.max(0, (Number(job.tokens_in ?? 0) + Number(job.tokens_out ?? 0)) / doneChunks);
     const affordable = affordableChunks({ usedInWindow, tokensPerChunk, max: parallel, rate });
     const claimLimit = Math.max(1, Math.min(parallel, affordable));
-
     try {
         if (usedInWindow >= rate.tokensPerMinute) {
             // The provider is full for this minute: do not call it, let the
@@ -1290,4 +1289,11 @@ Deno.serve(async (req) => {
             case 'status': return await actionStatus(body, ctx);
             case 'retry_chunk': return await actionRetryChunk(body, ctx);
             case 'add_row': return await actionAddRow(body, ctx);
-            case 'enabled': return actionEnabled(ctx                                                                                                                                                                                                               
+            case 'enabled': return actionEnabled(ctx);
+            default: return fail('BAD_REQUEST');
+        }
+    } catch (err) {
+        console.error('import-job failed', action, (err as Error)?.message);
+        return fail('INTERNAL', 500);
+    }
+});
