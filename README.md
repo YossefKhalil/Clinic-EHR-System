@@ -304,6 +304,17 @@ supabase secrets set IMPORT_CLEANUP_SECRET="$(openssl rand -hex 32)"
 - `IMPORT_CLEANUP_SECRET` authenticates the scheduled retention call. The `import-cleanup` function is deployed without the default JWT check because `pg_cron` calls it with an `x-cleanup-secret` header.
 - Supabase provides `SUPABASE_SERVICE_ROLE_KEY` to hosted functions. Confirm it is present in your project's function secrets before deploying.
 
+The local AI engine (the model runs in the browser) is dark until it is
+switched on. It is read by both `import-job` and `ai-settings`, so it has to
+be set on both:
+
+```bash
+supabase secrets set LOCAL_INFERENCE_ENABLED=1 --project-ref <project-ref>
+```
+
+See [docs/import-agent/local-ai-engine.md](docs/import-agent/local-ai-engine.md)
+for what the engine does and what it needs.
+
 ### 5. Create the first administrator
 
 New accounts have no administrator rights and no section. After signing up, promote the first administrator in the SQL Editor:

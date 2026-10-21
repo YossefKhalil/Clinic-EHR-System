@@ -1,9 +1,9 @@
 // The import agent's feature flag lives in `ai_settings.enabled` (the
 // `import_agent_enabled` switch), a service-role-only table. The browser can
 // only ask the `import-job` function for it: a tiny `enabled` action returns
-// `{ enabled }` without touching a job. Failures keep the caller's default
-// (shown), mirroring the v1 behaviour: a flaky network must never hide a
-// working feature.
+// `{ enabled, engine, local_enabled }` without touching a job. Failures keep
+// the caller's default (shown), mirroring the v1 behaviour: a flaky network
+// must never hide a working feature.
 
 import { supabase, getCurrentUser } from './supabase.js';
 
@@ -19,6 +19,15 @@ export function clearImportFlagCache() {
  * The answer is cached for the session, so page navigation stays cheap.
  */
 export async function loadImportEnabled({ force = false } = {}) {
+    const answer = await loadImportState({ force });
+    return answer ? answer.enabled : null;
+}
+
+/**
+ * The whole answer: whether the import is on, which engine it runs on and
+ * whether the local engine is allowed at all.
+ */
+export async function loadImportState({ force = false } = {}) {
     if (cached !== null && !force) return cached;
     try {
         const client = supabase();
@@ -27,7 +36,12 @@ export async function loadImportEnabled({ force = false } = {}) {
             body: { action: 'enabled' },
         });
         if (error) return null;
-        if (typeof data?.enabled === 'boolean') cached = data.enabled;
+        if (typeof data?.enabled !== 'boolean') return null;
+        cached = {
+            enabled: data.enabled === true,
+            engine: data.engine === 'local' ? 'local' : (data.enabled === true ? 'cloud' : 'off'),
+            localEnabled: data.local_enabled === true,
+        };
         return cached;
     } catch {
         return null;

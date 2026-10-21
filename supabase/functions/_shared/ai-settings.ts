@@ -109,6 +109,74 @@ export interface AiSettingsRow {
     openai_base_url?: string | null;
     openai_key_encrypted?: string | null;
     groq_key_encrypted?: string | null;
+    /** Which engine the import runs on. `enabled=false` means Off. */
+    inference_mode?: InferenceMode;
+    /** The clinic accepted that cloud mode sends data to third parties. */
+    cloud_consent?: boolean;
+    cloud_consent_at?: string | null;
+    /** What the clinic picked for the local engine. The files stay local. */
+    local_profile?: LocalProfile;
+    /** The local runtime settings. */
+    local_config?: Record<string, unknown>;
+}
+
+/**
+ * The engine an import runs on.
+ *
+ * `cloud` sends the data to a provider. `local` runs the model in the
+ * browser; nothing leaves the clinic's PC. The engine is Off when the row is
+ * not enabled, whatever the mode says.
+ */
+export type InferenceMode = 'cloud' | 'local';
+
+export const INFERENCE_MODES: readonly InferenceMode[] = ['cloud', 'local'];
+
+/**
+ * The local models the clinic picked.
+ *
+ * Only the name, the size and the SHA-256 of each file are stored. The file
+ * contents and the file handles never leave the browser.
+ */
+export interface LocalProfile {
+    /** 'single' = one multimodal model, 'split' = text model plus vision model. */
+    mode?: 'single' | 'split';
+    /** The multimodal model (single layout). */
+    name?: string;
+    size?: number;
+    sha256?: string;
+    /** The text model (split layout). */
+    textName?: string;
+    textSize?: number;
+    textSha256?: string;
+    /** The vision model (split layout). */
+    visionName?: string;
+    visionSize?: number;
+    visionSha256?: string;
+    /** The folder with the tokenizer and the config files. */
+    supportName?: string;
+}
+
+export function isInferenceMode(value: unknown): value is InferenceMode {
+    return value === 'cloud' || value === 'local';
+}
+
+/** The engine the row selects. A row that is not enabled is Off. */
+export function engineOf(row: AiSettingsRow | null): 'off' | InferenceMode {
+    if (!row || row.enabled !== true) return 'off';
+    return isInferenceMode(row.inference_mode) ? row.inference_mode : 'cloud';
+}
+
+/**
+ * Whether the deployment allows the local engine.
+ *
+ * The flag is off by default: the local engine opens a new path into the
+ * import system, so it stays dark until it is turned on deliberately. Both
+ * "1" and "true" are accepted, because the value is set by hand.
+ */
+export function localInferenceEnabled(): boolean {
+    if (typeof Deno === 'undefined') return false;
+    const value = (Deno.env.get('LOCAL_INFERENCE_ENABLED') ?? '').trim().toLowerCase();
+    return value === '1' || value === 'true';
 }
 
 export interface ModelChainEntry {

@@ -26,6 +26,9 @@ jobs:
       - name: Registry/schema check
         run: npm run check:registry
 
+      - name: Locale check
+        run: npm run check:i18n
+
       - name: Test (coverage gate on import-core)
         run: npm run test:coverage
 

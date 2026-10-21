@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS public.users (
 CREATE TABLE IF NOT EXISTS public.patients (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL,
-    national_id TEXT UNIQUE NOT NULL,
+    national_id TEXT UNIQUE,
+    record_type TEXT NOT NULL DEFAULT 'patient',
     mobile TEXT,
     date_of_birth DATE,
     age INTEGER,
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS public.patients (
     follower TEXT,
     section TEXT CHECK (section IN ('agamy', 'dekhila')),
     source_of_money TEXT CHECK (source_of_money IN ('charity', 'country')),
+    CHECK (record_type IN ('patient','food','classroom','well')),
     user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -173,7 +175,7 @@ AS $$
         ' ',
         p.name, p.national_id, p.mobile, p.governorate, p.address,
         p.problem, p.solution, p.follower, p.marital_status,
-        p.source_of_money, p.section,
+        p.source_of_money, p.section, p.record_type,
         p.age, p.children_count, p.visit_date, p.created_at, p.price,
         CASE WHEN p.is_completed THEN 'complete completed' ELSE 'pending' END,
         p.notes
@@ -184,6 +186,7 @@ $$;
 CREATE INDEX IF NOT EXISTS idx_patients_national_id ON public.patients(national_id);
 CREATE INDEX IF NOT EXISTS idx_patients_user_id ON public.patients(user_id);
 CREATE INDEX IF NOT EXISTS idx_patients_section ON public.patients(section);
+CREATE INDEX IF NOT EXISTS idx_patients_record_type ON public.patients(record_type);
 CREATE INDEX IF NOT EXISTS idx_patients_is_completed ON public.patients(is_completed);
 CREATE INDEX IF NOT EXISTS idx_patients_created_at ON public.patients(created_at);
 
@@ -297,6 +300,8 @@ CREATE OR REPLACE TRIGGER update_app_options_updated_at
 -- Safe to re-run: each line is a no-op when the column is already present.
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS age INTEGER;
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS mobile TEXT;
+ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS record_type TEXT NOT NULL DEFAULT 'patient';
+ALTER TABLE public.patients ALTER COLUMN national_id DROP NOT NULL;
 -- Medical/lab papers & images are stored on Cloudinary; the row keeps only
 -- the metadata array [{ public_id, url, name, size, mime, uploaded_at }].
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]'::jsonb;
@@ -393,6 +398,18 @@ CREATE TABLE IF NOT EXISTS public.ai_settings (
     model_chain JSONB NOT NULL DEFAULT '[]'::jsonb,
     model TEXT DEFAULT 'google/gemini-2.5-flash-lite',
     enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Which engine the import runs on: 'cloud' sends the data to a provider,
+    -- 'local' runs the model in the browser. `enabled = false` means Off.
+    inference_mode TEXT NOT NULL DEFAULT 'cloud',
+    -- The clinic accepted that cloud mode sends patient data to third
+    -- parties. The record holds no patient data.
+    cloud_consent BOOLEAN NOT NULL DEFAULT FALSE,
+    cloud_consent_at TIMESTAMPTZ,
+    -- The local models the clinic picked: name, size and SHA-256 only. The
+    -- files and their handles stay in the browser.
+    local_profile JSONB NOT NULL DEFAULT '{}'::jsonb,
+    -- The local runtime settings (context, KV cache, threads, lease).
+    local_config JSONB NOT NULL DEFAULT '{}'::jsonb,
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     updated_by UUID REFERENCES public.users(id) ON DELETE SET NULL
 );
@@ -409,6 +426,37 @@ ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS openai_base_url TEXT;
 ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS openai_key_encrypted TEXT;
 ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS groq_key_encrypted TEXT;
 ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS model_chain JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+-- Idempotent column migrations for the local engine.
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS inference_mode TEXT NOT NULL DEFAULT 'cloud';
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS cloud_consent BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS cloud_consent_at TIMESTAMPTZ;
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS local_profile JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS local_config JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+-- The engine is one of the two known values. A row written by an older
+-- deployment keeps working: it reads as 'cloud'.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'ai_settings_inference_mode_check'
+    ) THEN
+        ALTER TABLE public.ai_settings
+            ADD CONSTRAINT ai_settings_inference_mode_check
+            CHECK (inference_mode IN ('cloud', 'local'));
+    END IF;
+END $$;
+
+-- A clinic that already had the AI import switched on was already sending
+-- patient data to a provider, so the consent record is written for it now.
+-- Without this the new consent rule would refuse to save the settings of a
+-- working clinic, and the import would look switched off.
+UPDATE public.ai_settings
+   SET cloud_consent = true,
+       cloud_consent_at = COALESCE(cloud_consent_at, NOW())
+ WHERE enabled = true
+   AND cloud_consent = false
+   AND cloud_consent_at IS NULL;
 
 -- Import batch tracking (recreated from v1): every patient row written by one
 -- commit carries the batch id; M7's undo removes exactly those rows. Nullable

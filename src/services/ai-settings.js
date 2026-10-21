@@ -70,6 +70,16 @@ export function saveAiSettings(payload) {
     return invoke({ action: 'save', ...payload });
 }
 
+/**
+ * Withdraw the cloud consent.
+ *
+ * The next switch to cloud asks the clinic again. The record holds no
+ * patient data.
+ */
+export function resetCloudConsent() {
+    return invoke({ action: 'consent_reset' });
+}
+
 export function testAiProvider(provider, credentials) {
     return invoke({ action: 'test', provider, credentials: { [provider]: credentials } });
 }

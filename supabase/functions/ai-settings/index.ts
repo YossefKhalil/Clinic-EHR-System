@@ -22,8 +22,11 @@ import {
     chainFromRow,
     decryptSecret,
     encryptSecret,
+    engineOf,
     GROQ_BASE_URL,
     isAiProvider,
+    isInferenceMode,
+    localInferenceEnabled,
     parseModelChain,
     providerHealth,
     providerPresence,
@@ -32,8 +35,10 @@ import {
     validateModelChain,
     type AiProviderId,
     type AiSettingsRow,
+    type InferenceMode,
 } from '../_shared/ai-settings.ts';
 import { LIMITS, OVERRIDABLE_KEYS, resolveLimits } from '../_shared/import-core/limits.js';
+import { clampLocalConfig, normalizeLocalProfile } from '../_shared/import-core/local-runtime.js';
 
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
@@ -154,6 +159,18 @@ async function publicSettings(row: AiSettingsRow | null) {
     return {
         ok: true,
         enabled: row?.enabled === true,
+        // The engine the card shows: Off, Cloud or Local.
+        engine: engineOf(row),
+        inference_mode: isInferenceMode(row?.inference_mode) ? row.inference_mode : 'cloud',
+        // Cloud mode may only be switched on after the clinic accepted that
+        // the data leaves the clinic.
+        cloud_consent: row?.cloud_consent === true,
+        cloud_consent_at: row?.cloud_consent_at ?? null,
+        // The local models the clinic picked. The files stay in the browser.
+        local_profile: objectAt(row?.local_profile),
+        local_config: objectAt(row?.local_config),
+        // Whether this deployment allows the local engine at all.
+        local_enabled: localInferenceEnabled(),
         chain,
         providers,
         encryptionReady: Boolean(ENC_KEY),
@@ -197,7 +214,34 @@ async function actionSave(body: Record<string, unknown>, service: Service, userI
         });
     }
     const chain = validation.entries;
-    if (enabled && chain.length === 0) return fail('CHAIN_EMPTY', 400);
+
+    // The engine. The card sends the mode; the enabled flag says whether the
+    // engine runs at all, so Off is "not enabled" and never a mode of its own.
+    const requestedMode = body.inference_mode === undefined
+        ? (isInferenceMode(existing?.inference_mode) ? existing.inference_mode : 'cloud')
+        : body.inference_mode;
+    if (!isInferenceMode(requestedMode)) return fail('BAD_REQUEST', 400);
+    const inferenceMode: InferenceMode = requestedMode;
+
+    // The cloud consent record. It holds no patient data.
+    const consentGiven = body.cloud_consent === true;
+    const cloudConsent = consentGiven || existing?.cloud_consent === true;
+    const cloudConsentAt = consentGiven
+        ? new Date().toISOString()
+        : (existing?.cloud_consent_at ?? null);
+
+    if (enabled && inferenceMode === 'cloud') {
+        // Cloud mode may only run after the clinic accepted the data egress.
+        if (!cloudConsent) return fail('CLOUD_CONSENT_REQUIRED', 409);
+        if (chain.length === 0) return fail('CHAIN_EMPTY', 400);
+    }
+    if (enabled && inferenceMode === 'local' && !localInferenceEnabled()) {
+        // The local engine is dark until the deployment turns it on.
+        return fail('LOCAL_MODE_DISABLED', 403);
+    }
+
+    const localProfile = normalizeLocalProfile(objectAt(body.local_profile ?? existing?.local_profile));
+    const localConfig = clampLocalConfig(objectAt(body.local_config ?? existing?.local_config));
 
     const credentials = objectAt(body.credentials) as Creds;
     const or = objectAt(credentials.openrouter);
@@ -277,14 +321,19 @@ async function actionSave(body: Record<string, unknown>, service: Service, userI
         return fail('ENCRYPTION_KEY_MISSING', 409);
     }
 
-    const presence = providerPresence(nextRow);
-    for (const entry of chain) {
-        if (!presence[entry.provider]) return fail('PROVIDER_NOT_READY', 400, { provider: entry.provider });
-        try {
-            await readProviderCredentials(nextRow, entry.provider, entry.model, ENC_KEY);
-        } catch (err) {
-            if (err instanceof SettingsError) return fail(err.code, 400, { provider: entry.provider });
-            throw err;
+    // The provider credentials only matter for the cloud engine. The local
+    // engine runs its own model, so a chain entry without a key must not
+    // block the save.
+    if (inferenceMode !== 'local') {
+        const presence = providerPresence(nextRow);
+        for (const entry of chain) {
+            if (!presence[entry.provider]) return fail('PROVIDER_NOT_READY', 400, { provider: entry.provider });
+            try {
+                await readProviderCredentials(nextRow, entry.provider, entry.model, ENC_KEY);
+            } catch (err) {
+                if (err instanceof SettingsError) return fail(err.code, 400, { provider: entry.provider });
+                throw err;
+            }
         }
     }
 
@@ -294,6 +343,11 @@ async function actionSave(body: Record<string, unknown>, service: Service, userI
         model: nextRow.model,
         model_chain: chain,
         enabled,
+        inference_mode: inferenceMode,
+        cloud_consent: cloudConsent,
+        cloud_consent_at: cloudConsentAt,
+        local_profile: localProfile,
+        local_config: localConfig,
         openrouter_key_encrypted: orKeyEncrypted,
         cloudflare_account_id: cfAccountId || null,
         cloudflare_token_encrypted: cfTokenEncrypted,
@@ -311,9 +365,29 @@ async function actionSave(body: Record<string, unknown>, service: Service, userI
 
     await audit(service, userId, 'ai_settings.updated', {
         enabled,
+        engine: enabled ? inferenceMode : 'off',
         chain_length: chain.length,
         chain: chain.map((entry) => ({ provider: entry.provider, model: entry.model })),
     });
+    return json(await publicSettings(await loadRow(service)));
+}
+
+/**
+ * Withdraw the cloud consent.
+ *
+ * The next switch to cloud asks again. The record holds no patient data, so
+ * clearing it is free of consequences beyond the prompt.
+ */
+async function actionConsentReset(service: Service, userId: string) {
+    const { error } = await service
+        .from('ai_settings')
+        .update({ cloud_consent: false, cloud_consent_at: null, updated_at: new Date().toISOString(), updated_by: userId })
+        .eq('id', true);
+    if (error) {
+        console.error('ai settings consent reset failed', error.message);
+        return fail('SAVE_FAILED', 500);
+    }
+    await audit(service, userId, 'ai_settings.cloud_consent_reset', 'singleton', {});
     return json(await publicSettings(await loadRow(service)));
 }
 
@@ -533,6 +607,7 @@ Deno.serve(async (req) => {
             return json(await publicSettings(await loadRow(service)));
         }
         if (action === 'save') return await actionSave(body, service, user.id);
+        if (action === 'consent_reset') return await actionConsentReset(service, user.id);
         if (action === 'test') return await actionTest(body, service);
         if (action === 'limits') return await actionLimitsStatus(service);
         if (action === 'limits_save') return await actionLimits(body, service, user.id);

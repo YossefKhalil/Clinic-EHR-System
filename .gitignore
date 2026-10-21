@@ -2,6 +2,12 @@ node_modules
 dist
 .env
 
+# Local model files: never committed (1.1 GB+)
+models/*
+!models/.gitignore
+*.gguf
+*.onnx
+
 # Local-only dev config and the in-memory mock backend — never committed
 .local/
 *.log

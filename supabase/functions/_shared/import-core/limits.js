@@ -109,6 +109,34 @@ export const LIMITS = {
 };
 
 /**
+ * Bounds for the local (on-device) runtime.
+ *
+ * These are not AI quotas: they keep a bad value from asking the browser for
+ * something it cannot do (a 4 GB KV cache, a 900 s lease the server would
+ * never honour). The browser clamps to them before it saves and the Edge
+ * Function clamps again, because the client is not trusted — one set of
+ * numbers, two runtimes.
+ */
+export const LOCAL_RUNTIME_BOUNDS = Object.freeze({
+    contextTokens: { min: 1024, max: 131072 },
+    batchSize: { min: 32, max: 2048 },
+    threads: { min: 1, max: 64 },
+    gpuLayers: { min: -1, max: 999 },
+    maxOutputTokens: { min: 256, max: 32768 },
+    sheetRowsPerChunk: { min: 1, max: 50 },
+    textCharsPerChunk: { min: 200, max: 8000 },
+    stripWidth: { min: 320, max: 2048 },
+    stripHeight: { min: 64, max: 1024 },
+    overlap: { min: 0, max: 256 },
+    imageLongSide: { min: 512, max: 4096 },
+    ocrMaxNewTokens: { min: 32, max: 2048 },
+    leaseSeconds: { min: 60, max: 86400 },
+    heartbeatSeconds: { min: 10, max: 1800 },
+    maxAttempts: { min: 1, max: 20 },
+    parallel: { min: 1, max: 4 },
+});
+
+/**
  * Free OpenRouter models commonly enforce a one-request-at-a-time limit.
  * Pumping three chunks in parallel burns two requests on 429s before the
  * retry policy can help, so free models run sequentially.

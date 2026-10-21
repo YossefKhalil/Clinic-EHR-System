@@ -1,0 +1,17 @@
+# The local model files live here.
+#
+# They are never committed: a GGUF is 686 MB and the OCR graph is 450 MB.
+# A clinic copies the files it needs to the PC that runs the import, and the
+# setup panel picks them from here (or from anywhere else on the PC).
+#
+# The text model:
+#   MiniCPM5-1B-SFT.Q4_K_M.gguf
+# The OCR model and its support files (Phase 2, still dark):
+#   falcon_ocr_kv_token_q8.onnx
+#   falcon-ocr/tokenizer.json
+#   falcon-ocr/tokenizer_config.json
+#   falcon-ocr/special_tokens_map.json
+#   falcon-ocr/config.json
+#
+# The dev server serves this folder with Range support, so a big file can be
+# read in parts.

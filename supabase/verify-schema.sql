@@ -37,7 +37,11 @@ BEGIN
         ('provider'), ('model'), ('model_chain'),
         ('openrouter_key_encrypted'), ('cloudflare_account_id'),
         ('cloudflare_token_encrypted'), ('openai_base_url'),
-        ('openai_key_encrypted'), ('groq_key_encrypted')
+        ('openai_key_encrypted'), ('groq_key_encrypted'),
+        -- The local engine: which engine runs, the cloud consent record and
+        -- the local profile and config.
+        ('inference_mode'), ('cloud_consent'), ('cloud_consent_at'),
+        ('local_profile'), ('local_config')
     ) AS expected(column_name)
     WHERE NOT EXISTS (
         SELECT 1 FROM information_schema.columns c

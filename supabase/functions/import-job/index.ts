@@ -10,12 +10,13 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import yaml from 'https://esm.sh/js-yaml@4.1.0';
-import { LIMITS, leaseSecondsFor, pumpParallelFor, resolveLimits } from '../_shared/import-core/limits.js';
+import { LIMITS, LOCAL_RUNTIME_BOUNDS, leaseSecondsFor, pumpParallelFor, resolveLimits } from '../_shared/import-core/limits.js';
 import { isValidChunkPayload } from '../_shared/import-core/chunk-payload.ts';
 import { prepareSources, shiftSourceIds, splitChunkPayload } from '../_shared/import-core/chunker.js';
 import { runPipeline } from '../_shared/import-core/pipeline.js';
 import { PROMPT_IDS } from '../_shared/import-core/yaml-contract.js';
-import { readAiChain, chainFromRow, SettingsError, type AiSettingsRow } from '../_shared/ai-settings.ts';
+import { readAiChain, chainFromRow, engineOf, localInferenceEnabled, SettingsError, type AiSettingsRow } from '../_shared/ai-settings.ts';
+import { clampLocalConfig, normalizeLocalProfile } from '../_shared/import-core/local-runtime.js';
 import { createOpenRouterProvider } from '../_shared/llm/openrouter.ts';
 import { createCloudflareProvider } from '../_shared/llm/cloudflare.ts';
 import { createOpenAiCompatibleProvider } from '../_shared/llm/openai-compatible.ts';
@@ -46,6 +47,13 @@ function json(body: unknown, status = 200): Response {
 
 function fail(code: string, status = 400, params: Record<string, unknown> = {}): Response {
     return json({ ok: false, code, message_key: `importAgent.error.${code}`, params }, status);
+}
+
+/** A plain object, or an empty one. The client is not trusted. */
+function objectAt(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : {};
 }
 
 function todayIso(): string {
@@ -242,10 +250,23 @@ async function actionCreate(body: Record<string, unknown>, ctx: Context) {
     const hints = String(body.hints ?? '');
     if (hints.length > limits.MAX_HINT_CHARS) return fail('HINTS_TOO_LONG');
 
+    const inferenceMode = body.inference_mode === 'local' ? 'local' : 'cloud';
+    const localEnabled = localInferenceEnabled();
+
     const sourcesMeta = Array.isArray(body.sources_meta) ? body.sources_meta : [];
     if (sourcesMeta.length === 0 || sourcesMeta.length > limits.MAX_FILES) return fail('BAD_REQUEST');
 
-    if (!settingsRow || settingsRow.enabled !== true) return fail('FEATURE_DISABLED', 403);
+    // The engine must be the one the clinic selected. A job runs in the mode
+    // that was active when it was created, never in a mode that was switched
+    // on later.
+    if (inferenceMode === 'local') {
+        if (!localEnabled) return fail('LOCAL_MODE_DISABLED', 403);
+        if (!settingsRow || settingsRow.enabled !== true) return fail('FEATURE_DISABLED', 403);
+        if (engineOf(settingsRow) !== 'local') return fail('ENGINE_MISMATCH', 409);
+    } else {
+        if (!settingsRow || settingsRow.enabled !== true) return fail('FEATURE_DISABLED', 403);
+        if (engineOf(settingsRow) !== 'cloud') return fail('ENGINE_MISMATCH', 409);
+    }
 
     // Rate limits: the provider's own limits are the only ones. The app does
     // not count imports per day and does not cut a job off after a token
@@ -283,11 +304,24 @@ async function actionCreate(body: Record<string, unknown>, ctx: Context) {
         prompt_ids: PROMPT_IDS,
         defaults: body.defaults ?? {},
         enum_snapshot: enumSnapshot,
-        provider: settingsRow
-            ? { provider: settingsRow.provider, model: settingsRow.model }
-            : null,
-        model_chain: settingsRow ? chainFromRow(settingsRow) : [],
+        inference_mode: inferenceMode,
+        provider: (inferenceMode === 'local' || !settingsRow)
+            ? null
+            : { provider: settingsRow.provider, model: settingsRow.model },
+        model_chain: (inferenceMode === 'local' || !settingsRow) ? [] : chainFromRow(settingsRow),
         limits,
+        // The resolved local setup travels with the job, so a resume or a
+        // second tab cannot run the job with a different model or a
+        // different context window than the one it started with.
+        // The client is not trusted: the profile and the config are
+        // normalized here, not at the place that sent them.
+        local_models: inferenceMode === 'local'
+            ? {
+                profile: normalizeLocalProfile(objectAt(body.local_profile ?? settingsRow?.local_profile)),
+                config: clampLocalConfig(objectAt(body.local_config ?? settingsRow?.local_config)),
+                model: body.local_model ?? null,
+            }
+            : null,
     };
 
     const { data: job, error } = await service
@@ -298,7 +332,7 @@ async function actionCreate(body: Record<string, unknown>, ctx: Context) {
             status: 'uploaded',
             config,
             hints,
-            token_cap: limits.JOB_TOKEN_CAP,
+            token_cap: inferenceMode === 'local' ? 0 : limits.JOB_TOKEN_CAP,
             expires_at: new Date(Date.now() + limits.STAGING_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString(),
         })
         .select()
@@ -416,30 +450,45 @@ async function actionStart(body: Record<string, unknown>, ctx: Context) {
         .eq('job_id', job.id);
     if (!count) return fail('NO_CHUNKS');
 
-    // Preflight the real chain before marking the job as extracting. Without
-    // this a job with no decryptable key enters extraction and fails every
-    // chunk in the pump, which looks like a provider outage instead of a
-    // settings problem.
-    let chain;
-    try {
-        chain = await loadReadyChain(settingsRow, String(job.id), limits);
-    } catch (err) {
-        const code = err instanceof SettingsError ? err.code : 'PROVIDER_NOT_READY';
-        return fail(code, 409);
+    const cfg = (job.config ?? {}) as Record<string, unknown>;
+    const isLocal = cfg.inference_mode === 'local';
+
+    // Preflight the real chain before marking the job as extracting (cloud only).
+    if (!isLocal) {
+        let chain;
+        try {
+            chain = await loadReadyChain(settingsRow, String(job.id), limits);
+        } catch (err) {
+            const code = err instanceof SettingsError ? err.code : 'PROVIDER_NOT_READY';
+            return fail(code, 409);
+        }
+        const primary = chain[0];
+        if (!primary) return fail('NOT_CONFIGURED', 409);
+        const tokenCap = await tokenCapForPrimary(primary, String(job.id), limits);
+        await service
+            .from('import_jobs')
+            .update({ status: 'extracting', token_cap: tokenCap, updated_at: new Date().toISOString() })
+            .eq('id', job.id);
+        return json({ ok: true, status: 'extracting', chunks_total: count, token_cap: tokenCap });
     }
 
-    // The job cap is a budget, not the per-call context size. Follow the
-    // selected model's context window when the provider exposes it, and keep
-    // the deployment fallback when it does not. A failed lookup never blocks.
-    const primary = chain[0];
-    if (!primary) return fail('NOT_CONFIGURED', 409);
-    const tokenCap = await tokenCapForPrimary(primary, String(job.id), limits);
+    // The local engine. The deployment flag and the clinic's own engine
+    // choice must both allow it, and the browser must have picked a model.
+    if (!localInferenceEnabled()) return fail('LOCAL_MODE_DISABLED', 403);
+    if (!settingsRow || settingsRow.enabled !== true) return fail('FEATURE_DISABLED', 403);
+    if (engineOf(settingsRow) !== 'local') return fail('ENGINE_MISMATCH', 409);
+    const localModels = (cfg.local_models ?? null) as { profile?: { name?: string; textName?: string; visionName?: string } } | null;
+    const profile = localModels?.profile;
+    const hasModel = Boolean(profile && (profile.name || (profile.textName && profile.visionName)));
+    if (!hasModel) return fail('LOCAL_MODEL_NOT_CONFIGURED', 409);
 
+    // The local engine has no token budget: the cap is 0 and the interface
+    // shows no token bar.
     await service
         .from('import_jobs')
-        .update({ status: 'extracting', token_cap: tokenCap, updated_at: new Date().toISOString() })
+        .update({ status: 'extracting', token_cap: 0, updated_at: new Date().toISOString() })
         .eq('id', job.id);
-    return json({ ok: true, status: 'extracting', chunks_total: count, token_cap: tokenCap });
+    return json({ ok: true, status: 'extracting', chunks_total: count, token_cap: 0 });
 }
 
 async function chunkProgress(service: Service, jobId: string) {
@@ -499,18 +548,18 @@ async function progressPayload(
 }
 
 /** Mark chunks that ran out of attempts as failed — they can never be claimed. */
-async function failExhausted(service: Service, jobId: string, limits: typeof LIMITS) {
+async function failExhausted(service: Service, jobId: string, limits: typeof LIMITS, maxAttempts: number = limits.MAX_ATTEMPTS) {
     const now = new Date().toISOString();
     const { data: chunks } = await service
         .from('import_chunks')
         .select('id, status, attempts, lease_until')
         .eq('job_id', jobId)
-        .lt('attempts', limits.MAX_ATTEMPTS + 1);
+        .lt('attempts', maxAttempts + 1);
     const stuck = (chunks ?? []).filter((chunk) => {
         if (chunk.status === 'queued') return false; // still claimable
         if (chunk.status !== 'running') return false;
         const expired = !chunk.lease_until || chunk.lease_until < now;
-        return expired && chunk.attempts >= limits.MAX_ATTEMPTS;
+        return expired && chunk.attempts >= maxAttempts;
     });
     for (const chunk of stuck) {
         await service
@@ -525,10 +574,12 @@ async function persistChunkResult(
     job: Record<string, unknown>,
     chunkRow: { id: string; idx: number; payload: Record<string, unknown>; source_id?: string | null },
     result: Awaited<ReturnType<typeof runChunk>>,
+    options: { pipelineKind?: 'text' | 'sheet' | 'image', replaceRejects?: boolean } = {},
 ) {
     const { service } = ctx;
     const payload = chunkRow.payload ?? {};
     const lines = Array.isArray(payload.lines) ? payload.lines : [];
+    const effectiveKind = options.pipelineKind ?? (payload.kind as string | undefined);
 
     // Failed chains still made real provider calls. Record their aggregated
     // usage before returning, otherwise a chain that exhausts every entry
@@ -580,14 +631,14 @@ async function persistChunkResult(
     const extractedByIndex = new Map(result.documents.map((doc) => [doc.index, doc.record]));
     // A photo of a note has no text lines: the model read the image, so the
     // values cannot be grounded against a source text.
-    const isImage = payload.kind === 'image';
+    const isImage = effectiveKind === 'image';
     const pipeline = runPipeline({
         records: result.documents.map((doc) => ({ ...doc.record, _chunkIndex: doc.index })),
         sourceId: (payload.source_id as string) ?? 'S1',
-        kind: payload.kind === 'sheet' ? 'sheet' : isImage ? 'image' : 'text',
+        kind: effectiveKind === 'sheet' ? 'sheet' : isImage ? 'image' : 'text',
         lines: lineRecords,
         chunkLineIds,
-        dataLineIds: payload.kind === 'sheet' ? chunkLineIds : null,
+        dataLineIds: effectiveKind === 'sheet' ? chunkLineIds : null,
         snapshot: (job.config as { enum_snapshot?: object })?.enum_snapshot ?? {},
         today: todayIso(),
         defaults: (job.config as { defaults?: object })?.defaults ?? {},
@@ -620,6 +671,17 @@ async function persistChunkResult(
                 .eq('id', chunkRow.id);
             return null;
         }
+    }
+
+    // The tray holds the rejects of the chunk's latest attempt. When the
+    // chunk is submitted again, the previous entries are dropped first, so a
+    // repeated submit leaves the same tray as the first one.
+    if (options.replaceRejects) {
+        const { error: oldTrayError } = await service
+            .from('import_rejects')
+            .delete()
+            .eq('chunk_id', chunkRow.id);
+        if (oldTrayError) console.error('import_rejects delete failed', chunkRow.id, oldTrayError.message);
     }
 
     const trayPayload = [
@@ -769,6 +831,9 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
     const loaded = await loadJobForUser(service, user.id, String(body.job_id ?? ''));
     if ('error' in loaded) return fail(loaded.error, loaded.error === 'NOT_FOUND' ? 404 : 403);
     let job = loaded.job;
+
+    const jobCfg = (job.config ?? {}) as Record<string, unknown>;
+    if (jobCfg.inference_mode === 'local') return fail('LOCAL_MODE_REQUIRED', 409);
 
     if (job.cancelled_at) {
         return progressPayload(ctx, job, [{ code: 'JOB_CANCELLED' }]);
@@ -1314,7 +1379,12 @@ async function actionAddRow(body: Record<string, unknown>, ctx: Context) {
 
 /** Feature flag read: any signed-in user may ask; it exposes only the switch. */
 function actionEnabled(ctx: Context) {
-    return json({ enabled: ctx.settingsRow?.enabled === true });
+    return json({
+        enabled: ctx.settingsRow?.enabled === true,
+        // Which engine the card shows.
+        engine: engineOf(ctx.settingsRow),
+        local_enabled: localInferenceEnabled(),
+    });
 }
 
 async function actionStatus(body: Record<string, unknown>, ctx: Context) {
@@ -1356,6 +1426,222 @@ async function actionStatus(body: Record<string, unknown>, ctx: Context) {
         });
     }
     return progressPayload(ctx, job, banners);
+}
+
+// ---------------------------------------------------------------------------
+// Local inference actions (browser-side models, server-side persistence)
+// ---------------------------------------------------------------------------
+
+/** The local runtime settings the job was started with. */
+function localRuntimeFor(job: Record<string, unknown>) {
+    const config = (job.config ?? {}) as Record<string, unknown>;
+    const models = (config.local_models ?? null) as { config?: unknown } | null;
+    return clampLocalConfig((models?.config ?? {}) as Record<string, unknown>);
+}
+
+/** The number of attempts a local chunk gets before it is given up on. */
+function localMaxAttempts(job: Record<string, unknown>) {
+    return localRuntimeFor(job).runtime.maxAttempts;
+}
+
+async function actionLocalClaim(body: Record<string, unknown>, ctx: Context) {
+    const { user, service, limits } = ctx;
+    if (!localInferenceEnabled()) return fail('LOCAL_MODE_DISABLED', 403);
+    const loaded = await loadJobForUser(service, user.id, String(body.job_id ?? ''));
+    if ('error' in loaded) return fail(loaded.error, loaded.error === 'NOT_FOUND' ? 404 : 403);
+    const job = loaded.job;
+    if (job.status !== 'extracting') {
+        if (['review', 'done', 'failed'].includes(job.status)) return json({ ok: true, done: true, status: job.status });
+        return fail('JOB_STATE', 409);
+    }
+    if (job.cancelled_at) return json({ ok: true, done: true, status: 'cancelled' });
+
+    const cfg = (job.config ?? {}) as Record<string, unknown>;
+    if (cfg.inference_mode !== 'local') return fail('LOCAL_MODE_REQUIRED', 409);
+
+    // The browser owns the runtime config; the server only clamps the lease
+    // and the attempt count to the shared bounds. Local mode has no token cap.
+    const bounds = LOCAL_RUNTIME_BOUNDS;
+    const runtime = localRuntimeFor(job).runtime;
+    const requestedLease = Number(body.lease_seconds ?? runtime.leaseSeconds);
+    const leaseSeconds = Math.max(
+        bounds.leaseSeconds.min,
+        Math.min(bounds.leaseSeconds.max, Number.isFinite(requestedLease) ? requestedLease : runtime.leaseSeconds),
+    );
+    const requestedAttempts = Number(body.max_attempts ?? runtime.maxAttempts);
+    const maxAttempts = Math.max(
+        bounds.maxAttempts.min,
+        Math.min(bounds.maxAttempts.max, Number.isFinite(requestedAttempts) ? requestedAttempts : runtime.maxAttempts),
+    );
+
+    const { data, error } = await service.rpc('import_claim_chunks', {
+        p_job_id: job.id,
+        p_limit: 1,
+        p_lease_seconds: leaseSeconds,
+        p_max_attempts: maxAttempts,
+    });
+    if (error) {
+        console.error('local claim failed', job.id, error.message);
+        return fail('INTERNAL', 500);
+    }
+    const claimed = (data ?? []) as { id: string; idx: number; payload: Record<string, unknown>; source_id?: string | null }[];
+    if (claimed.length === 0) {
+        await failExhausted(service, job.id, limits, maxAttempts);
+        const progress = await chunkProgress(service, job.id);
+        if (progress.queued === 0 && progress.running === 0) {
+            await settleToReview(service, job.id);
+            const fresh = await loadJobForUser(service, user.id, String(job.id));
+            const j = 'error' in fresh ? job : fresh.job;
+            return json({ ok: true, done: true, status: j.status, progress });
+        }
+        // Another tab may hold the running chunk. Ask the client to wait
+        // instead of terminating its loop.
+        return json({ ok: true, done: false, chunk: null, progress, retry_after_ms: 2000 });
+    }
+    const row = claimed[0];
+    const progress = await chunkProgress(service, job.id);
+    return json({ ok: true, done: false, chunk: row, progress, lease_seconds: leaseSeconds });
+}
+
+async function actionLocalSubmit(body: Record<string, unknown>, ctx: Context) {
+    const { user, service } = ctx;
+    if (!localInferenceEnabled()) return fail('LOCAL_MODE_DISABLED', 403);
+    const loaded = await loadJobForUser(service, user.id, String(body.job_id ?? ''));
+    if ('error' in loaded) return fail(loaded.error, loaded.error === 'NOT_FOUND' ? 404 : 403);
+    let job = loaded.job;
+    if (job.status !== 'extracting') return fail('JOB_STATE', 409);
+    const cfg = (job.config ?? {}) as Record<string, unknown>;
+    if (cfg.inference_mode !== 'local') return fail('LOCAL_MODE_REQUIRED', 409);
+
+    const chunkId = String(body.chunk_id ?? '');
+    const { data: chunkRow } = await service
+        .from('import_chunks')
+        .select('id, idx, payload, source_id, status')
+        .eq('id', chunkId)
+        .eq('job_id', job.id)
+        .maybeSingle();
+    if (!chunkRow) return fail('NOT_FOUND', 404);
+    // Only the claim holder may submit. A stale or duplicate submit must not
+    // store the same rows and the same tray entries twice.
+    if (chunkRow.status !== 'running') return fail('CHUNK_NOT_CLAIMED', 409);
+
+    const result = body.result as Awaited<ReturnType<typeof runChunk>>;
+    if (!result || !Array.isArray(result.documents) || !Array.isArray(result.rejected)) {
+        return fail('BAD_REQUEST');
+    }
+    const pipelineKind = body.pipeline_kind === 'text' || body.pipeline_kind === 'sheet' || body.pipeline_kind === 'image'
+        ? body.pipeline_kind
+        : undefined;
+
+    // The tray holds the rejects of the chunk's latest attempt, so the
+    // previous ones are dropped first. A second submit of the same chunk
+    // therefore leaves the same tray as the first one.
+    const split = await persistChunkResult(ctx, job, chunkRow as never, result, { pipelineKind, replaceRejects: true });
+    if (split) await insertSplitChildren(service, job.id as string, split);
+
+    await failExhausted(service, job.id, ctx.limits, localMaxAttempts(job));
+    const progress = await chunkProgress(service, job.id);
+    if (progress.queued === 0 && progress.running === 0) await settleToReview(service, job.id);
+
+    const fresh = await loadJobForUser(service, user.id, String(job.id));
+    if (!('error' in fresh)) job = fresh.job;
+    return json({ ok: true, status: job.status, progress });
+}
+
+async function actionLocalFail(body: Record<string, unknown>, ctx: Context) {
+    const { user, service, limits } = ctx;
+    if (!localInferenceEnabled()) return fail('LOCAL_MODE_DISABLED', 403);
+    const loaded = await loadJobForUser(service, user.id, String(body.job_id ?? ''));
+    if ('error' in loaded) return fail(loaded.error, loaded.error === 'NOT_FOUND' ? 404 : 403);
+    const job = loaded.job;
+    const chunkId = String(body.chunk_id ?? '');
+    const code = String(body.error_code ?? 'LOCAL_ERROR');
+    const retryable = body.retryable !== false;
+    const maxAttempts = localMaxAttempts(job);
+
+    const { data: chunk } = await service
+        .from('import_chunks')
+        .select('id, attempts, status')
+        .eq('id', chunkId)
+        .eq('job_id', job.id)
+        .maybeSingle();
+    if (!chunk) return fail('NOT_FOUND', 404);
+
+    // Transient failures requeue until the attempts run out; deterministic
+    // ones (a model that cannot be used) fail at once, so the user sees the
+    // cause instead of a retry loop.
+    const canRetry = retryable && (chunk.attempts ?? 0) < maxAttempts;
+    await service
+        .from('import_chunks')
+        .update(canRetry
+            ? { status: 'queued', error_code: code, lease_until: null }
+            : { status: 'failed', error_code: code, lease_until: null })
+        .eq('id', chunkId)
+        .eq('job_id', job.id);
+
+    await failExhausted(service, job.id, limits, maxAttempts);
+    const progress = await chunkProgress(service, job.id);
+    if (progress.queued === 0 && progress.running === 0) await settleToReview(service, job.id);
+    return json({ ok: true, progress, retryable: canRetry });
+}
+
+async function actionLocalHeartbeat(body: Record<string, unknown>, ctx: Context) {
+    const { user, service } = ctx;
+    if (!localInferenceEnabled()) return fail('LOCAL_MODE_DISABLED', 403);
+    const loaded = await loadJobForUser(service, user.id, String(body.job_id ?? ''));
+    if ('error' in loaded) return fail(loaded.error, loaded.error === 'NOT_FOUND' ? 404 : 403);
+    const job = loaded.job;
+    const chunkId = String(body.chunk_id ?? '');
+    const bounds = LOCAL_RUNTIME_BOUNDS;
+    const requested = Number(body.lease_seconds ?? localRuntimeFor(job).runtime.leaseSeconds);
+    const lease = Math.max(
+        bounds.leaseSeconds.min,
+        Math.min(bounds.leaseSeconds.max, Number.isFinite(requested) ? requested : bounds.leaseSeconds.max),
+    );
+    await service
+        .from('import_chunks')
+        .update({ lease_until: new Date(Date.now() + lease * 1000).toISOString() })
+        .eq('id', chunkId)
+        .eq('job_id', job.id)
+        .eq('status', 'running');
+    return json({ ok: true });
+}
+
+/**
+ * Hand a chunk back without counting it as a failed attempt.
+ *
+ * The user cancelled the run, or the tab was closed. The chunk goes back to
+ * the queue and the attempt the claim took is given back, so a cancelled run
+ * does not use up the chunk's retries.
+ */
+async function actionLocalRelease(body: Record<string, unknown>, ctx: Context) {
+    const { user, service } = ctx;
+    if (!localInferenceEnabled()) return fail('LOCAL_MODE_DISABLED', 403);
+    const loaded = await loadJobForUser(service, user.id, String(body.job_id ?? ''));
+    if ('error' in loaded) return fail(loaded.error, loaded.error === 'NOT_FOUND' ? 404 : 403);
+    const job = loaded.job;
+    const chunkId = String(body.chunk_id ?? '');
+
+    const { data: chunk } = await service
+        .from('import_chunks')
+        .select('id, attempts, status')
+        .eq('id', chunkId)
+        .eq('job_id', job.id)
+        .maybeSingle();
+    if (!chunk) return fail('NOT_FOUND', 404);
+    if (chunk.status !== 'running') return json({ ok: true, released: false });
+
+    await service
+        .from('import_chunks')
+        .update({
+            status: 'queued',
+            lease_until: null,
+            attempts: Math.max(0, (chunk.attempts ?? 1) - 1),
+        })
+        .eq('id', chunkId)
+        .eq('job_id', job.id)
+        .eq('status', 'running');
+    return json({ ok: true, released: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -1409,6 +1695,11 @@ Deno.serve(async (req) => {
             case 'add_row': return await actionAddRow(body, ctx);
             case 'commit': return await actionCommit(body, ctx);
             case 'enabled': return actionEnabled(ctx);
+            case 'local_claim': return await actionLocalClaim(body, ctx);
+            case 'local_submit': return await actionLocalSubmit(body, ctx);
+            case 'local_fail': return await actionLocalFail(body, ctx);
+            case 'local_heartbeat': return await actionLocalHeartbeat(body, ctx);
+            case 'local_release': return await actionLocalRelease(body, ctx);
             default: return fail('BAD_REQUEST');
         }
     } catch (err) {
@@ -1416,3 +1707,4 @@ Deno.serve(async (req) => {
         return fail('INTERNAL', 500);
     }
 });
+

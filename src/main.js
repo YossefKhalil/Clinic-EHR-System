@@ -10,10 +10,21 @@ import Alpine from 'alpinejs';
 import { initI18n, t, setLocale, getLocale } from './services/i18n.js';
 import { initSupabase, supabase, getCurrentUser, signIn, signOut } from './services/supabase.js';
 import { loadImportEnabled, clearImportFlagCache } from './services/import-flag.js';
-import { loadAiSettings as loadAiSettingsApi, saveAiSettings as saveAiSettingsApi, testAiProvider as testAiProviderApi, loadImportLimits as loadImportLimitsApi, saveImportLimits as saveImportLimitsApi } from './services/ai-settings.js';
+import { loadAiSettings as loadAiSettingsApi, saveAiSettings as saveAiSettingsApi, testAiProvider as testAiProviderApi, loadImportLimits as loadImportLimitsApi, saveImportLimits as saveImportLimitsApi, resetCloudConsent as resetCloudConsentApi } from './services/ai-settings.js';
+import {
+    createLocalState,
+    emptySlot,
+    localProfilePayload,
+    pickAndVerify,
+    pickSupportFiles,
+    readDevice,
+    resolveConfig,
+    restoreLocalState,
+    persistLocalState,
+} from './services/ai-local.js';
 import { initCloudinary, getImageUrl, isImageAttachment } from './services/cloudinary.js';
 import { getDashboardStats, getRecentPatients } from './services/dashboard.js';
-import { getPatients, deletePatient, togglePatientStatus, GOVERNORATES } from './services/patients.js';
+import { getPatients, deletePatient, togglePatientStatus, GOVERNORATES, governorateLabel } from './services/patients.js';
 import { emptyPatientFilters, activeFilterKeys } from './services/patient-filters.js';
 import { patientMatchesQuery } from './services/fuzzy.js';
 import { getPriceStats } from './services/prices.js';
@@ -177,6 +188,8 @@ function app() {
         
         // Governorates & editable options
         governorates: GOVERNORATES,
+        // The governorate of a patient, in the language of the interface.
+        governorateLabel,
         // Loaded from the app_options table on login and after every Settings
         // edit; helpers below read only from here.
         options: { follower: [], section: [], source: [] },
@@ -206,6 +219,25 @@ function app() {
         aiSettingsInvalid: {},
         aiSettingsRowSeq: 0,
         aiSettingsMaxModels: 8,
+        // The engine: Off, Cloud or Local. The segmented control sets the
+        // enabled flag and the mode together, so this is the only place the
+        // engine is written down.
+        aiEngine: 'off',
+        // The engine before the current change, so a switch that needs the
+        // consent can be held.
+        aiEngineBefore: 'off',
+        // Whether this deployment allows the local engine at all.
+        aiLocalEnabled: false,
+        // The cloud consent record: the clinic accepted that the data leaves
+        // the clinic. The record holds no patient data.
+        aiCloudConsent: false,
+        aiConsentChecked: false,
+        // The local engine draft: the models the clinic picked and the
+        // runtime settings. The files stay in the browser.
+        aiLocal: createLocalState(),
+        aiLocalDevice: null,
+        aiLocalVerifying: null,
+        aiLocalMessage: null,
         // The import limits (imports per day, rows per file, ...). They live
         // in `import_settings`, which only the ai-settings function may write,
         // so an admin raises the daily quota here instead of in the SQL
@@ -844,6 +876,10 @@ function app() {
             try {
                 const data = await loadAiSettingsApi();
                 this.applyAiSettings(data);
+                // A model the clinic picked but has not saved yet is still in
+                // this browser, so the panel shows it.
+                await restoreLocalState(this.aiLocal);
+                await this.loadAiLocalDevice();
             } catch (error) {
                 console.error('AI settings load failed:', error);
                 const view = this.aiErrorView(error, 'aiSettings.loadFailed');
@@ -851,6 +887,16 @@ function app() {
                 this.aiSettings = null;
             } finally {
                 this.aiSettingsLoading = false;
+            }
+        },
+
+        /** What the device can do, and the tier it suggests. */
+        async loadAiLocalDevice() {
+            try {
+                this.aiLocalDevice = await readDevice();
+            } catch (error) {
+                console.error('Local device probe failed:', error);
+                this.aiLocalDevice = null;
             }
         },
 
@@ -905,9 +951,23 @@ function app() {
             }
         },
 
-        applyAiSettings(data) {            const firstLoad = this.aiSettings === null;
+        applyAiSettings(data) {
+            const firstLoad = this.aiSettings === null;
             this.aiSettings = data;
             this.aiSettingsForm.enabled = data.enabled === true;
+            // The engine: a row that is not enabled is Off, whatever the mode
+            // says. A cloud selection without the consent record falls back
+            // to Off, because the browser may restore the form state.
+            const engine = data.engine ?? (data.enabled === true ? (data.inference_mode ?? 'cloud') : 'off');
+            this.aiLocalEnabled = data.local_enabled === true;
+            this.aiCloudConsent = data.cloud_consent === true;
+            let next = engine;
+            if (next === 'cloud' && !this.aiCloudConsent && data.enabled !== true) next = 'off';
+            if (next === 'local' && !this.aiLocalEnabled) next = 'off';
+            this.aiEngine = next;
+            this.aiEngineBefore = next;
+            this.aiSettingsForm.enabled = next !== 'off';
+            this.aiLocal = this.aiLocalFromServer(data);
             const chain = Array.isArray(data.chain) ? data.chain : [];
             this.aiSettingsForm.chain = chain.map((row) => this.aiChainRow(row.provider, row.model));
             if (this.aiSettingsForm.chain.length === 0) {
@@ -939,6 +999,208 @@ function app() {
             this.aiSettingsTestResults = { openrouter: null, cloudflare: null, openai: null, groq: null };
             this.aiSettingsInvalid = {};
             this.aiSettingsMessage = null;
+        },
+
+        /** The local draft, as the server knows it. */
+        aiLocalFromServer(data) {
+            const state = createLocalState();
+            const profile = data.local_profile ?? {};
+            const config = data.local_config ?? {};
+            state.mode = profile.mode === 'split' ? 'split' : 'single';
+            state.multimodal = {
+                ...emptySlot(),
+                name: profile.name ?? '',
+                size: profile.size ?? 0,
+                sha256: profile.sha256 ?? '',
+                kind: 'gguf',
+                status: profile.name ? 'warn' : 'none',
+            };
+            state.text = {
+                ...emptySlot(),
+                name: profile.textName ?? '',
+                size: profile.textSize ?? 0,
+                kind: 'gguf',
+                status: profile.textName ? 'warn' : 'none',
+            };
+            state.vision = {
+                ...emptySlot(),
+                name: profile.visionName ?? '',
+                size: profile.visionSize ?? 0,
+                kind: 'onnx',
+                status: profile.visionName ? 'warn' : 'none',
+            };
+            state.support = {
+                ...state.support,
+                name: profile.supportName ?? '',
+                status: profile.supportName ? 'warn' : 'none',
+            };
+            if (config && typeof config === 'object') {
+                const resolved = resolveConfig({ ...state, config });
+                state.config = resolved.config;
+            }
+            return state;
+        },
+
+        /** The line under the card title. */
+        aiEngineSubtitle() {
+            if (this.aiEngine === 'local') return this.t('aiSettings.subtitleLocal');
+            if (this.aiEngine === 'cloud') return this.t('aiSettings.subtitle');
+            return this.t('aiSettings.subtitleOff');
+        },
+
+        /**
+         * The engine changed.
+         *
+         * Cloud mode may only be switched on after the clinic accepted that
+         * the data leaves the clinic, so the first switch asks. The local
+         * engine is refused when the deployment does not allow it.
+         */
+        aiOnEngineChange(engine) {
+            this.aiSettingsMessage = null;
+            if (engine === 'local' && !this.aiLocalEnabled) {
+                this.aiEngine = 'off';
+                this.aiEngineBefore = 'off';
+                this.aiSettingsForm.enabled = false;
+                this.aiNotify('warning', 'aiSettings.local.disabledHint');
+                return;
+            }
+            if (engine === 'cloud' && !this.aiCloudConsent) {
+                // Hold the current engine until the clinic accepted that the
+                // data leaves the clinic.
+                this.aiEngine = this.aiEngineBefore || 'off';
+                this.aiConsentChecked = false;
+                bootstrapBundle?.Modal?.getOrCreateInstance(document.getElementById('aiCloudConsentModal'))?.show();
+                return;
+            }
+            this.aiEngine = engine;
+            this.aiEngineBefore = engine;
+            this.aiSettingsForm.enabled = engine !== 'off';
+        },
+
+        /** The clinic accepted the data egress: cloud mode may be switched on. */
+        aiAcceptCloudConsent() {
+            this.aiCloudConsent = true;
+            this.aiConsentChecked = false;
+            this.aiEngine = 'cloud';
+            this.aiSettingsForm.enabled = true;
+            bootstrapBundle?.Modal?.getOrCreateInstance(document.getElementById('aiCloudConsentModal'))?.hide();
+        },
+
+        /** Withdraw the consent: the next switch to cloud asks again. */
+        async aiResetCloudConsent() {
+            try {
+                const data = await resetCloudConsentApi();
+                this.applyAiSettings(data);
+                this.aiNotify('info', 'aiSettings.consent.resetDone');
+            } catch (error) {
+                console.error('Cloud consent reset failed:', error);
+                const view = this.aiErrorView(error, 'aiSettings.saveFailed');
+                this.aiNotify('danger', view.key, view.params);
+            }
+        },
+
+        /** Pick a model file and check it. */
+        async aiLocalBrowse(slot) {
+            this.aiLocalMessage = null;
+            this.aiLocalVerifying = slot;
+            try {
+                const picked = await pickAndVerify(this.aiLocal, slot);
+                if (!picked) return;
+                if (!picked.result.ok) {
+                    this.aiLocalMessage = { type: 'danger', key: 'aiSettings.local.modelRejected', params: { detail: picked.result.message } };
+                    return;
+                }
+                this.aiLocalMessage = { type: 'success', key: 'aiSettings.local.modelAccepted' };
+            } catch (error) {
+                console.error('Local model pick failed:', error);
+                this.aiLocalMessage = { type: 'danger', key: 'aiSettings.local.pickFailed' };
+            } finally {
+                this.aiLocalVerifying = null;
+            }
+        },
+
+        /** Pick the folder with the tokenizer and the config files. */
+        async aiLocalBrowseSupport() {
+            this.aiLocalMessage = null;
+            try {
+                const picked = await pickSupportFiles(this.aiLocal);
+                if (!picked) {
+                    this.aiLocalMessage = { type: 'warning', key: 'aiSettings.local.folderUnsupported' };
+                    return;
+                }
+                if (this.aiLocal.support.missing.length > 0) {
+                    this.aiLocalMessage = { type: 'warning', key: 'aiSettings.local.supportMissing', params: { files: this.aiLocal.support.missing.join(', ') } };
+                    return;
+                }
+                this.aiLocalMessage = { type: 'success', key: 'aiSettings.local.supportAccepted' };
+            } catch (error) {
+                console.error('Local support files pick failed:', error);
+                this.aiLocalMessage = { type: 'danger', key: 'aiSettings.local.pickFailed' };
+            }
+        },
+
+        /** Forget one model. */
+        aiLocalRemove(slot) {
+            this.aiLocal[slot] = emptySlot();
+            this.aiLocalMessage = null;
+        },
+
+        /** The layout changed: the other slot is not used any more. */
+        aiOnLocalLayoutChange() {
+            this.aiLocalMessage = null;
+        },
+
+        /** Write one runtime value. */
+        aiLocalSetConfig(group, key, value) {
+            if (!this.aiLocal.config[group]) return;
+            const current = this.aiLocal.config[group][key];
+            const next = typeof current === 'boolean' ? Boolean(value) : Number(value);
+            this.aiLocal.config = {
+                ...this.aiLocal.config,
+                [group]: { ...this.aiLocal.config[group], [key]: next },
+            };
+        },
+
+        /** The badge class of a model slot. */
+        aiLocalBadgeClass(status) {
+            if (status === 'ok') return 'text-bg-success border';
+            if (status === 'warn') return 'text-bg-warning border';
+            if (status === 'error') return 'text-bg-danger border';
+            return 'text-bg-light border';
+        },
+
+        /** The badge text of a model slot. */
+        aiLocalBadgeKey(status) {
+            if (status === 'ok') return 'aiSettings.local.statusReady';
+            if (status === 'warn') return 'aiSettings.local.statusNotVerified';
+            if (status === 'error') return 'aiSettings.local.statusError';
+            return 'aiSettings.local.statusNone';
+        },
+
+        /** The size and the hash of a model file. */
+        aiLocalFileMeta(slot) {
+            const parts = [];
+            if (slot.size) parts.push(this.aiLocalFormatBytes(slot.size));
+            if (slot.sha256) parts.push(this.t('aiSettings.local.sha256', { hash: slot.sha256.slice(0, 12) }));
+            return parts.join(' · ');
+        },
+
+        aiLocalFormatBytes(bytes) {
+            const number = Number(bytes) || 0;
+            if (number <= 0) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let value = number;
+            let index = 0;
+            while (value >= 1000 && index < units.length - 1) {
+                value /= 1000;
+                index += 1;
+            }
+            return `${value < 10 && index > 0 ? value.toFixed(1) : Math.round(value)} ${units[index]}`;
+        },
+
+        /** The provider token limit only applies to the cloud engine. */
+        aiLimitIsCloudOnly(field) {
+            return field.key === 'PROVIDER_TOKENS_PER_MINUTE';
         },
 
         aiChainRow(provider = '', model = '') {
@@ -1123,6 +1385,16 @@ function app() {
                 touched.push({ index, provider, model });
             });
 
+            // The cloud engine needs a model chain. The local engine needs a
+            // model file, and nothing else.
+            if (this.aiEngine === 'local') {
+                if (!this.aiLocalModelReady()) {
+                    this.aiNotify('warning', 'aiSettings.local.modelMissing');
+                    return false;
+                }
+                return true;
+            }
+
             if (this.aiSettingsForm.enabled && touched.length === 0) {
                 this.aiNotify('warning', 'aiSettings.chainEmpty');
                 return false;
@@ -1166,14 +1438,31 @@ function app() {
             return true;
         },
 
+        /** True when the local engine has everything it needs. */
+        aiLocalModelReady() {
+            const local = this.aiLocal;
+            if (local.mode === 'single') return Boolean(local.multimodal.name);
+            return Boolean(local.text.name) && Boolean(local.vision.name);
+        },
+
         aiSavePayload() {
             const credentials = this.aiSettingsForm.credentials;
             const chain = this.aiSettingsForm.chain
-                .filter((row) => row.provider || String(row.model ?? '').trim())
+                // Only the complete rows go to the server: a half-filled row
+                // is a draft, and the server refuses an incomplete chain.
+                .filter((row) => row.provider && String(row.model ?? '').trim())
                 .map((row) => ({ provider: row.provider, model: String(row.model ?? '').trim() }));
+            const engine = this.aiEngine;
             return {
-                enabled: this.aiSettingsForm.enabled,
+                // The segmented control sets the flag and the mode together.
+                enabled: engine !== 'off',
+                inference_mode: engine === 'local' ? 'local' : 'cloud',
+                cloud_consent: this.aiCloudConsent === true,
                 chain,
+                // The local profile holds the names, the sizes and the hashes
+                // only. The files and their handles stay in the browser.
+                local_profile: localProfilePayload(this.aiLocal),
+                local_config: this.aiLocal.config,
                 credentials: {
                     openrouter: {
                         apiKey: credentials.openrouter.apiKey.trim(),
@@ -1203,6 +1492,11 @@ function app() {
             this.aiSettingsSaving = true;
             try {
                 const data = await saveAiSettingsApi(this.aiSavePayload());
+                // The models are remembered in the browser, so the clinic
+                // picks them once and not on every visit.
+                if (this.aiEngine === 'local') {
+                    await persistLocalState(this.aiLocal);
+                }
                 this.applyAiSettings(data);
                 clearImportFlagCache();
                 this.importEnabled = data.enabled === true;
@@ -1343,6 +1637,10 @@ function app() {
             }
             if (code === 'CHAIN_DUPLICATE') return { key: 'aiSettings.chainDuplicate', params: {} };
             if (code === 'MODEL_TOO_LONG') return { key: 'aiSettings.modelTooLong', params: {} };
+            if (code === 'CLOUD_CONSENT_REQUIRED') return { key: 'aiSettings.consent.required', params: {} };
+            if (code === 'LOCAL_MODE_DISABLED') return { key: 'aiSettings.local.disabledHint', params: {} };
+            if (code === 'ENGINE_MISMATCH') return { key: 'aiSettings.engineMismatch', params: {} };
+            if (code === 'LOCAL_MODEL_NOT_CONFIGURED') return { key: 'aiSettings.local.modelMissing', params: {} };
             if (code === 'INVALID_ACCOUNT_ID') return { key: 'aiSettings.invalidAccountId', params: {} };
             if (code === 'INVALID_BASE_URL') return { key: 'aiSettings.invalidBaseUrl', params: {} };
             if (code === 'INVALID_SECRET') return { key: 'aiSettings.invalidSecret', params: {} };

@@ -15,8 +15,16 @@ import {
 /**
  * max_tokens from the chunk size (spec §7.2): ≈300 tokens per expected record,
  * with a floor and a ceiling — not a fixed 8,000.
+ *
+ * A caller that knows its own context window (the local engine) may pass
+ * `override`. Its budget is the budget: the floor exists so a cloud model
+ * does not answer with nothing, and it would not fit a small local context.
  */
-export function maxTokensFor(lineCount, limits = LIMITS) {
+export function maxTokensFor(lineCount, limits = LIMITS, override = null) {
+    const budget = Number(override);
+    if (Number.isFinite(budget) && budget > 0) {
+        return Math.min(limits.MAX_TOKENS_CEILING, Math.round(budget));
+    }
     const expected = Math.max(1, Number(lineCount) || 1);
     return Math.min(
         limits.MAX_TOKENS_CEILING,
@@ -80,6 +88,7 @@ export function mergeRepairedDocuments(documents, bad, reparsed) {
  *   limits?: typeof LIMITS,
  *   yaml: object,                 // js-yaml module namespace
  *   signal?: AbortSignal|null,
+ *   maxTokens?: number|null,      // the caller's own budget (the local engine)
  *   delimiter?: string,           // injectable for tests
  *   repairDelimiter?: string,
  * }} input
@@ -102,6 +111,7 @@ export async function runChunk({
     limits = LIMITS,
     yaml,
     signal = null,
+    maxTokens = null,
     delimiter,
     repairDelimiter,
 }) {
@@ -141,7 +151,7 @@ export async function runChunk({
     const request = {
         system: EXTRACTOR_SYSTEM,
         user: [{ type: 'text', text: user }, ...imageParts],
-        maxTokens: maxTokensFor(lines.length, limits),
+        maxTokens: maxTokensFor(lines.length, limits, maxTokens),
         temperature: 0,
         signal,
     };

@@ -1,4 +1,8 @@
 import { supabase } from './supabase.js';
+import { getLocale } from './i18n.js';
+// The governorate table of the import (the single source of truth): the
+// stored value is the English name, the Arabic name comes with it.
+import { GOVERNORATES as GOVERNORATE_ENTRIES } from '@import-core/enums.js';
 
 export async function getPatients(filters = {}, isSuperAdmin = false, userSection = null) {
     let query = supabase()
@@ -26,6 +30,7 @@ export async function getPatients(filters = {}, isSuperAdmin = false, userSectio
     if (filters.section) query = query.eq('section', filters.section);
     if (filters.source_of_money) query = query.eq('source_of_money', filters.source_of_money);
     if (filters.follower) query = query.eq('follower', filters.follower);
+    if (filters.record_type) query = query.eq('record_type', filters.record_type);
     
     if (filters.is_completed !== '' && filters.is_completed !== undefined && filters.is_completed !== null) {
         query = query.eq('is_completed', filters.is_completed);
@@ -97,12 +102,39 @@ export async function togglePatientStatus(id, isCompleted) {
     return data;
 }
 
+export const RECORD_TYPES = ['patient', 'food', 'classroom', 'well'];
+
+export const RECORD_TYPE_LABELS = {
+    patient: { en: 'Patient', ar: 'مريض' },
+    food: { en: 'Food distribution (إطعام)', ar: 'إطعام' },
+    classroom: { en: 'Classroom preparation', ar: 'تجهيز فصل دراسي' },
+    well: { en: 'Well drilling', ar: 'حفر بئر' },
+};
+
 export const GOVERNORATES = [
     'Cairo', 'Giza', 'Alexandria', 'Dakahlia', 'Red Sea', 'Beheira', 'Faiyum',
     'Gharbia', 'Ismailia', 'Monufia', 'Minya', 'Qalyubia', 'New Valley', 'Suez',
     'Aswan', 'Asyut', 'Beni Suef', 'Port Said', 'Damietta', 'South Sinai',
     'North Sinai', 'Sharqia', 'Kafr El Sheikh', 'Qena', 'Luxor', 'Sohag', 'Matrouh'
 ];
+
+const GOVERNORATE_AR = new Map(
+    GOVERNORATE_ENTRIES.map((entry) => [entry.value.toLowerCase(), entry.ar]),
+);
+
+/**
+ * The governorate of a patient, in the language of the interface.
+ *
+ * The app stores the English name (that is the value of the field); the
+ * Arabic name is only for reading. An unknown value is returned as it is,
+ * so a name that is not in the table is never lost.
+ */
+export function governorateLabel(value) {
+    const name = (value || '').trim();
+    if (!name) return '';
+    if (getLocale() !== 'ar') return name;
+    return GOVERNORATE_AR.get(name.toLowerCase()) || name;
+}
 
 export const FOLLOWERS_AR = {
     'حسن حمام': 'hassan_hamam',
