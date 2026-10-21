@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS public.patients (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Databases that were created before the record types existed (patient,
+-- food, classroom, well) get the column here - before anything reads it.
+ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS record_type TEXT NOT NULL DEFAULT 'patient';
+
 -- User profiles trigger
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
@@ -300,7 +304,6 @@ CREATE OR REPLACE TRIGGER update_app_options_updated_at
 -- Safe to re-run: each line is a no-op when the column is already present.
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS age INTEGER;
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS mobile TEXT;
-ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS record_type TEXT NOT NULL DEFAULT 'patient';
 ALTER TABLE public.patients ALTER COLUMN national_id DROP NOT NULL;
 -- Medical/lab papers & images are stored on Cloudinary; the row keeps only
 -- the metadata array [{ public_id, url, name, size, mime, uploaded_at }].

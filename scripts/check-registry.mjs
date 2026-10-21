@@ -26,6 +26,7 @@ const APP_MANAGED_COLUMNS = [
     'attachments', // Cloudinary metadata array
     'registered_by_name', // denormalized registrar name
     'import_batch_id', // stamped by the import commit (M2); undo uses it
+    'record_type', // what the row is about: patient, food, classroom, well
 ];
 
 function patientsColumns(sql) {
