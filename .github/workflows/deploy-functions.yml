@@ -58,6 +58,10 @@ jobs:
             --no-psqlrc \
             --file supabase/schema.sql
           echo "Schema applied."
+          # The schema must be complete, not just applied: the functions read
+          # these objects on every request.
+          psql "$SUPABASE_DB_URL" --set ON_ERROR_STOP=1 --no-psqlrc -f supabase/verify-schema.sql
+          echo "Schema verified."
 
       # Provision the encryption secret once. Never rotate it automatically:
       # changing this value makes every stored provider key unreadable.
