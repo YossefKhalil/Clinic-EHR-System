@@ -77,6 +77,439 @@
 }
 
 /*
+ * RTL button / dropdown geometry (issue #17).
+ *
+ * The app always loads Bootstrap's LTR stylesheet (src/main.js) and flips
+ * `dir` at runtime, and the group rules in that build are physical, so they
+ * do not mirror on their own:
+ *   - .btn-group / .input-group trim radii and pull members together on the
+ *     WRONG physical side, which is what makes the groups read as separately
+ *     clipped buttons in RTL;
+ *   - .dropdown-menu-end is an LTR-only anchoring concept
+ *     (.dropdown-menu-end[data-bs-popper] { right: 0; left: auto }) and its
+ *     --bs-position: end makes Popper place the menu on the physical right.
+ *
+ * Pattern: every rule below mirrors the matching Bootstrap selector under
+ * [dir="rtl"] with its physical sides swapped, zeroing inner corners and
+ * restoring the outer ones. New directional rules must follow the same
+ * shape (same selectors, sides swapped, restore after zero) instead of
+ * one-off pixel nudges, so a component that later switches to a real RTL
+ * build can drop this section wholesale.
+ */
+
+/* --- Button groups / split buttons ----------------------------------- */
+
+/* Members overlap their neighbour with one shared border: in RTL the next
+   DOM member sits on the LEFT, so the pull-in margin is margin-right. */
+[dir="rtl"] .btn-group > :not(.btn-check:first-child) + .btn,
+[dir="rtl"] .btn-group > .btn-group:not(:first-child) {
+    margin-left: 0;
+    margin-right: calc(var(--bs-border-width) * -1);
+}
+
+/* Inner corners square: everything that is not the flow-end member loses
+   its inline-start radius; everything that is not the flow-start member
+   loses its inline-end radius. */
+[dir="rtl"] .btn-group > .btn:not(:last-child) {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}
+
+[dir="rtl"] .btn-group > .btn:not(:first-child) {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+/* Outer corners restored. The LTR rules they cancel reach the same
+   specificity count (0,4,0), so the restores must EXCEED it — one extra
+   :not() — instead of relying on sheet order, which differs between dev
+   and build. :not(.dropdown-toggle) keeps the first-member rule pointed
+   at plain members; the caret's own restore stays the selector below. */
+[dir="rtl"] .btn-group > .btn:first-child:not(.dropdown-toggle) {
+    border-top-right-radius: var(--bs-btn-border-radius);
+    border-bottom-right-radius: var(--bs-btn-border-radius);
+}
+
+[dir="rtl"] .btn-group > .btn:last-child,
+[dir="rtl"] .btn-group > .btn.dropdown-toggle-split {
+    border-top-left-radius: var(--bs-btn-border-radius);
+    border-bottom-left-radius: var(--bs-btn-border-radius);
+}
+
+/* Focus rings must sit above the neighbours instead of being overdrawn by
+   the next member's background. */
+[dir="rtl"] .btn-group > .btn:focus-visible,
+[dir="rtl"] .input-group > .btn:focus-visible,
+[dir="rtl"] .input-group > .form-control:focus-visible,
+[dir="rtl"] .input-group > .form-select:focus-visible {
+    position: relative;
+    z-index: 5;
+}
+
+/* --- Input groups (icon prepends) ------------------------------------- */
+
+[dir="rtl"] .input-group > :not(:first-child):not(.dropdown-menu):not(.valid-tooltip):not(.valid-feedback):not(.invalid-tooltip):not(.invalid-feedback) {
+    margin-left: 0;
+    margin-right: calc(var(--bs-border-width) * -1);
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+    border-top-left-radius: var(--bs-border-radius);
+    border-bottom-left-radius: var(--bs-border-radius);
+}
+
+/* After the margin rule so a member that matches both (a prepend) ends
+   with square inner corners and rounded outer ones. */
+[dir="rtl"] .input-group:not(.has-validation) > :not(:last-child):not(.dropdown-toggle):not(.dropdown-menu):not(.form-floating),
+[dir="rtl"] .input-group.has-validation > :nth-last-child(n + 3):not(.dropdown-toggle):not(.dropdown-menu):not(.form-floating) {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    border-top-right-radius: var(--bs-border-radius);
+    border-bottom-right-radius: var(--bs-border-radius);
+}
+
+/* --- Dropdowns --------------------------------------------------------- */
+/* Anchoring itself needs no side-mirroring: `.dropdown-menu-end` leaves
+   --bs-position at Bootstrap's own "end", whose PHYSICAL Popper placement
+   (bottom-end) and static anchor (right: 0) already sit the menu flush with
+   the trigger's inline-start edge in RTL and let it extend toward the
+   inline-end; Popper's flip/preventOverflow keep it on screen. Feeding
+   "start" into --bs-position here would actually push the menu to the
+   wrong side, because Bootstrap computes the placement constants once at
+   module-eval (still LTR in this app) while reading the var at popup time
+   (dropdown.js line 62-66: `PLACEMENT_BOTTOMEND = isRTL() ? ...`, isRTL
+   frozen when the bundle loads). What DOES need mirroring is the plain-menu
+   base anchor: the RTL build (bootstrap.rtl.min.css) moves
+   `.dropdown-menu[data-bs-popper]` from left: 0 to right: 0, so plain menus
+   in RTL also drop from the trigger's inline-start edge instead of from its
+   inline-end edge. Verified live: split-button caret and navbar menus land
+   flush with their trigger's right edge at every tested width. */
+[dir="rtl"] .dropdown-menu[data-bs-popper] {
+    right: 0;
+    left: auto;
+}
+
+/* Bootstrap's .text-start is physical (text-align: left !important) in the
+   LTR build; dropdown items use it to align with the trigger. Make it
+   direction-aware again for RTL. */
+[dir="rtl"] .text-start {
+    text-align: start !important;
+}
+
+/*
+ * Dashboard summary cards (issue #14).
+ *
+ * Desktop (>=992px) keeps the original look — the row renders 4-up and the
+ * cards' own utilities (p-4, fs-2, fs-3) are untouched. Below 768px the
+ * cards compact down (smaller paddings, icons, numbers), the three numeric
+ * cards are real whole-card buttons with a 44px tap target, and the
+ * Section/Source entry lists lay out on a two-column grid instead of one
+ * long flex run. Everything is min-width-safe so long Arabic/English labels
+ * wrap inside the card instead of pushing it wider.
+ */
+/* Bootstrap sizes `<button>` shrink-to-fit (content width): when the three
+   numeric cards became whole-card buttons (issue #14) that made the >=992px
+   row content-driven (254/236 …) instead of the equal four columns a
+   div.card renders as. Fill the grid cell like the div cards do. */
+button.stat-link {
+    appearance: none;
+    background-clip: border-box;
+    color: inherit;
+    cursor: pointer;
+    text-align: start;
+    width: 100%;
+}
+
+.stat-link:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+.stat-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.stat-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+}
+
+.stat-hint i {
+    display: inline-block;
+    font-size: 0.9em;
+}
+
+/* Section/Source entry lists */
+.stat-entries {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.1rem 1.1rem;
+}
+
+.stat-entry {
+    min-width: 0;
+}
+
+.stat-entry-label {
+    overflow-wrap: anywhere;
+}
+
+/* The "Manage/View ->" hint arrow must follow the reading direction. */
+[dir="rtl"] .stat-hint .bi-arrow-right {
+    transform: scaleX(-1);
+}
+
+@media (max-width: 767.98px) {
+    .stat-card .card-body {
+        padding: 0.9rem 1rem !important;
+        gap: 0.75rem !important;
+    }
+
+    .stat-card .stat-icon {
+        padding: 0.55rem !important;
+        border-radius: 0.6rem;
+    }
+
+    .stat-card .stat-icon .bi {
+        font-size: 1.4rem;
+    }
+
+    .stat-card .stat-value {
+        font-size: 1.5rem;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .stat-card .stat-entry-value {
+        font-size: 1.2rem;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .stat-card .stat-entries {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: center;
+        gap: 0.35rem 1rem;
+    }
+
+    /* Below 576px the half-width cards leave too little room beside the
+       icon, and a long label would spill into the neighbouring card and
+       widen the page. Stack icon above the text there so labels wrap
+       instead; overflow-wrap is the belt-and-braces for very long words. */
+    .stat-card .stat-text > div,
+    .stat-card .stat-hint {
+        overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 575.98px) {
+        .stat-card .card-body {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+    }
+}
+
+/*
+ * Patients filters toolbar + panel (issue #13).
+ *
+ * ONE component for both shells: the panel is an anchored popover beside the
+ * Filters button from 768px up, and a bottom sheet below that. Everything is
+ * positioned with logical properties, so RTL needs no extra rules: the panel
+ * opens toward the reading direction and the sheet keeps its safe-area inset.
+ */
+.filter-toolbar {
+    position: relative;
+    min-width: 0;
+}
+
+.filter-toggle {
+    min-height: 44px;
+}
+
+.filter-panel {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    inset-inline-start: 0;
+    z-index: 1045;
+    width: min(41rem, 100%);
+    padding: 1rem 1.1rem;
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 0.75rem;
+    box-shadow: 0 0.85rem 2rem rgba(0, 0, 0, 0.18);
+}
+
+.filter-panel-body {
+    max-height: 65vh;
+    overflow-y: auto;
+}
+
+.filter-scope-heading {
+    margin-block-start: 1rem;
+    margin-inline: -0.25rem;
+    padding: 0.35rem 0.25rem;
+    border-bottom: 1px solid #e9ecef;
+    font-weight: 600;
+    font-size: 0.8rem;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #6c757d;
+}
+
+.filter-panel-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-block-start: 1rem;
+    padding-block-start: 0.75rem;
+    border-top: 1px solid #e9ecef;
+}
+
+.filter-panel-footer .filter-panel-reset,
+.filter-panel-footer .filter-panel-apply {
+    min-width: 6.5rem;
+}
+
+/* Applied-filter chips */
+.filter-chips {
+    row-gap: 0.5rem;
+}
+
+.filter-chips .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    max-inline-size: 100%;
+    padding: 0.3rem 0.35rem 0.3rem 0.75rem;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    line-height: 1.2;
+}
+
+.filter-chips .chip-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.filter-chips .chip-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.65rem;
+    height: 1.65rem;
+    flex-shrink: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: #6c757d;
+    font-size: 0.7rem;
+}
+
+.filter-chips .chip-remove:hover {
+    background: rgba(13, 110, 253, 0.1);
+    color: #0d6efd;
+}
+
+/* Bottom sheet (<768px): full width, scrollable body, sticky actions. */
+@media (max-width: 767.98px) {
+    .filter-scrim {
+        position: fixed;
+        inset: 0;
+        z-index: 1040;
+        border: 0;
+        background: rgba(13, 23, 38, 0.45);
+    }
+
+    .filter-panel {
+        position: fixed;
+        inset-block-start: auto;
+        inset-inline-start: 0;
+        inset-inline-end: 0;
+        inset-block-end: 0;
+        z-index: 1055;
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        max-width: 100%;
+        max-height: 85vh;
+        padding: 0.9rem 1rem 0;
+        margin: 0;
+        border-radius: 1rem 1rem 0 0;
+        border: 0;
+        border-block-start: 1px solid #dee2e6;
+        overflow: hidden;
+    }
+
+    /* Track the visual viewport too, so an open on-screen keyboard keeps the
+       Apply/Reset actions reachable. */
+    @supports (height: 100dvh) {
+        .filter-panel {
+            max-height: 80dvh;
+        }
+    }
+
+    .filter-panel-header {
+        padding-block-end: 0.6rem;
+    }
+
+    .filter-panel-body {
+        max-height: none;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 0.5rem 0.15rem 1rem;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Sticky action bar at the sheet's bottom edge. */
+    .filter-panel-footer {
+        position: sticky;
+        inset-block-end: 0;
+        margin-inline: -1rem;
+        margin-block-start: 0;
+        padding: 0.75rem 1rem;
+        padding-block-end: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+        background: #fff;
+        border-block-start: 1px solid #e9ecef;
+        border-radius: 0 0 1rem 1rem;
+    }
+
+    /* 44px tap targets */
+    .filter-toolbar .btn,
+    .filter-panel .form-control,
+    .filter-panel .form-select {
+        min-height: 44px;
+    }
+
+    /* The header close button and the chip remove stay visually small, so
+       grow only their interactive surface with transparent padding instead
+       of scaling the glyph. Negative margins keep the chip/header rows at
+       their natural height. */
+    .filter-panel-header .btn-close,
+    .filter-chips .chip-remove {
+        box-sizing: content-box;
+        padding: 10px;
+        background-clip: content-box;
+        width: 24px;
+        height: 24px;
+        margin: -10px;
+    }
+
+    .filter-panel .form-label {
+        font-size: 0.85rem;
+    }
+
+    .filter-chips .chip {
+        padding-inline: 0.85rem 0.5rem;
+    }
+}
+
+/*
  * Icon spacing — direction-agnostic.
  *
  * Bootstrap Icons render as inline glyphs with no side bearing, so an icon in

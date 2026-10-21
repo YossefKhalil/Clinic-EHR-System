@@ -10,6 +10,7 @@ import { loadAiSettings as loadAiSettingsApi, saveAiSettings as saveAiSettingsAp
 import { initCloudinary, getImageUrl, isImageAttachment } from './services/cloudinary.js';
 import { getDashboardStats, getRecentPatients } from './services/dashboard.js';
 import { getPatients, deletePatient, togglePatientStatus, GOVERNORATES } from './services/patients.js';
+import { emptyPatientFilters, activeFilterKeys } from './services/patient-filters.js';
 import { patientMatchesQuery } from './services/fuzzy.js';
 import { getPriceStats } from './services/prices.js';
 import { loadOptions as fetchOptions, allOptions, createOption, updateOption, countOptionUsage, deleteOption, optionLabel as lookupOptionLabel } from './services/options.js';
@@ -118,7 +119,14 @@ function app() {
         // Patients
         patients: [],
         patientsLoading: false,
-        patientFilters: { search: '', filter_by: 'all', section: '', source_of_money: '', follower: '', is_completed: '', date_from: '', date_to: '' },
+        patientFilters: emptyPatientFilters(),
+        
+        // Filters toolbar/panel (issue #13): `filterDraft` is the staged copy
+        // shown while the panel is open; it is applied to `patientFilters`
+        // (the single source of truth for the table and the export) only on
+        // Apply, so closing the panel without Apply discards the changes.
+        showFilters: false,
+        filterDraft: emptyPatientFilters(),
         
         // Navbar search
         globalSearch: '',
@@ -1342,7 +1350,118 @@ function app() {
             }
         },
         
+        // ---- Patients filters panel (issue #13) ------------------------------
+        
+        // Number of active filters: drives the count badge and the chips row.
+        activeFilterCount() {
+            return activeFilterKeys(this.patientFilters, { admin: this.isSuperAdmin }).length;
+        },
+        
+        // The applied filters as removable chips, so the reason the table is
+        // filtered stays visible while the panel is closed.
+        appliedFilterChips() {
+            const f = this.patientFilters;
+            const chips = [];
+            
+            if ((f.search || '').trim()) {
+                chips.push({ key: 'search', label: `${this.t('Search')}: ${f.search.trim()}` });
+            }
+            if (f.is_completed === 'true' || f.is_completed === 'false') {
+                chips.push({
+                    key: 'is_completed',
+                    label: `${this.t('Status')}: ${this.t(f.is_completed === 'true' ? 'Completed' : 'Pending')}`,
+                });
+            }
+            if (f.date_from || f.date_to) {
+                const range = [this.formatDate(f.date_from), this.formatDate(f.date_to)].filter(Boolean).join(' – ');
+                chips.push({ key: 'dates', label: `${this.t('Registered')}: ${range}` });
+            }
+            if (this.isSuperAdmin) {
+                if (f.follower) chips.push({ key: 'follower', label: `${this.t('Follower')}: ${this.optionLabel('follower', f.follower)}` });
+                if (f.section) chips.push({ key: 'section', label: `${this.t('Section')}: ${this.optionLabel('section', f.section)}` });
+                if (f.source_of_money) chips.push({ key: 'source_of_money', label: `${this.t('Source of Money')}: ${this.optionLabel('source', f.source_of_money)}` });
+            }
+            return chips.map((chip) => ({ ...chip, aria: `${this.t('Remove')} ${chip.label}` }));
+        },
+        
+        // Chips act on the applied filters directly (no panel round-trip) and
+        // refetch once. The date range chip removes both date bounds together.
+        async removeAppliedFilter(key) {
+            const next = emptyPatientFilters();
+            activeFilterKeys(this.patientFilters).forEach((active) => { next[active] = this.patientFilters[active]; });
+            if (key === 'dates') {
+                next.date_from = '';
+                next.date_to = '';
+            } else {
+                next[key] = '';
+            }
+            this.patientFilters = next;
+            await this.loadPatients();
+        },
+        
+        // Clear every filter and refetch immediately. Used by the toolbar's
+        // clear-all action and the panel's Reset.
+        async clearAllFilters() {
+            this.patientFilters = emptyPatientFilters();
+            this.filterDraft = emptyPatientFilters();
+            await this.loadPatients();
+        },
+        
+        // Opening the panel stages a copy of the applied filters; reopening
+        // therefore always shows what the table is actually scoped by.
+        openFilters() {
+            this.filterDraft = { ...emptyPatientFilters(), ...this.patientFilters };
+            this.showFilters = true;
+            this.$nextTick(() => {
+                this.$refs.filterPanel?.querySelector('input, select')?.focus();
+            });
+        },
+        
+        // Closing (toggle, outside click, Esc, the × button) discards the
+        // staged values and returns focus to the Filters button.
+        closeFilters() {
+            this.showFilters = false;
+            this.$refs.patientFiltersToggle?.focus();
+        },
+        
+        // Apply: one fetch with the staged filters — no refetch per keystroke.
+        async applyFilters() {
+            this.patientFilters = { ...emptyPatientFilters(), ...this.filterDraft };
+            this.showFilters = false;
+            await this.loadPatients();
+            this.$refs.patientFiltersToggle?.focus();
+        },
+        
+        // Keep Tab inside the open panel (dialog behaviour on mobile, popover
+        // behaviour on desktop) and let Esc close it.
+        filtersPanelKeydown(event) {
+            if (event.key === 'Escape') {
+                event.stopPropagation();
+                this.closeFilters();
+                return;
+            }
+            if (event.key !== 'Tab' || !this.showFilters) return;
+            const panel = this.$refs.filterPanel;
+            if (!panel) return;
+            const focusables = panel.querySelectorAll(
+                'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            );
+            if (!focusables.length) return;
+            const first = focusables[0];
+            const last = focusables[focusables.length - 1];
+            const active = document.activeElement;
+            if (event.shiftKey && (active === first || !panel.contains(active))) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && (active === last || !panel.contains(active))) {
+                event.preventDefault();
+                first.focus();
+            }
+        },
+        
         async handleFilter() {
+            // Stays for the panel form's submit path; same behavior as the old
+            // inline form's submit.
             await this.loadPatients();
         },
         
@@ -1417,12 +1536,7 @@ function app() {
         
         async runGlobalList() {
             this.closeGlobalSearch({ keepQuery: true });
-            this.patientFilters = {
-                search: this.globalSearch,
-                filter_by: 'all',
-                section: '', source_of_money: '', follower: '',
-                is_completed: '', date_from: '', date_to: '',
-            };
+            this.patientFilters = { ...emptyPatientFilters(), search: this.globalSearch };
             await this.navigate('patients');
         },
         
@@ -1454,8 +1568,7 @@ function app() {
         },
         
         async resetFilters() {
-            this.patientFilters = { search: '', filter_by: 'all', section: '', source_of_money: '', follower: '', is_completed: '', date_from: '', date_to: '' };
-            await this.loadPatients();
+            await this.clearAllFilters();
         },
         
         async toggleStatus(patient) {

@@ -176,76 +176,74 @@
                     <span class="text-muted small"><i class="bi bi-calendar3 me-1"></i><span x-text="currentDate"></span></span>
                 </div>
 
-                <!-- Stats Cards -->
+                <!-- Stats Cards (issue #14): the three numeric cards become
+                     whole-card navigation targets (real buttons, 44px+ on
+                     mobile); Section/Source stay plain cards and render
+                     their entries in a grid below 768px. Desktop >=992px
+                     keeps the 4-up row. -->
                 <div class="row g-4 mb-4">
 
                     <!-- Total Patients -->
-                    <div class="col-md-3">
-                        <div class="card border-0 shadow-sm h-100">
+                    <div class="col-12 col-md-6 col-lg-3">
+                        <button type="button" class="card stat-card stat-link border-0 shadow-sm h-100" @click="navigate('patients')" :aria-label="t('Manage') + ': ' + t('Total Patients')">
                             <div class="card-body d-flex align-items-center gap-3 p-4">
-                                <div class="bg-primary bg-opacity-10 rounded-3 p-3 flex-shrink-0">
-                                    <i class="bi bi-people-fill fs-2 text-primary"></i>
+                                <div class="stat-icon bg-primary bg-opacity-10 rounded-3 p-3 flex-shrink-0">
+                                    <i class="bi bi-people-fill fs-2 text-primary" aria-hidden="true"></i>
                                 </div>
-                                <div>
-                                    <div class="fs-2 fw-bold text-dark" x-text="stats.total"></div>
+                                <div class="stat-text">
+                                    <div class="stat-value fs-2 fw-bold text-dark" x-text="stats.total"></div>
                                     <div class="text-muted small" x-text="t('Total Patients')"></div>
-                                    <span class="text-primary small" @click="navigate('patients')" style="cursor:pointer">
-                                        <span x-text="t('Manage')"></span> <i class="bi bi-arrow-right"></i>
-                                    </span>
+                                    <span class="stat-hint text-primary small"><span x-text="t('Manage')"></span> <i class="bi bi-arrow-right" aria-hidden="true"></i></span>
                                 </div>
                             </div>
-                        </div>
+                        </button>
                     </div>
 
                     <!-- Completed -->
-                    <div class="col-md-3">
-                        <div class="card border-0 shadow-sm h-100">
+                    <div class="col-6 col-lg-3">
+                        <button type="button" class="card stat-card stat-link border-0 shadow-sm h-100" @click="navigate('patients')" :aria-label="t('View') + ': ' + t('Completed')">
                             <div class="card-body d-flex align-items-center gap-3 p-4">
-                                <div class="bg-success bg-opacity-10 rounded-3 p-3 flex-shrink-0">
-                                    <i class="bi bi-check-circle-fill fs-2 text-success"></i>
+                                <div class="stat-icon bg-success bg-opacity-10 rounded-3 p-3 flex-shrink-0">
+                                    <i class="bi bi-check-circle-fill fs-2 text-success" aria-hidden="true"></i>
                                 </div>
-                                <div>
-                                    <div class="fs-2 fw-bold text-dark" x-text="stats.completed"></div>
+                                <div class="stat-text">
+                                    <div class="stat-value fs-2 fw-bold text-dark" x-text="stats.completed"></div>
                                     <div class="text-muted small" x-text="t('Completed')"></div>
-                                    <span class="text-success small" @click="navigate('patients')" style="cursor:pointer">
-                                        <span x-text="t('View')"></span> <i class="bi bi-arrow-right"></i>
-                                    </span>
+                                    <span class="stat-hint text-success small"><span x-text="t('View')"></span> <i class="bi bi-arrow-right" aria-hidden="true"></i></span>
                                 </div>
                             </div>
-                        </div>
+                        </button>
                     </div>
 
                     <!-- Pending -->
-                    <div class="col-md-3">
-                        <div class="card border-0 shadow-sm h-100">
+                    <div class="col-6 col-lg-3">
+                        <button type="button" class="card stat-card stat-link border-0 shadow-sm h-100" @click="navigate('patients')" :aria-label="t('View') + ': ' + t('Pending')">
                             <div class="card-body d-flex align-items-center gap-3 p-4">
-                                <div class="bg-danger bg-opacity-10 rounded-3 p-3 flex-shrink-0">
-                                    <i class="bi bi-exclamation-circle-fill fs-2 text-danger"></i>
+                                <div class="stat-icon bg-danger bg-opacity-10 rounded-3 p-3 flex-shrink-0">
+                                    <i class="bi bi-exclamation-circle-fill fs-2 text-danger" aria-hidden="true"></i>
                                 </div>
-                                <div>
-                                    <div class="fs-2 fw-bold text-danger" x-text="stats.pending"></div>
+                                <div class="stat-text">
+                                    <div class="stat-value fs-2 fw-bold text-danger" x-text="stats.pending"></div>
                                     <div class="text-muted small" x-text="t('Pending')"></div>
-                                    <span class="text-danger small" @click="navigate('patients')" style="cursor:pointer">
-                                        <span x-text="t('View')"></span> <i class="bi bi-arrow-right"></i>
-                                    </span>
+                                    <span class="stat-hint text-danger small"><span x-text="t('View')"></span> <i class="bi bi-arrow-right" aria-hidden="true"></i></span>
                                 </div>
                             </div>
-                        </div>
+                        </button>
                     </div>
 
                     <!-- Sections: one entry per configured section -->
-                    <div class="col-md-3" x-show="isSuperAdmin || profile?.section">
-                        <div class="card border-0 shadow-sm h-100">
+                    <div class="col-12 col-md-6 col-lg-3" x-show="isSuperAdmin || profile?.section">
+                        <div class="card stat-card border-0 shadow-sm h-100">
                             <div class="card-body d-flex align-items-center gap-3 p-4">
-                                <div class="bg-info bg-opacity-10 rounded-3 p-3 flex-shrink-0">
-                                    <i class="bi bi-buildings fs-2 text-info"></i>
+                                <div class="stat-icon bg-info bg-opacity-10 rounded-3 p-3 flex-shrink-0">
+                                    <i class="bi bi-buildings fs-2 text-info" aria-hidden="true"></i>
                                 </div>
-                                <div>
-                                    <div class="d-flex flex-wrap align-items-baseline gap-3">
+                                <div class="stat-text">
+                                    <div class="stat-entries">
                                         <template x-for="entry in sectionStatEntries()" :key="'sec-' + entry.key">
-                                            <div>
-                                                <span class="fs-3 fw-bold" :class="'text-' + sectionColor(entry.key)" x-text="entry.count"></span>
-                                                <div class="text-muted small" x-text="entry.label"></div>
+                                            <div class="stat-entry">
+                                                <span class="stat-entry-value fs-3 fw-bold" :class="'text-' + sectionColor(entry.key)" x-text="entry.count"></span>
+                                                <div class="stat-entry-label text-muted small" x-text="entry.label"></div>
                                             </div>
                                         </template>
                                     </div>
@@ -257,18 +255,18 @@
                     </div>
 
                     <!-- Sources: one entry per configured source of money -->
-                    <div class="col-md-3">
-                        <div class="card border-0 shadow-sm h-100">
+                    <div class="col-12 col-lg-3">
+                        <div class="card stat-card border-0 shadow-sm h-100">
                             <div class="card-body d-flex align-items-center gap-3 p-4">
-                                <div class="bg-success bg-opacity-10 rounded-3 p-3 flex-shrink-0">
-                                    <i class="bi bi-cash-coin fs-2 text-success"></i>
+                                <div class="stat-icon bg-success bg-opacity-10 rounded-3 p-3 flex-shrink-0">
+                                    <i class="bi bi-cash-coin fs-2 text-success" aria-hidden="true"></i>
                                 </div>
-                                <div>
-                                    <div class="d-flex flex-wrap align-items-baseline gap-3">
+                                <div class="stat-text">
+                                    <div class="stat-entries">
                                         <template x-for="entry in sourceStatEntries()" :key="'src-' + entry.key">
-                                            <div>
-                                                <span class="fs-3 fw-bold" :class="'text-' + sourceColor(entry.key)" x-text="entry.count"></span>
-                                                <div class="text-muted small" x-text="entry.label"></div>
+                                            <div class="stat-entry">
+                                                <span class="stat-entry-value fs-3 fw-bold" :class="'text-' + sourceColor(entry.key)" x-text="entry.count"></span>
+                                                <div class="stat-entry-label text-muted small" x-text="entry.label"></div>
                                             </div>
                                         </template>
                                     </div>
@@ -444,8 +442,13 @@
                             <i class="bi bi-file-earmark-spreadsheet me-1" x-show="!exporting"></i>
                             <span x-text="exporting ? t('Preparing...') : t('Excel')"></span>
                         </button>
-                        <div class="btn-group shadow-sm me-2">
-                            <button type="button" class="btn btn-primary" :class="{ 'rounded-end': !importEnabled }" @click="openPatientForm()">
+                        <!-- The split-button group classes are conditional
+                             (issue #17): with the import caret hidden there is
+                             only one member, so the control must keep a normal
+                             button's radius in both LTR and RTL instead of
+                             carrying the 'rounded-end' patch-up hack. -->
+                        <div class="shadow-sm me-2" :class="importEnabled ? 'btn-group' : ''">
+                            <button type="button" class="btn btn-primary" @click="openPatientForm()">
                                 <i class="bi bi-person-plus-fill me-1"></i> <span x-text="t('Add New Patient')"></span>
                             </button>
                             <button type="button" class="btn btn-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false" x-show="importEnabled" x-cloak :aria-label="t('Add New Patient')"></button>
@@ -495,61 +498,115 @@
                     </div>
                 </div>
 
-                <form @submit.prevent="handleFilter()" class="mb-4">
-                    <div class="row g-2 align-items-end">
-                        <div class="col-md-3">
-                            <label class="form-label text-muted small mb-1" x-text="t('Search')"></label>
-                            <input type="text" class="form-control form-control-sm shadow-sm" x-model="patientFilters.search" :placeholder="t('Search any patient field...')">
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label text-muted small mb-1" x-text="t('Status')"></label>
-                            <select class="form-select form-select-sm shadow-sm" x-model="patientFilters.is_completed">
-                                <option value="">All</option>
-                                <option value="false" x-text="t('Pending')"></option>
-                                <option value="true" x-text="t('Completed')"></option>
-                            </select>
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label text-muted small mb-1"><i class="bi bi-calendar-event me-1"></i><span x-text="t('Registered From')"></span></label>
-                            <input type="date" class="form-control form-control-sm shadow-sm" x-model="patientFilters.date_from">
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label text-muted small mb-1"><i class="bi bi-calendar-event-fill me-1"></i><span x-text="t('Registered To')"></span></label>
-                            <input type="date" class="form-control form-control-sm shadow-sm" x-model="patientFilters.date_to">
-                        </div>
-                        <div class="col-md-1 d-flex gap-2">
-                            <button type="submit" class="btn btn-primary btn-sm w-100 shadow-sm"><i class="bi bi-search"></i></button>
-                            <button type="button" class="btn btn-outline-secondary btn-sm shadow-sm" @click="resetFilters()"><i class="bi bi-x-lg"></i></button>
-                        </div>
-                        <div class="col-md-4" x-show="isSuperAdmin">
-                            <label class="form-label text-muted small mb-1" x-text="t('Follower')"></label>
-                            <select class="form-select form-select-sm shadow-sm" x-model="patientFilters.follower">
-                                <option value="" x-text="t('-- All Followers --')"></option>
-                                <template x-for="opt in activeOptions('follower')" :key="'fl-' + opt.key">
-                                    <option :value="opt.key" x-text="optionLabel('follower', opt.key)"></option>
-                                </template>
-                            </select>
-                        </div>
-                        <div class="col-md-4" x-show="isSuperAdmin">
-                            <label class="form-label text-muted small mb-1" x-text="t('Section')"></label>
-                            <select class="form-select form-select-sm shadow-sm" x-model="patientFilters.section">
-                                <option value="" x-text="t('-- All Sections --')"></option>
-                                <template x-for="opt in activeOptions('section')" :key="'fs-' + opt.key">
-                                    <option :value="opt.key" x-text="optionLabel('section', opt.key)"></option>
-                                </template>
-                            </select>
-                        </div>
-                        <div class="col-md-4" x-show="isSuperAdmin">
-                            <label class="form-label text-muted small mb-1" x-text="t('Source of Money')"></label>
-                            <select class="form-select form-select-sm shadow-sm" x-model="patientFilters.source_of_money">
-                                <option value="" x-text="t('-- All Sources --')"></option>
-                                <template x-for="opt in activeOptions('source')" :key="'fo-' + opt.key">
-                                    <option :value="opt.key" x-text="optionLabel('source', opt.key)"></option>
-                                </template>
-                            </select>
-                        </div>
+                <!-- Filters toolbar (issue #13): every filter lives behind one
+                     Filters control. Desktop: anchored popover. Mobile: bottom
+                     sheet. The chips show the APPLIED filters; the panel stages
+                     edits until Apply. The toolbar acts on outside clicks for
+                     both the popover and the sheet, so the wrapper owns
+                     @click.outside (clicking the button/scrim is inside it). -->
+                <div class="filter-toolbar mb-4" @click.outside="showFilters && closeFilters()">
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <button type="button" id="patientFiltersToggle" x-ref="patientFiltersToggle"
+                            aria-haspopup="dialog" aria-controls="patientFiltersPanel"
+                            :aria-expanded="showFilters ? 'true' : 'false'"
+                            :class="(showFilters || activeFilterCount()) ? 'btn-primary' : 'btn-outline-secondary'"
+                            class="btn filter-toggle"
+                            @click="showFilters ? closeFilters() : openFilters()">
+                            <i class="bi bi-funnel-pe"></i>
+                            <span x-text="t('Filters')"></span>
+                            <span class="badge text-bg-light border" x-show="activeFilterCount()" x-cloak x-text="activeFilterCount()"></span>
+                        </button>
+                        <button type="button" class="btn filter-clear-all text-secondary" x-show="activeFilterCount()" x-cloak @click="clearAllFilters()">
+                            <i class="bi bi-x-circle"></i><span x-text="t('Clear all')"></span>
+                        </button>
                     </div>
-                </form>
+
+                    <!-- Applied-filter chips (removed one without reopening the panel) -->
+                    <div class="filter-chips d-flex flex-wrap gap-2 mt-2" x-show="activeFilterCount()" x-cloak :aria-label="t('Active filters')">
+                        <template x-for="chip in appliedFilterChips()" :key="chip.key">
+                            <span class="chip">
+                                <span class="chip-label" x-text="chip.label"></span>
+                                <button type="button" class="chip-remove" :aria-label="chip.aria" @click="removeAppliedFilter(chip.key)">
+                                    <i class="bi bi-x-lg" aria-hidden="true"></i>
+                                </button>
+                            </span>
+                        </template>
+                    </div>
+
+                    <div class="filter-scrim" x-show="showFilters" x-cloak @click="closeFilters()"></div>
+
+                    <div id="patientFiltersPanel" x-ref="filterPanel" class="filter-panel" role="dialog" aria-modal="true"
+                        :aria-label="t('Filters')" x-show="showFilters" x-cloak
+                        @keydown="filtersPanelKeydown($event)">
+                        <div class="filter-panel-header d-flex align-items-center justify-content-between">
+                            <h6 class="mb-0 fw-semibold" x-text="t('Filters')"></h6>
+                            <button type="button" class="btn-close" :aria-label="t('Close')" @click="closeFilters()"></button>
+                        </div>
+                        <form class="filter-panel-body" @submit.prevent="applyFilters()">
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label class="form-label mb-1" for="patientFilters.search" x-text="t('Search')"></label>
+                                    <input type="search" id="patientFilters.search" class="form-control" x-model="filterDraft.search" :placeholder="t('Search any patient field...')">
+                                </div>
+                                <div class="col-12 col-sm-6">
+                                    <label class="form-label mb-1" for="patientFilters.status" x-text="t('Status')"></label>
+                                    <select id="patientFilters.status" class="form-select" x-model="filterDraft.is_completed">
+                                        <option value="" x-text="t('All')"></option>
+                                        <option value="false" x-text="t('Pending')"></option>
+                                        <option value="true" x-text="t('Completed')"></option>
+                                    </select>
+                                </div>
+                                <div class="col-6 col-sm-3">
+                                    <label class="form-label mb-1" for="patientFilters.dateFrom" x-text="t('Registered From')"></label>
+                                    <input type="date" id="patientFilters.dateFrom" class="form-control" x-model="filterDraft.date_from">
+                                </div>
+                                <div class="col-6 col-sm-3">
+                                    <label class="form-label mb-1" for="patientFilters.dateTo" x-text="t('Registered To')"></label>
+                                    <input type="date" id="patientFilters.dateTo" class="form-control" x-model="filterDraft.date_to">
+                                </div>
+                            </div>
+
+                            <div x-show="isSuperAdmin" x-cloak>
+                                <div class="filter-scope-heading" x-text="t('Scope')"></div>
+                                <div class="row g-3">
+                                    <div class="col-12 col-sm-4">
+                                        <label class="form-label mb-1" for="patientFilters.follower" x-text="t('Follower')"></label>
+                                        <select id="patientFilters.follower" class="form-select" x-model="filterDraft.follower">
+                                            <option value="" x-text="t('-- All Followers --')"></option>
+                                            <template x-for="opt in activeOptions('follower')" :key="'fl-' + opt.key">
+                                                <option :value="opt.key" x-text="optionLabel('follower', opt.key)"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div class="col-12 col-sm-4">
+                                        <label class="form-label mb-1" for="patientFilters.section" x-text="t('Section')"></label>
+                                        <select id="patientFilters.section" class="form-select" x-model="filterDraft.section">
+                                            <option value="" x-text="t('-- All Sections --')"></option>
+                                            <template x-for="opt in activeOptions('section')" :key="'fs-' + opt.key">
+                                                <option :value="opt.key" x-text="optionLabel('section', opt.key)"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div class="col-12 col-sm-4">
+                                        <label class="form-label mb-1" for="patientFilters.source" x-text="t('Source of Money')"></label>
+                                        <select id="patientFilters.source" class="form-select" x-model="filterDraft.source_of_money">
+                                            <option value="" x-text="t('-- All Sources --')"></option>
+                                            <template x-for="opt in activeOptions('source')" :key="'fo-' + opt.key">
+                                                <option :value="opt.key" x-text="optionLabel('source', opt.key)"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Sticky actions on the mobile sheet -->
+                            <div class="filter-panel-footer">
+                                <button type="button" class="btn btn-outline-secondary filter-panel-reset" @click="resetFilters()" x-text="t('Reset')"></button>
+                                <button type="submit" class="btn btn-primary filter-panel-apply" x-text="t('Apply')"></button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
 
                 <div class="card shadow-sm border-0">
                     <div class="card-body p-0">
