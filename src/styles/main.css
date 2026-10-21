@@ -499,6 +499,29 @@ i.bi {
     margin-inline: 0.35em !important;
 }
 
+/*
+ * The navbar items are placed explicitly (desktop).
+ *
+ * The order is written down instead of being left to the flex order of the
+ * source: the brand first (the start of the reading direction), the search
+ * right after it, the links and the account menus last. In Arabic the row is
+ * mirrored, so the brand is on the right, the search next to it - always in
+ * the same place, whichever build of Bootstrap is loaded.
+ */
+@media (min-width: 992px) {
+    .navbar .container > .navbar-brand {
+        order: 1;
+    }
+
+    .navbar .container > .global-search {
+        order: 2;
+    }
+
+    .navbar .container > .navbar-collapse {
+        order: 3;
+    }
+}
+
 /* Navbar global search */
 .global-search {
     flex: 1 1 100%;
