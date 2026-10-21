@@ -11,6 +11,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import yaml from 'https://esm.sh/js-yaml@4.1.0';
 import { LIMITS, leaseSecondsFor, pumpParallelFor, resolveLimits } from '../_shared/import-core/limits.js';
+import { isValidChunkPayload } from '../_shared/import-core/chunk-payload.ts';
 import { prepareSources, shiftSourceIds, splitChunkPayload } from '../_shared/import-core/chunker.js';
 import { runPipeline } from '../_shared/import-core/pipeline.js';
 import { PROMPT_IDS } from '../_shared/import-core/yaml-contract.js';
@@ -321,28 +322,6 @@ async function actionCreate(body: Record<string, unknown>, ctx: Context) {
     return json({ ok: true, job_id: job.id, upload_urls: uploadUrls });
 }
 
-function validateChunkPayload(payload: unknown): payload is { kind?: string; lines: { id: string; text: string }[]; images?: unknown[] } {
-    const chunk = payload as { kind?: unknown; lines?: unknown; images?: unknown };
-    if (!chunk) return false;
-    // A photo of a note is a chunk without text lines: it carries the image
-    // tiles instead (spec §5.4).
-    if (chunk.kind === 'image') {
-        if (!Array.isArray(chunk.images) || chunk.images.length === 0) return false;
-        return chunk.images.every((image) => {
-            const entry = image as { id?: unknown; dataUrl?: unknown };
-            return entry
-                && typeof entry.id === 'string'
-                && typeof entry.dataUrl === 'string'
-                && entry.dataUrl.startsWith('data:image/');
-        });
-    }
-    if (!Array.isArray(chunk.lines) || chunk.lines.length === 0) return false;
-    return chunk.lines.every((line) => {
-        const entry = line as { id?: unknown; text?: unknown };
-        return entry && typeof entry.id === 'string' && typeof entry.text === 'string';
-    });
-}
-
 async function actionAddSource(body: Record<string, unknown>, ctx: Context) {
     const { user, service, limits } = ctx;
     const loaded = await loadJobForUser(service, user.id, String(body.job_id ?? ''));
@@ -372,7 +351,7 @@ async function actionAddSource(body: Record<string, unknown>, ctx: Context) {
     }
     if (!chunks || chunks.length === 0) return fail('NO_CHUNKS');
     for (const chunk of chunks) {
-        if (!validateChunkPayload(chunk)) return fail('BAD_REQUEST');
+        if (!isValidChunkPayload(chunk)) return fail('BAD_REQUEST');
     }
 
     const { data: existingChunks } = await service.from('import_chunks').select('idx, payload, kind').eq('job_id', job.id);
