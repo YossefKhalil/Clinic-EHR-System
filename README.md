@@ -1,122 +1,241 @@
-# Clinic EHR System — Lightning
+<div align="center">
 
-A free, cloud-native Electronic Health Record (EHR) system for multi-section clinics.
+# Clinic EHR
 
-**Goal.** Migrate the project off a self-hosted Laravel stack and make it fully cloud-based with zero server to own or scale: Supabase for the database and authentication, Cloudinary for image storage, Cloudflare Pages for hosting. Cloudflare Pages is a static host, so the app is rebuilt as a client-rendered SPA instead of a server-side Laravel + Blade app.
+**A serverless electronic health record system for multi-section clinics.**
 
-It is rebuilt from [BelalAhmed2214/health](https://github.com/BelalAhmed2214/health) by porting the same UI onto **Vite + Alpine.js + Bootstrap 5.3** with **Supabase** (database & auth) and **Cloudinary** (image uploads).
+[Live demo](https://clinc-ehr.pages.dev) · [Features](#features) · [Architecture](#architecture) · [Getting started](#getting-started) · [Documentation](#documentation)
 
-**Live:** https://clinc-ehr.pages.dev
+[![CI](https://github.com/YossefKhalil/Clinic-EHR-System/actions/workflows/ci.yml/badge.svg?branch=ai-import-rebuild)](https://github.com/YossefKhalil/Clinic-EHR-System/actions/workflows/ci.yml)
+[![Live demo](https://img.shields.io/badge/live_demo-clinc--ehr.pages.dev-2ea44f?style=flat-square)](https://clinc-ehr.pages.dev)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![Node.js 20+](https://img.shields.io/badge/node-%E2%89%A520-339933?style=flat-square&logo=node.js&logoColor=white)](#prerequisites)
 
-## Why it stands out
+</div>
 
-- **Same clinic workflow, zero infrastructure.** Every screen of the Laravel original (registry, dashboard, prices, users, EN/AR) is here — plus features the original never had: patient attachments, Excel export, and a Settings page that edits the option lists without a redeploy.
-- **Free end to end.** Static hosting, managed Postgres + auth, CDN file storage and all automation (CI, schema deploys, function deploys, keep-alive) run within free tiers. There is no VPS, no PHP runtime, no container, and nothing to patch.
-- **Fast because it is mostly static.** One prebuilt bundle served from Cloudflare's edge network; heavy libraries (SheetJS) are downloaded only at the moment they are used.
-- **Secure by construction.** Postgres RLS enforces every read/write inside the database, Edge Functions hold all secrets, and the browser only ever receives the public anon key.
-- **Operable by one person.** Push to deploy functions and schema, transactional schema apply with rollback, lint+build CI on every push, and a keep-alive cron so a free Supabase project never pauses.
+## Overview
 
-## How it compares to the Laravel original
+Clinic EHR is a cloud-native electronic health record system for clinics with multiple sections. It covers patient registration, clinical notes, attachments, pricing, reporting, and administration in one bilingual interface.
 
-The original is a well-structured Laravel app (controllers → DTOs → service → repository, form requests, policies, middleware, Breeze auth). The rewrite keeps that domain model and the same Bootstrap dashboard UI, but moves the runtime entirely off the server:
+The application is deliberately serverless. The frontend is a static Vite build served by Cloudflare Pages. Supabase provides Postgres, authentication, storage, and Edge Functions, while Cloudinary stores patient attachments. There is no PHP runtime, container, or VPS to provision, patch, or scale.
 
-| Area | [BelalAhmed2214/health](https://github.com/BelalAhmed2214/health) (Laravel) | Clinic EHR — Lightning (this repo) |
-| --- | --- | --- |
-| Runtime & hosting | PHP 8.3+ (Laravel 13) on a host you provision (shared/VPS/PaaS); server-rendered Blade per request; manual deploys | No runtime at all — a static `dist/` folder on Cloudflare Pages' CDN; deploy by pushing to git |
-| Database | SQLite/MySQL/Postgres that you manage, with migrations you run yourself | Managed Supabase Postgres; schema applied by CI in a single transaction with rollback on failure |
-| Auth | Laravel session auth (Breeze); sessions stored in your database | Supabase Auth (GoTrue) with JWTs; no session store to manage |
-| Authorization | Middleware + policies evaluated in PHP on each request | Postgres RLS enforced inside the database, plus JWT-gated Edge Functions |
-| Search | Single-column `LIKE '%term%'` on the field you pick | Indexed all-column `anysearch` + Arabic-aware fuzzy suggestions, order-independent tokens |
-| Patient files | Not present | Cloudinary attachments — browser uploads straight to the CDN with live progress |
-| Export | Not present | Excel export |
-| Option lists (followers, sections, sources) | Hardcoded PHP enums/arrays — edit code and redeploy to change | DB-backed `app_options` edited from a super-admin Settings page, no redeploy |
-| Bilingual | Session locale; switching reloads the page; some strings hardcoded Arabic in views | Instant client-side EN/AR switch with full RTL |
-| Automation & ops | No CI or deploy automation; you patch PHP and manage the server | GitHub Actions: lint+build CI, transactional schema apply, function auto-deploy, daily keep-alive |
-| Cost model | Needs PHP hosting you keep alive | Runs within free tiers end to end |
+> Clinic EHR was rebuilt from [BelalAhmed2214/health](https://github.com/BelalAhmed2214/health), a Laravel application. The clinic workflow and Bootstrap interface are preserved; the runtime is not.
 
-In short: the Laravel app trades a hosting bill and ops work for full server control. This rewrite trades server control for zero ops and $0 — while adding attachments, export and self-service settings. If you need PHP-level server control, the original is the better fit; if you want a clinic system with no server to maintain, this is.
+### At a glance
 
-## Free cloud-based — no server to own, scale or pay for
+| Area | Details |
+| --- | --- |
+| **Status** | Core EHR stable · AI-assisted import in preview |
+| **Frontend** | Vite 5, Alpine.js 3, Bootstrap 5.3 |
+| **Backend** | Supabase Postgres, Auth, Storage, Edge Functions |
+| **Attachments** | Cloudinary |
+| **Hosting** | Cloudflare Pages |
+| **Languages** | English and Arabic, with full RTL |
+| **Access control** | Postgres RLS and JWT-gated Edge Functions |
+| **License** | MIT |
 
-- **Hosting.** Cloudflare Pages' free tier serves the static build from Cloudflare's edge network with automatic SSL. There is no app server in the request path.
-- **Data & auth.** Supabase's free tier provides managed Postgres and authentication. Authorization is done by RLS *inside the database*, so nothing else needs to run to be secure. The included daily cron (`.github/workflows/keep-alive.yml`) pings the project's GoTrue health endpoint so a free-tier project never hits the inactivity pause.
-- **Files.** The Cloudinary upload preset is **unsigned**, so the browser POSTs every attachment directly to Cloudinary — no signing endpoint, no server bandwidth, delivery through Cloudinary's CDN with on-the-fly transforms.
-- **Automation.** GitHub Actions is free for public repositories: CI lint+build, schema apply, Edge Function deploys and the keep-alive ping all run on free runners.
-- **No cost-shifting.** `.env.example` contains only public values. The `SUPABASE_SERVICE_ROLE_KEY` exists only as an Edge Function secret or repository secret.
+## Contents
 
-## Fast and responsive by design
-
-- **One static artifact.** A single hashed entry bundle (≈280 KB JS + ≈315 KB CSS minified, mostly Bootstrap + icons) served with immutable caching from the edge. No per-request PHP boot, no server-side rendering.
-- **Heavy code is lazy.** `xlsx` (≈490 KB) loads only when you export a spreadsheet; admin/user modules arrive on first use via dynamic `import()`. The initial page never pays for them.
-- **No page reloads.** Views switch with `x-show` on an always-mounted DOM, and writes update rows in place (status toggles, deletes, user edits) instead of re-rendering whole pages.
-- **Search that feels instant.** Keystrokes are debounced with a request-id guard against stale responses; while the indexed server query (`anysearch`) is in flight, the first suggestions render from already-loaded rows through the Arabic-aware fuzzy matcher. Results cap at 5, with full keyboard navigation (arrows, Enter, Escape).
-- **Arabic-aware matching.** Normalization handles alef/ya/ta-marbuta variants, harakat, tatweel and Arabic-Indic digits, and requires every token to match somewhere across ~18 fields, order-independently — so `احمد محمد` finds `محمد احمد السيد`, and Arabic-digit phone numbers match.
-- **Attachments that don't touch a server.** Direct browser→Cloudinary uploads with XHR progress, list thumbnails delivered at `w_320,q_80` and full view at `w_1600,q_90` via `f_auto`.
-- **Survives redeploys.** A `vite:preloadError` handler reloads once (sessionStorage-guarded) when a stale tab references old hashed chunks — the classic "blank page after deploy" failure mode is handled, not left to the user.
-
-## Production-ready — why it can run a real clinic
-
-**Security**
-
-- RLS is enabled on every table. Section staff only ever see their own section's patients; policies run through `SECURITY DEFINER` helpers (`is_admin()`, `is_section_user()`) to avoid the classic RLS recursion trap, and execute on those helpers is revoked from `PUBLIC`.
-- Privilege escalation is blocked at the source: signup metadata is never trusted for `is_admin`/`section` — `handle_new_user()` hard-codes `FALSE, NULL`.
-- The Edge Function verifies the caller's Supabase JWT and its role gate (admin only). The service-role key never leaves the function.
-
-**Operations & reliability**
-
-- `supabase/schema.sql` is idempotent: safe to re-run as a repair path (it recreates policies and backfills missing profile rows). CI applies it with `--single-transaction --set ON_ERROR_STOP=1`, verifies expected columns afterwards, and rolls the whole file back if any statement fails.
-- Edge Functions deploy automatically when `supabase/functions/**` changes, eliminating drift between repo and hosted functions.
-- CI runs ESLint (flat config, `no-undef`/`no-unused-vars`) + build on every push and PR.
-- Failure handling with real UX: non-stacking toasts and database error codes mapped to human sentences (duplicate / constraint / permission).
-
-**Data integrity**
-
-- `national_id` is unique; mobile numbers and dates of birth are normalized from the national ID deterministically on the client, not guessed.
-- Option values are validated in the database by a trigger against `app_options` — deactivated options stay valid on historical rows.
-- `updated_at` is maintained by triggers, and the registrar's name is denormalized at write time so section staff see "Registered by" under RLS.
-- Date filters convert the viewer's local day boundaries to UTC instants before comparing with `timestamptz`, so there are no off-by-timezone edge rows.
-
-**Real-world details**
-
-- Full RTL through logical CSS properties (`margin-inline`, `inset-inline-*`), instant EN/AR switching persisted to localStorage, localized ARIA labels, and `aria-live` toasts.
-- Loading spinners clear in `finally` — a failed request can never strand the app on the loading screen.
+- [Overview](#overview)
+- [Features](#features)
+- [AI-assisted patient import](#ai-assisted-patient-import-preview)
+- [Architecture](#architecture)
+- [Tech stack](#tech-stack)
+- [Security model](#security-model)
+- [Getting started](#getting-started)
+- [Deployment](#deployment)
+- [Testing](#testing)
+- [Project structure](#project-structure)
+- [Status and roadmap](#status-and-roadmap)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
+- [Acknowledgements](#acknowledgements)
 
 ## Features
 
-- **Patient Registry** — create, read, update, delete patient records with visit history, symptoms, diagnosis, and internal notes
-- **Instant Global Search** — one box across every patient field, Arabic-aware, with keyboard navigation
-- **Attachments** — medical/lab papers and images attached to each patient file via Cloudinary (unsigned uploads)
-- **Excel Export** — export the patient list for reporting (SheetJS loads only when used)
-- **Price Tracking** — section and source breakdowns for clinic revenue
-- **Editable Option Lists** — super-admin Settings page manages followers, sections and sources (EN/AR labels, activate/deactivate) across the whole app, no redeploy
-- **User Management** — admin/staff roles with section-based access via Supabase Edge Functions
-- **Dashboard** — stats cards (total, completed, pending, per-section, per-source) and recent patient table
-- **Bilingual** — full English/Arabic translations with RTL support
+### Clinical records
 
-## Tech Stack
+- **Patient registry** with a 17-field intake form: identity, contact details, demographics, address, visit information, diagnosis and treatment plan, funding source, price, and section.
+- **Patient profiles** with editable records, internal notes, completion status, and attachments.
+- **Attachments** for medical and lab documents. Files upload directly from the browser to Cloudinary with progress and are served through its CDN.
+- **Section-aware access**: staff see and edit only patients in their assigned section; administrators see every section.
+
+### Search and reporting
+
+- **Global search** across every patient field, with Arabic-aware normalization and fuzzy matching. Results support full keyboard navigation.
+- **Dashboard** with total, completed, and pending counts, section and source breakdowns, and a recent-patients table.
+- **Price reporting** by section and funding source.
+- **Excel export** of the current patient list. SheetJS is loaded only when an export is requested.
+
+### Administration
+
+- **User management** through the `manage-user` Edge Function: create, edit, and remove users, assign administrator rights, and set section access.
+- **Editable option lists** for followers, sections, and funding sources, with English and Arabic labels and an active/inactive state. Changes apply without a redeploy.
+- **AI import settings** for administrators: provider credentials, an ordered model fallback chain, the feature flag, and import quotas.
+
+### Experience
+
+- **Bilingual by design**: instant English/Arabic switching, full RTL layout, localized ARIA labels, and a persisted language preference.
+- **Single-page workflow**: views switch without reloads, and record edits update in place.
+- **Responsive layout** for desktop and mobile, including a mobile navigation bar.
+- **Lazy loading** for spreadsheet, document, and PDF libraries, so the initial bundle stays small.
+- **Deployment resilience**: a guarded `vite:preloadError` handler recovers from stale chunks after a redeploy.
+
+## AI-assisted patient import (preview)
+
+> **Preview status.** Extraction and review are implemented on this branch. The final commit step that writes reviewed rows into the patient registry is still in development, so the import action is intentionally a placeholder. The feature is disabled by default and hidden from staff until an administrator enables it.
+
+The import agent turns existing records into structured patient drafts, then gives staff a review surface before anything reaches the registry.
+
+### Supported inputs
+
+| Input | Formats |
+| --- | --- |
+| Spreadsheets | XLSX, XLSM, XLS, one source per visible sheet |
+| Delimited text | CSV and TSV, with encoding and delimiter detection |
+| Documents | DOCX and text-layer PDF |
+| Images | Photos of paper notes (PNG, JPEG, WebP, GIF, BMP, HEIC) |
+| Text | Pasted text |
+
+Files are identified by content signature, not by extension. Oversized files, encrypted PDFs, and zip bombs are rejected before parsing.
+
+### Pipeline
+
+1. **Read and chunk.** The browser extracts text and tables, assigns stable source-line identifiers, and splits the result into bounded chunks. Spreadsheet headers are repeated per chunk; tall note images are tiled with overlap.
+2. **Extract.** The `import-job` Edge Function runs each chunk through the administrator's ordered provider chain. Transient provider failures fall through to the next ready entry; malformed output gets one repair pass; truncated output is split and re-queued.
+3. **Validate.** Extracted records are normalized and validated against the registry rules, checked for duplicates, and stored as reviewable rows with source citations.
+4. **Review.** Staff correct the draft in a table that mirrors the patients page. Nothing is written to the patient registry during extraction.
+
+### Review workflow
+
+- **Simple and Advanced modes.** Simple shows the five scan columns; Advanced adds issue filters, duplicate resolution, source quotes, bulk fill, and row-level actions.
+- **Complete record editing.** Every row opens the full 17-field record, grouped like the intake form.
+- **Problem-first review.** Rows carry severity flags, a "Next issue" walkthrough, and duplicate actions: fill missing fields, keep as new, or skip.
+- **Resumable jobs.** Progress survives a tab close. Failed chunks can be retried individually, and a running job can be cancelled; in-flight provider calls are aborted.
+- **Quotas and feature flags.** Per-job token caps, daily user caps, and an administrator-controlled feature flag bound usage.
+
+<p align="center">
+  <img src="docs/screenshots/import-review.png" alt="Import review screen in Simple mode, showing editable patient fields, validation flags, and duplicate status" width="900">
+</p>
+<p align="center"><em>Review screen in Simple mode, using mock data.</em></p>
+
+### Providers and credentials
+
+- **OpenRouter**, **Cloudflare Workers AI**, and any **OpenAI-compatible** endpoint, including OpenAI, Groq, Ollama, and LM Studio.
+- Providers can be mixed in an ordered chain of up to eight model entries.
+- Provider keys are stored AES-GCM encrypted, decrypted only inside Edge Functions, and never returned to the browser.
+- OpenRouter requests are sent with `data_collection: deny`. Other providers have their own retention and training policies.
+
+> **Privacy.** Enabling AI import sends extracted text, and for photos the images themselves, to the configured provider. Review the provider's data-handling terms and your clinic's consent and retention obligations before enabling the feature with patient data.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Browser["Browser"]
+        SPA["Clinic EHR SPA<br/>Vite + Alpine.js + Bootstrap"]
+    end
+
+    subgraph Cloudflare["Cloudflare Pages"]
+        CDN["Static build<br/>immutable caching"]
+    end
+
+    subgraph Supabase["Supabase"]
+        Auth["Auth<br/>JWT"]
+        DB[("Postgres<br/>RLS on every table")]
+        Storage[("Storage<br/>import staging")]
+        Functions["Edge Functions<br/>manage-user · import-job<br/>ai-settings · import-cleanup"]
+    end
+
+    Cloudinary[("Cloudinary<br/>patient attachments")]
+    Providers["AI providers<br/>OpenRouter · Cloudflare Workers AI<br/>OpenAI-compatible"]
+    Actions["GitHub Actions<br/>CI, schema, function deploys"]
+
+    SPA -->|HTTPS| CDN
+    SPA -->|sign in| Auth
+    SPA -->|PostgREST + RLS| DB
+    SPA -->|unsigned upload| Cloudinary
+    SPA -->|JWT| Functions
+    Functions -->|service role| DB
+    Functions -->|staging files| Storage
+    Functions -->|ordered fallback| Providers
+    Actions -->|schema| DB
+    Actions -->|deploy| Functions
+```
+
+**Request path**
+
+- Static assets are served from Cloudflare's edge; there is no application server in the request path.
+- The browser authenticates with Supabase Auth and queries Postgres through PostgREST. Row-level security decides what each JWT may read or write.
+- Privileged operations go through Edge Functions that verify the caller's JWT and role, then use the service-role client server-side.
+- Attachments upload directly from the browser to Cloudinary, so file traffic never passes through the app.
+- AI provider keys are decrypted inside `import-job` and never reach the client.
+
+**Design trade-offs**
+
+- Authorization lives in the database rather than in client code, so a compromised or modified frontend cannot widen access.
+- A static frontend and managed services keep the operational surface small: no servers to patch, no session store, no file volume.
+- The same trade-off removes PHP-level server control. The original Laravel application remains the better fit if that control is required.
+
+## Tech stack
 
 | Layer | Technology |
-|---|---|
-| Build | Vite 5.4 |
-| UI | Alpine.js 3.14 + Bootstrap 5.3.3 |
-| Database | Supabase (PostgreSQL) |
-| Auth | Supabase Auth |
-| Files | Cloudinary (unsigned upload) |
+| --- | --- |
+| Frontend | Vite 5, Alpine.js 3, Bootstrap 5.3, Bootstrap Icons |
+| Backend | Supabase Postgres, Auth, Storage, Edge Functions |
+| Database | PostgreSQL with row-level security |
+| File storage | Cloudinary |
+| AI extraction | OpenRouter, Cloudflare Workers AI, OpenAI-compatible endpoints |
+| Documents | SheetJS, mammoth, PDF.js |
 | Hosting | Cloudflare Pages |
-| Spreadsheet | SheetJS (xlsx) |
+| CI/CD | GitHub Actions |
+| Testing | Vitest, PGlite, fast-check |
 
-## Getting Started
+## Security model
+
+### Authentication and authorization
+
+- Supabase Auth issues JWTs, and row-level security is enabled on every application table.
+- Section staff are scoped to their section by RLS policies; administrators bypass section scoping.
+- Policies use `SECURITY DEFINER` helpers (`is_admin`, `is_section_user`) with `EXECUTE` revoked from `PUBLIC`, avoiding recursive policy evaluation.
+- New accounts are created unprivileged. `handle_new_user()` ignores signup metadata for `is_admin` and `section`, preventing privilege escalation at registration.
+
+### Privileged operations
+
+- Edge Functions verify the caller's JWT and role before using the service-role client.
+- `manage-user` and `ai-settings` are administrator-only; `import-job` scopes jobs to their owner.
+- The service-role key is never included in the frontend bundle.
+
+### Secrets and AI credentials
+
+- AI provider credentials live in `ai_settings`, which is removed from the PostgREST API surface.
+- Keys are encrypted with AES-GCM-256 using a key derived with HKDF-SHA256 from the dedicated `AI_SETTINGS_ENC_KEY` secret, not from the service-role key.
+- The browser receives configuration status only, never a stored key.
+
+### Data integrity
+
+- National IDs are unique. The Egyptian national ID structure is decoded to validate the date of birth and governorate, and mobile numbers are normalized to the local format.
+- Option values are validated by a database trigger against `app_options`; deactivated options remain valid on historical records.
+- `updated_at` is maintained by triggers, and the registrar's name is denormalized at write time for section-scoped reads.
+- Date filters convert local day boundaries to UTC before comparing `timestamptz` values.
+
+### Operational notes
+
+- Cloudinary uploads use an unsigned preset. Scope the preset to the expected file types and size, and monitor usage; the preset is not an authentication boundary.
+- This repository is a software project, not a certified medical device or a compliance package. Deployers are responsible for their own regulatory, consent, retention, and security obligations.
+
+## Getting started
 
 ### Prerequisites
 
-- Node.js 18+
-- A [Supabase](https://supabase.com) project — database + Postgres Auth + (for user management) an Edge Function
-- A [Cloudinary](https://cloudinary.com) account — optional; only if you want patient photo uploads
-- A [Cloudflare Pages](https://pages.cloudflare.com) project — optional; the app runs locally without it
+- **Node.js 20+** and npm. CI uses Node 22.
+- A **Supabase** project. The free tier is sufficient for development and small deployments.
+- A **Cloudinary** account for patient attachments. Optional for a records-only setup.
+- A **Cloudflare Pages** account for deployment. Optional for local development.
+- The **Supabase CLI** for deploying Edge Functions or applying the schema from a terminal.
 
-Cloudflare Pages is a static host, so "moving off Laravel" means the app runs entirely from a **static build artifact** — no app server, no PHP, and no managed runtime to pay for. Everything live (data, auth, uploads, hosting) is a managed service.
-
-### 1. Clone & Install
+### 1. Clone and install
 
 ```bash
 git clone https://github.com/YossefKhalil/Clinic-EHR-System.git
@@ -124,132 +243,225 @@ cd Clinic-EHR-System
 npm install
 ```
 
-### 2. Environment Variables
+### 2. Configure the frontend
 
-Copy `.env.example` to `.env` and fill in your credentials:
+Copy the environment template and fill in your project values:
 
+```bash
+cp .env.example .env
 ```
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
-VITE_CLOUDINARY_CLOUD_NAME=your-cloud-name
+
+```dotenv
+VITE_SUPABASE_URL=https://<project-ref>.supabase.co
+VITE_SUPABASE_ANON_KEY=<anon-key>
+VITE_CLOUDINARY_CLOUD_NAME=<cloud-name>
 VITE_CLOUDINARY_UPLOAD_PRESET=clinic_ehr_uploads
 ```
 
-### 3. Database Schema
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `VITE_SUPABASE_URL` | Yes | Supabase project URL |
+| `VITE_SUPABASE_ANON_KEY` | Yes | Public anon key; RLS enforces access |
+| `VITE_CLOUDINARY_CLOUD_NAME` | For attachments | Cloudinary cloud name |
+| `VITE_CLOUDINARY_UPLOAD_PRESET` | For attachments | Unsigned upload preset |
 
-The whole schema lives in `supabase/schema.sql`: tables, RLS policies, triggers,
-indexes, and the column migrations. The file is **idempotent** — running it on a
-database that already has the schema is a no-op, so it can be re-applied safely.
+These values are public and are embedded at build time. Never put a service-role key or an AI provider secret in a `VITE_*` variable.
 
-**One-time setup**, pick either route:
+### 3. Create the database
 
-**Automated (push to `master` applies it).** Add one repository secret under
-*Settings → Secrets and variables → Actions*:
+Run [`supabase/schema.sql`](supabase/schema.sql) in the Supabase SQL Editor. It creates the tables, triggers, indexes, RLS policies, and the import tables.
 
-| Secret | Value |
-| --- | --- |
-| `SUPABASE_DB_URL` | Postgres connection string, e.g. `postgresql://postgres.<project-ref>:<db-password>@aws-0-<region>.pooler.supabase.com:5432/postgres` |
+The file is idempotent: re-running it on an existing database recreates policies and backfills missing profile rows, so it doubles as the repair path. After applying it, run [`supabase/verify-schema.sql`](supabase/verify-schema.sql) to check the columns the Edge Functions depend on.
 
-Use the shared **session** pooler on port `5432` (or the direct connection).
-GitHub runners are IPv4-only, so the direct `db.<ref>.supabase.co` host will not
-resolve unless your project has the IPv4 add-on — the session pooler works either
-way. Do **not** use the transaction pooler on port `6543`: it cannot reliably run
-DDL.
+To apply the schema from CI, add the `SUPABASE_DB_URL` repository secret and run the **Supabase Schema** workflow. Use the shared session pooler on port `5432` (or a direct connection), not the transaction pooler on port `6543`, which cannot reliably run DDL.
 
-`.github/workflows/supabase-schema.yml` then applies the schema with
-`psql --single-transaction --set ON_ERROR_STOP=1` whenever `supabase/schema.sql`
-changes, verifies the columns afterwards, and rolls the whole file back if any
-statement fails. Run it manually from *Actions → Supabase Schema → Run workflow*.
+> For long-term maintenance, move to versioned Supabase CLI migrations. This repository currently uses one idempotent schema file.
 
-**Manual.** Paste `supabase/schema.sql` into the Supabase SQL Editor and Run.
-
-Either way, re-running the file after a schema change is the repair path: it
-drops and recreates the RLS policies and backfills any `auth.users` rows that are
-missing a `public.users` profile row.
-
-> **Keep-alive.** On the Supabase free tier, projects pause after a week of
-> inactivity. `.github/workflows/keep-alive.yml` pings `/auth/v1/health` daily to
-> prevent that. Add the `SUPABASE_URL` and `SUPABASE_KEY` repository secrets
-> (project URL + anon key) to enable it.
-
-> **Growing past one file?** Once you want versioned, ordered migrations, move to
-> the Supabase CLI (`supabase init`, `supabase link`, then `supabase migration new`
-> + `supabase db push` in CI). This project was set up by pasting SQL, so the
-> remote migration history is empty — run `supabase db pull` once and accept the
-> prompt to record it as already applied, otherwise `db push` will try to recreate
-> existing objects.
-
-> `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` are **build-time** variables
-> (`import.meta.env`, read in `src/services/supabase.js`). For Cloudflare Pages
-> they must be set in the Pages project's build environment variables, not in the
-> Worker's runtime variables.
-
-### 4. Deploy Edge Functions
-
-One Edge Function backs the app: `manage-user` (admin user CRUD). Pushing changes under `supabase/functions/**` deploys it automatically via `.github/workflows/deploy-functions.yml` (requires the `SUPABASE_ACCESS_TOKEN` repository secret); to deploy manually:
+### 4. Deploy the Edge Functions
 
 ```bash
+supabase login
+supabase link --project-ref <project-ref>
 supabase functions deploy manage-user
+supabase functions deploy import-cleanup --no-verify-jwt
+supabase functions deploy import-job
+supabase functions deploy ai-settings
 ```
 
-Set the `SUPABASE_SERVICE_ROLE_KEY` secret in the Supabase project — `manage-user` uses it (via the service client) to create and delete auth users.
+`import-extract` is a shared module imported by `import-job`; it is not deployed as a separate function.
 
-### 5. Development
+Set the project secrets:
+
+```bash
+supabase secrets set AI_SETTINGS_ENC_KEY="$(openssl rand -base64 32)"
+supabase secrets set IMPORT_CLEANUP_SECRET="$(openssl rand -hex 32)"
+```
+
+- `AI_SETTINGS_ENC_KEY` encrypts stored provider credentials. Store it securely. Rotating it makes existing credentials unreadable, so re-enter them in Settings after a rotation.
+- `IMPORT_CLEANUP_SECRET` authenticates the scheduled retention call. The `import-cleanup` function is deployed without the default JWT check because `pg_cron` calls it with an `x-cleanup-secret` header.
+- Supabase provides `SUPABASE_SERVICE_ROLE_KEY` to hosted functions. Confirm it is present in your project's function secrets before deploying.
+
+### 5. Create the first administrator
+
+New accounts have no administrator rights and no section. After signing up, promote the first administrator in the SQL Editor:
+
+```sql
+update public.users
+set is_admin = true
+where email = 'you@example.com';
+```
+
+Administrators can then assign roles and sections from the Users page.
+
+### 6. Run locally
 
 ```bash
 npm run dev
 ```
 
-A local dev server is still the fastest way to iterate — Supabase is still the real backend. Cloudflare Pages is only for hosting the built artifact.
+Vite serves the app at `http://localhost:5173`. The AI import review screen has a mock route for UI work that needs no login or live data:
 
-`npm run lint` runs ESLint (flat config) over `src/` with `no-undef` and `no-unused-vars` enabled. CI runs lint + build on every push (`.github/workflows/ci.yml`).
+```text
+http://localhost:5173/?mock=review
+```
 
-### 6. Build & Deploy
+### 7. Build
 
 ```bash
 npm run build
+npm run preview
 ```
 
-Output goes to `dist/`. Deploy to Cloudflare Pages with:
+The production build is written to `dist/`.
 
-- **Build command:** `npm run build`
-- **Output directory:** `dist`
+## Deployment
 
-Since Cloudflare Pages only serves the static `dist/`, the build step does not depend on Supabase or Cloudinary being live — it can fail loudly at runtime if the env vars are missing, but it cannot fail at build time because of them.
+### Cloudflare Pages
 
-## Project Structure
+Connect the repository to a Cloudflare Pages project and use:
 
+| Setting | Value |
+| --- | --- |
+| Build command | `npm run build` |
+| Output directory | `dist` |
+| Node version | 22 |
+
+Add the four `VITE_*` variables from `.env.example` as **build environment variables** in the Pages project. They are read at build time; runtime variables are not used by a static build.
+
+### GitHub Actions
+
+| Workflow | Trigger | Purpose |
+| --- | --- | --- |
+| **CI** | Push and pull request | Install, lint, registry check, tests with coverage, build |
+| **Deploy Edge Functions** | Push touching `supabase/functions/**` or `supabase/schema.sql` | Apply the schema, provision the encryption secret once, deploy the functions |
+| **Supabase Schema** | Manual | Apply and verify `supabase/schema.sql` |
+| **Keep-alive** | Daily schedule | Ping the Supabase auth health endpoint so a free-tier project does not pause |
+
+The deploy workflow targets the project ref defined in `.github/workflows/deploy-functions.yml`. Change it to your own project ref before using the workflow in a fork.
+
+### Repository secrets
+
+| Secret | Used by | Purpose |
+| --- | --- | --- |
+| `SUPABASE_DB_URL` | Schema, Deploy | Postgres connection string for schema application |
+| `SUPABASE_ACCESS_TOKEN` | Deploy | Supabase CLI authentication |
+| `SUPABASE_URL` | Keep-alive | Project URL |
+| `SUPABASE_KEY` | Keep-alive | Public anon key |
+
+## Testing
+
+```bash
+npm test               # unit and RLS suites
+npm run test:coverage  # coverage gate used by CI
+npm run test:db        # RLS policies only
+npm run lint           # ESLint
+npm run check:registry # field registry and schema contract
 ```
-├── index.html                  # SPA entry point (all pages)
+
+The suite currently contains **428 tests across 35 files**. RLS tests run against an in-process Postgres (PGlite) loaded with `supabase/schema.sql`, so policies are exercised against real SQL rather than mocks. Import fixtures cover XLSX, CSV, DOCX, and PDF readers, and property-based tests cover the normalizers.
+
+CI runs lint, the registry check, coverage, and the production build on every push and pull request.
+
+## Project structure
+
+```text
+.
+├── index.html                     # SPA shell and all page templates
 ├── src/
-│   ├── main.js                 # Alpine.js app controller
-│   ├── services/
-│   │   ├── i18n.js             # Locale system (en/ar)
-│   │   ├── supabase.js         # Auth & client init
-│   │   ├── cloudinary.js       # Attachment uploads
-│   │   ├── patients.js         # Patient CRUD
-│   │   ├── prices.js           # Price statistics
-│   │   ├── users.js            # User management (Edge Function)
-│   │   ├── dashboard.js        # Dashboard stats
-│   │   ├── options.js          # Editable option lists
-│   │   ├── fuzzy.js            # Arabic-aware fuzzy search
-│   │   └── export.js           # Excel export
-│   ├── locales/
-│   │   ├── en.json             # English translations
-│   │   └── ar.json             # Arabic translations
-│   └── styles/
-│       └── main.css            # Custom styles + RTL
+│   ├── main.js                    # Alpine application controller
+│   ├── features/import-agent/     # Readers, extraction client, review state, UI
+│   │   ├── readers/               # XLSX, CSV, DOCX, PDF, image, text readers
+│   │   ├── api.js                 # import-job / ai-settings client
+│   │   ├── intake.js              # File validation and hashing
+│   │   ├── review.js              # Review state, validation, duplicate logic
+│   │   └── ui.js                  # Import wizard and review screen
+│   ├── locales/                   # English and Arabic translations
+│   ├── services/                  # Supabase, patients, prices, users, options, export
+│   └── styles/                    # Bootstrap overrides and RTL styles
 ├── supabase/
-│   ├── schema.sql              # Full DB schema + RLS
-│   ├── seed.sql                # Seed notes
+│   ├── schema.sql                 # Tables, triggers, RLS, import schema
+│   ├── verify-schema.sql          # Column checks used by CI
+│   ├── seed.sql                   # Seed notes
 │   └── functions/
-│       └── manage-user/        # Admin user CRUD
-├── eslint.config.js
+│       ├── _shared/               # Shared import-core, LLM, and crypto modules
+│       ├── ai-settings/           # Encrypted provider settings
+│       ├── import-cleanup/        # Retention and storage purge
+│       ├── import-job/            # Import job orchestration and extraction
+│       └── manage-user/           # Administrator user CRUD
+├── tests/
+│   ├── fixtures/                  # Reader and pipeline fixtures
+│   ├── rls/                       # Postgres RLS tests
+│   └── unit/                      # Reader, pipeline, review, and normalizer tests
+├── docs/                          # Design notes and import architecture
+├── scripts/                       # Registry and fixture tooling
+├── .github/workflows/             # CI, schema, function deploys, keep-alive
+├── .env.example
 ├── package.json
-├── vite.config.js
-└── .env.example
+└── vite.config.js
 ```
+
+## Status and roadmap
+
+### Stable
+
+- Patient registry, profiles, attachments, global search, dashboard, price reporting, and Excel export.
+- User management, section-scoped access, and editable option lists.
+- Complete English/Arabic interface with RTL support.
+
+### Preview
+
+- **AI-assisted import**: readers, extraction pipeline, provider fallback chain, encrypted settings, review UI, quotas, retries, and resume are implemented. The commit-to-registry step remains.
+
+### Planned
+
+- Versioned Supabase migrations.
+- Import batch undo and usage/cost reporting.
+- Expanded browser-level test coverage.
+
+## Documentation
+
+- [AI import design and milestones](docs/import-agent/): pipeline, readers, persistence, review UI, provider settings, and the latest audit.
+- [Database schema](supabase/schema.sql) and [schema verification](supabase/verify-schema.sql).
+- [Environment template](.env.example).
+
+## Contributing
+
+Contributions are welcome. Open an issue to discuss substantial changes, keep pull requests focused, and run the following before submitting:
+
+```bash
+npm run lint
+npm test
+npm run build
+```
+
+When changing the database, update `supabase/schema.sql` and `supabase/verify-schema.sql` together.
 
 ## License
 
-MIT
+Released under the MIT License. See [LICENSE](LICENSE).
+
+## Acknowledgements
+
+- [BelalAhmed2214/health](https://github.com/BelalAhmed2214/health) for the original Laravel application and clinic workflow.
+- The Supabase, Cloudinary, Cloudflare, Bootstrap, Alpine.js, and Vite teams.
+- Maintained by [Yossef Khalil](https://github.com/YossefKhalil).
