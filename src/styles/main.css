@@ -500,6 +500,24 @@ i.bi {
 }
 
 /*
+ * The navbar keeps the arrangement of the English interface in every
+ * language: the brand on the left, the search next to it, the links and the
+ * account menus on the right. Only the text inside follows the language.
+ *
+ * The container is therefore laid out left to right, while every item that
+ * holds text is laid out right to left - so an Arabic label reads from the
+ * right, and the magnifier of the search sits on the right of the field.
+ */
+.navbar .container {
+    direction: ltr;
+}
+
+.navbar .container .navbar-nav > li,
+.navbar .container .global-search {
+    direction: rtl;
+}
+
+/*
  * The navbar items are placed explicitly (desktop).
  *
  * The order is written down instead of being left to the flex order of the
@@ -803,7 +821,6 @@ i.bi {
     padding: 0.55rem 0;
     border-bottom: 1px solid #e9ecef;
 }
-
 .ai-chain-row:last-child {
     border-bottom: 0;
 }
@@ -884,4 +901,50 @@ i.bi {
 .settings-user-table .btn {
     min-width: 2.75rem;
     min-height: 2.75rem;
+}
+
+/*
+ * The local AI engine panel: the readiness chips, the model cards and the
+ * model file fields.
+ */
+.dev-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.65rem;
+    border-radius: 2rem;
+    border: 1px solid var(--bs-border-color);
+    background: #fff;
+    font-size: 0.8125rem;
+}
+
+.dot {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.dot-ok { background: #198754; }
+.dot-warn { background: #ffc107; }
+.dot-bad { background: #dc3545; }
+
+.model-card {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.75rem;
+    background: #fff;
+}
+
+.model-card + .model-card {
+    margin-top: 1rem;
+}
+
+.file-path {
+    font-family: var(--bs-font-monospace);
+    font-size: 0.8125rem;
+}
+
+.title-inline {
+    font-size: 1.05rem;
+    font-weight: 600;
 }
