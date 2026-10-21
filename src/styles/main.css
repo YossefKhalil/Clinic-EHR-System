@@ -77,6 +77,121 @@
 }
 
 /*
+ * Dashboard summary cards (issue #14).
+ *
+ * Desktop (>=992px) keeps the original look — the row renders 4-up and the
+ * cards' own utilities (p-4, fs-2, fs-3) are untouched. Below 768px the
+ * cards compact down (smaller paddings, icons, numbers), the three numeric
+ * cards are real whole-card buttons with a 44px tap target, and the
+ * Section/Source entry lists lay out on a two-column grid instead of one
+ * long flex run. Everything is min-width-safe so long Arabic/English labels
+ * wrap inside the card instead of pushing it wider.
+ */
+/* Bootstrap sizes `<button>` shrink-to-fit (content width): when the three
+   numeric cards became whole-card buttons (issue #14) that made the >=992px
+   row content-driven (254/236 …) instead of the equal four columns a
+   div.card renders as. Fill the grid cell like the div cards do. */
+button.stat-link {
+    appearance: none;
+    background-clip: border-box;
+    color: inherit;
+    cursor: pointer;
+    text-align: start;
+    width: 100%;
+}
+
+.stat-link:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+.stat-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.stat-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+}
+
+.stat-hint i {
+    display: inline-block;
+    font-size: 0.9em;
+}
+
+/* Section/Source entry lists */
+.stat-entries {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.1rem 1.1rem;
+}
+
+.stat-entry {
+    min-width: 0;
+}
+
+.stat-entry-label {
+    overflow-wrap: anywhere;
+}
+
+/* The "Manage/View ->" hint arrow must follow the reading direction. */
+[dir="rtl"] .stat-hint .bi-arrow-right {
+    transform: scaleX(-1);
+}
+
+@media (max-width: 767.98px) {
+    .stat-card .card-body {
+        padding: 0.9rem 1rem !important;
+        gap: 0.75rem !important;
+    }
+
+    .stat-card .stat-icon {
+        padding: 0.55rem !important;
+        border-radius: 0.6rem;
+    }
+
+    .stat-card .stat-icon .bi {
+        font-size: 1.4rem;
+    }
+
+    .stat-card .stat-value {
+        font-size: 1.5rem;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .stat-card .stat-entry-value {
+        font-size: 1.2rem;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .stat-card .stat-entries {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: center;
+        gap: 0.35rem 1rem;
+    }
+
+    /* Below 576px the half-width cards leave too little room beside the
+       icon, and a long label would spill into the neighbouring card and
+       widen the page. Stack icon above the text there so labels wrap
+       instead; overflow-wrap is the belt-and-braces for very long words. */
+    .stat-card .stat-text > div,
+    .stat-card .stat-hint {
+        overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 575.98px) {
+        .stat-card .card-body {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+    }
+}
+
+/*
  * Patients filters toolbar + panel (issue #13).
  *
  * ONE component for both shells: the panel is an anchored popover beside the

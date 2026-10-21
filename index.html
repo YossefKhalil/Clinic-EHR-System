@@ -186,76 +186,74 @@
                     <span class="text-muted small"><i class="bi bi-calendar3 me-1"></i><span x-text="currentDate"></span></span>
                 </div>
 
-                <!-- Stats Cards -->
+                <!-- Stats Cards (issue #14): the three numeric cards become
+                     whole-card navigation targets (real buttons, 44px+ on
+                     mobile); Section/Source stay plain cards and render
+                     their entries in a grid below 768px. Desktop >=992px
+                     keeps the 4-up row. -->
                 <div class="row g-4 mb-4">
 
                     <!-- Total Patients -->
-                    <div class="col-md-3">
-                        <div class="card border-0 shadow-sm h-100">
+                    <div class="col-12 col-md-6 col-lg-3">
+                        <button type="button" class="card stat-card stat-link border-0 shadow-sm h-100" @click="navigate('patients')" :aria-label="t('Manage') + ': ' + t('Total Patients')">
                             <div class="card-body d-flex align-items-center gap-3 p-4">
-                                <div class="bg-primary bg-opacity-10 rounded-3 p-3 flex-shrink-0">
-                                    <i class="bi bi-people-fill fs-2 text-primary"></i>
+                                <div class="stat-icon bg-primary bg-opacity-10 rounded-3 p-3 flex-shrink-0">
+                                    <i class="bi bi-people-fill fs-2 text-primary" aria-hidden="true"></i>
                                 </div>
-                                <div>
-                                    <div class="fs-2 fw-bold text-dark" x-text="stats.total"></div>
+                                <div class="stat-text">
+                                    <div class="stat-value fs-2 fw-bold text-dark" x-text="stats.total"></div>
                                     <div class="text-muted small" x-text="t('Total Patients')"></div>
-                                    <span class="text-primary small" @click="navigate('patients')" style="cursor:pointer">
-                                        <span x-text="t('Manage')"></span> <i class="bi bi-arrow-right"></i>
-                                    </span>
+                                    <span class="stat-hint text-primary small"><span x-text="t('Manage')"></span> <i class="bi bi-arrow-right" aria-hidden="true"></i></span>
                                 </div>
                             </div>
-                        </div>
+                        </button>
                     </div>
 
                     <!-- Completed -->
-                    <div class="col-md-3">
-                        <div class="card border-0 shadow-sm h-100">
+                    <div class="col-6 col-lg-3">
+                        <button type="button" class="card stat-card stat-link border-0 shadow-sm h-100" @click="navigate('patients')" :aria-label="t('View') + ': ' + t('Completed')">
                             <div class="card-body d-flex align-items-center gap-3 p-4">
-                                <div class="bg-success bg-opacity-10 rounded-3 p-3 flex-shrink-0">
-                                    <i class="bi bi-check-circle-fill fs-2 text-success"></i>
+                                <div class="stat-icon bg-success bg-opacity-10 rounded-3 p-3 flex-shrink-0">
+                                    <i class="bi bi-check-circle-fill fs-2 text-success" aria-hidden="true"></i>
                                 </div>
-                                <div>
-                                    <div class="fs-2 fw-bold text-dark" x-text="stats.completed"></div>
+                                <div class="stat-text">
+                                    <div class="stat-value fs-2 fw-bold text-dark" x-text="stats.completed"></div>
                                     <div class="text-muted small" x-text="t('Completed')"></div>
-                                    <span class="text-success small" @click="navigate('patients')" style="cursor:pointer">
-                                        <span x-text="t('View')"></span> <i class="bi bi-arrow-right"></i>
-                                    </span>
+                                    <span class="stat-hint text-success small"><span x-text="t('View')"></span> <i class="bi bi-arrow-right" aria-hidden="true"></i></span>
                                 </div>
                             </div>
-                        </div>
+                        </button>
                     </div>
 
                     <!-- Pending -->
-                    <div class="col-md-3">
-                        <div class="card border-0 shadow-sm h-100">
+                    <div class="col-6 col-lg-3">
+                        <button type="button" class="card stat-card stat-link border-0 shadow-sm h-100" @click="navigate('patients')" :aria-label="t('View') + ': ' + t('Pending')">
                             <div class="card-body d-flex align-items-center gap-3 p-4">
-                                <div class="bg-danger bg-opacity-10 rounded-3 p-3 flex-shrink-0">
-                                    <i class="bi bi-exclamation-circle-fill fs-2 text-danger"></i>
+                                <div class="stat-icon bg-danger bg-opacity-10 rounded-3 p-3 flex-shrink-0">
+                                    <i class="bi bi-exclamation-circle-fill fs-2 text-danger" aria-hidden="true"></i>
                                 </div>
-                                <div>
-                                    <div class="fs-2 fw-bold text-danger" x-text="stats.pending"></div>
+                                <div class="stat-text">
+                                    <div class="stat-value fs-2 fw-bold text-danger" x-text="stats.pending"></div>
                                     <div class="text-muted small" x-text="t('Pending')"></div>
-                                    <span class="text-danger small" @click="navigate('patients')" style="cursor:pointer">
-                                        <span x-text="t('View')"></span> <i class="bi bi-arrow-right"></i>
-                                    </span>
+                                    <span class="stat-hint text-danger small"><span x-text="t('View')"></span> <i class="bi bi-arrow-right" aria-hidden="true"></i></span>
                                 </div>
                             </div>
-                        </div>
+                        </button>
                     </div>
 
                     <!-- Sections: one entry per configured section -->
-                    <div class="col-md-3" x-show="isSuperAdmin || profile?.section">
-                        <div class="card border-0 shadow-sm h-100">
+                    <div class="col-12 col-md-6 col-lg-3" x-show="isSuperAdmin || profile?.section">
+                        <div class="card stat-card border-0 shadow-sm h-100">
                             <div class="card-body d-flex align-items-center gap-3 p-4">
-                                <div class="bg-info bg-opacity-10 rounded-3 p-3 flex-shrink-0">
-                                    <i class="bi bi-buildings fs-2 text-info"></i>
+                                <div class="stat-icon bg-info bg-opacity-10 rounded-3 p-3 flex-shrink-0">
+                                    <i class="bi bi-buildings fs-2 text-info" aria-hidden="true"></i>
                                 </div>
-                                <div>
-                                    <div class="d-flex flex-wrap align-items-baseline gap-3">
+                                <div class="stat-text">
+                                    <div class="stat-entries">
                                         <template x-for="entry in sectionStatEntries()" :key="'sec-' + entry.key">
-                                            <div>
-                                                <span class="fs-3 fw-bold" :class="'text-' + sectionColor(entry.key)" x-text="entry.count"></span>
-                                                <div class="text-muted small" x-text="entry.label"></div>
+                                            <div class="stat-entry">
+                                                <span class="stat-entry-value fs-3 fw-bold" :class="'text-' + sectionColor(entry.key)" x-text="entry.count"></span>
+                                                <div class="stat-entry-label text-muted small" x-text="entry.label"></div>
                                             </div>
                                         </template>
                                     </div>
@@ -267,18 +265,18 @@
                     </div>
 
                     <!-- Sources: one entry per configured source of money -->
-                    <div class="col-md-3">
-                        <div class="card border-0 shadow-sm h-100">
+                    <div class="col-12 col-lg-3">
+                        <div class="card stat-card border-0 shadow-sm h-100">
                             <div class="card-body d-flex align-items-center gap-3 p-4">
-                                <div class="bg-success bg-opacity-10 rounded-3 p-3 flex-shrink-0">
-                                    <i class="bi bi-cash-coin fs-2 text-success"></i>
+                                <div class="stat-icon bg-success bg-opacity-10 rounded-3 p-3 flex-shrink-0">
+                                    <i class="bi bi-cash-coin fs-2 text-success" aria-hidden="true"></i>
                                 </div>
-                                <div>
-                                    <div class="d-flex flex-wrap align-items-baseline gap-3">
+                                <div class="stat-text">
+                                    <div class="stat-entries">
                                         <template x-for="entry in sourceStatEntries()" :key="'src-' + entry.key">
-                                            <div>
-                                                <span class="fs-3 fw-bold" :class="'text-' + sourceColor(entry.key)" x-text="entry.count"></span>
-                                                <div class="text-muted small" x-text="entry.label"></div>
+                                            <div class="stat-entry">
+                                                <span class="stat-entry-value fs-3 fw-bold" :class="'text-' + sourceColor(entry.key)" x-text="entry.count"></span>
+                                                <div class="stat-entry-label text-muted small" x-text="entry.label"></div>
                                             </div>
                                         </template>
                                     </div>
