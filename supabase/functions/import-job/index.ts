@@ -1112,6 +1112,17 @@ async function actionRetryChunk(body: Record<string, unknown>, ctx: Context) {
  * transaction (the `import_commit` RPC).
  */
 async function actionCommit(body: Record<string, unknown>, ctx: Context) {
+  try {
+    return await commitAction(body, ctx);
+  } catch (err) {
+    // The user must see WHY the commit failed, not "something went wrong".
+    const detail = String((err as Error)?.message ?? err ?? '').slice(0, 200);
+    console.error('commit failed', (err as Error)?.message, (err as Error)?.stack);
+    return fail('COMMIT_FAILED', 500, { detail });
+  }
+}
+
+async function commitAction(body: Record<string, unknown>, ctx: Context) {
     const { user, service, limits } = ctx;
     const jobId = String(body.job_id ?? '');
     const loaded = await loadJobForUser(service, user.id, jobId);
@@ -1165,7 +1176,11 @@ async function actionCommit(body: Record<string, unknown>, ctx: Context) {
         const chunk = chunks.find((entry) => entry.id === chunkId);
         const payload = (chunk?.payload ?? {}) as { lines?: { id: string; text: string }[]; kind?: string; source_id?: string };
         const lines = Array.isArray(payload.lines) ? payload.lines : [];
-        const lineRecords = lines.map((line) => ({ id: line.id, text: line.text }));
+        const lineRecords = lines.map((line) => ({
+            id: line.id,
+            text: line.text,
+            canonical: line.canonical,
+        }));
         const isImage = payload.kind === 'image';
         const outcome = runPipeline({
             records: group.map((row) => buildRecord(row as never)),
@@ -1189,7 +1204,13 @@ async function actionCommit(body: Record<string, unknown>, ctx: Context) {
         outcome.rows.forEach((fresh, index) => {
             const stored = group[index] as {
                 id: string; seq: number; chunk_id: string | null; dup: unknown; acknowledged: string[] | null; extracted: unknown;
-            };
+            } | undefined;
+            if (!stored) {
+                // The rules engine returned more rows than the group has:
+                // that must never write a patient.
+                console.error('commit: the pipeline returned more rows than the group', job.id, chunkId, index);
+                return;
+            }
             const row = {
                 ...fresh,
                 id: stored.id,

@@ -1061,6 +1061,22 @@ export function importAgentWizard() {
             return line?.text ?? '';
         },
 
+        /** The file the row came from, with its kind. */
+        sourceFor(row) {
+            if (!row || !this.reviewState) return null;
+            const chunk = row.chunk_id ? this.reviewState.chunksById.get(row.chunk_id) : null;
+            const sourceId = chunk?.source_id ?? row.source_id ?? null;
+            return this.sources?.find((source) => source.id === sourceId) ?? null;
+        },
+
+        /**
+         * True when the row came from an image: only images are attached to
+         * the patient, a spreadsheet stays a spreadsheet.
+         */
+        isImageSource(row) {
+            return this.sourceFor(row)?.kind === 'image';
+        },
+
         /** The photos of a note, when the row came from an image. */
         sourceImages(row) {
             const model = this.sourceForRow(row);

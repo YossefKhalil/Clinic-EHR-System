@@ -152,6 +152,7 @@
   "Loading the financial summary...": "جارٍ تحميل الملخص المالي...",
   "The financial summary could not be loaded.": "تعذّر تحميل الملخص المالي.",
   "No financial data recorded yet.": "لا توجد بيانات مالية مسجلة بعد.",
+  "Financial summary in your section": "الملخص المالي في قسمك",
   "Financial summary across all patients": "ملخص مالي لجميع المرضى",
   "Grand Total": "الإجمالي الكلي",
   "EGP": "ج.م",
@@ -572,6 +573,8 @@
   "importAgent.review.record.from": "من",
   "importAgent.review.record.auto": "تلقائي",
   "importAgent.review.record.addNote": "إضافة ملاحظة",
+  "importAgent.review.record.attachOnlyImages": "صور الاستيراد فقط تُرفق بالمريض. تبقى بقية الملفات مع الاستيراد.",
+  "importAgent.review.record.sourceFile": "الملف الذي جاءت منه الصفوف",
   "importAgent.review.record.attachHelp": "صور وملفات PDF حتى 10 ميجابايت لكل ملف. تُرفع الملفات فورًا وتُحفظ مع المريض.",
   "importAgent.review.record.autoAttached": "مُرفق تلقائيًا",
   "importAgent.review.record.autoAttachHelp": "تُرفق صور المصدر بالمريض تلقائيًا.",
@@ -656,5 +659,6 @@
   "importAgent.wizard.moreImports": "عرض :count أخرى",
   "importAgent.wizard.lessImports": "عرض أقل",
   "importAgent.wizard.clearAllImports": "مسح كل الاستيرادات",
-  "importAgent.issue.AGE_NID_MISMATCH": "السن (:age) لا يطابق تاريخ الميلاد المستخرج من الرقم القومي (:computed)."
+  "importAgent.issue.AGE_NID_MISMATCH": "السن (:age) لا يطابق تاريخ الميلاد المستخرج من الرقم القومي (:computed).",
+  "importAgent.error.COMMIT_FAILED": "تعذّرت كتابة المرضى (:detail). لم يتغيّر شيء - حاول مرة أخرى."
 }

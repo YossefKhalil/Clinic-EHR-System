@@ -555,7 +555,7 @@ function app() {
             // behavior (bubble up to the caller); a financial-summary failure
             // is contained inside its own card (warning + retry).
             const [_summary, stats, recent] = await Promise.allSettled([
-                this.isSuperAdmin ? this.loadPriceStats() : Promise.resolve(null),
+                this.loadPriceStats(),
                 getDashboardStats(this.isSuperAdmin, section),
                 getRecentPatients(this.isSuperAdmin, section),
             ]);
@@ -567,9 +567,10 @@ function app() {
 
         // The financial summary never throws: a failure is shown inside the
         // card with a retry action while the rest of the dashboard stays up.
-        // Super-admin-only, matching the nav entry of the page it replaced.
+        // It also carries the counts per source of money, so every account
+        // sees them (a section account only sees its own section).
         async loadPriceStats() {
-            if (!this.isLoggedIn || !this.isSuperAdmin) return;
+            if (!this.isLoggedIn) return;
             try {
                 this.priceStats = await getPriceStats(this.isSuperAdmin, this.profile?.section);
                 this.priceStatsError = null;
