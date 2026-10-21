@@ -73,3 +73,13 @@ export function saveAiSettings(payload) {
 export function testAiProvider(provider, credentials) {
     return invoke({ action: 'test', provider, credentials: { [provider]: credentials } });
 }
+
+/** The import limits (imports per day, rows per file, ...) and their defaults. */
+export function loadImportLimits() {
+    return invoke({ action: 'limits' });
+}
+
+/** Raise or lower an import limit. Only the known keys are accepted. */
+export function saveImportLimits(limits) {
+    return invoke({ action: 'limits_save', limits });
+}

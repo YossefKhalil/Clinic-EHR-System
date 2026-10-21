@@ -283,7 +283,7 @@ export function importAgentWizard() {
         showFailure(error) {
             this.errorBanner = {
                 messageKey: error?.messageKey || error?.message || 'importAgent.error.INTERNAL',
-                params: error?.params ?? {},
+                params: error?.params ?? error?.details?.params ?? {},
             };
         },
 
@@ -293,7 +293,7 @@ export function importAgentWizard() {
          */
         errorMessage(error) {
             const key = error?.messageKey || 'importAgent.error.INTERNAL';
-            const text = this.t(key, error?.params ?? {});
+            const text = this.t(key, error?.params ?? error?.details?.params ?? {});
             if (text !== key) return text;
             const fallback = this.t('importAgent.error.INTERNAL');
             const code = error?.code ? ` (${error.code})` : '';

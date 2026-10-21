@@ -615,5 +615,22 @@
   "importAgent.reject.IMAGE_NO_CANVAS": "أُرسلت الصورة إلى النموذج دون تغيير حجمها.",
   "importAgent.reject.IMAGE_DECODE_FAILED": "تعذّر فتح الصورة.",
   "importAgent.reject.IMAGE_TOO_TALL": "الصورة طويلة جدًا: قُسّمت إلى عدة أجزاء للنموذج.",
-  "importAgent.review.source.imageNote": "مصدر هذا الصف صورة لملاحظة."
+  "importAgent.review.source.imageNote": "مصدر هذا الصف صورة لملاحظة.",
+  "aiSettings.limits.title": "حدود الاستيراد",
+  "aiSettings.limits.hint": "الحصة اليومية وحدود الملفات لوكيل الاستيراد. تنطبق على كل الحسابات.",
+  "aiSettings.limits.reload": "إعادة تحميل",
+  "aiSettings.limits.save": "حفظ الحدود",
+  "aiSettings.limits.saved": "تم حفظ حدود الاستيراد.",
+  "aiSettings.limits.loadFailed": "تعذّر تحميل حدود الاستيراد.",
+  "aiSettings.limits.saveFailed": "تعذّر حفظ حدود الاستيراد.",
+  "aiSettings.limits.unknownKey": "حد غير معروف: :key",
+  "aiSettings.limits.badValue": "قيمة :key ليست رقمًا موجبًا.",
+  "aiSettings.limits.jobsPerDay": "الاستيرادات في اليوم",
+  "aiSettings.limits.jobsPerDayHint": "الافتراضي: :default لكل حساب في اليوم.",
+  "aiSettings.limits.maxRows": "الصفوف لكل استيراد",
+  "aiSettings.limits.maxRowsHint": "الافتراضي: :default صف.",
+  "aiSettings.limits.maxFiles": "الملفات لكل استيراد",
+  "aiSettings.limits.maxFilesHint": "الافتراضي: :default ملف.",
+  "aiSettings.limits.tokensPerMinute": "رموز المزوّد في الدقيقة",
+  "aiSettings.limits.tokensPerMinuteHint": "الميزانية التي يلتزم بها الضخ. الافتراضي: :default."
 }

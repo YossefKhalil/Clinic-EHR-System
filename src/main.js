@@ -6,7 +6,7 @@ import Alpine from 'alpinejs';
 import { initI18n, t, setLocale, getLocale } from './services/i18n.js';
 import { initSupabase, supabase, getCurrentUser, signIn, signOut } from './services/supabase.js';
 import { loadImportEnabled, clearImportFlagCache } from './services/import-flag.js';
-import { loadAiSettings as loadAiSettingsApi, saveAiSettings as saveAiSettingsApi, testAiProvider as testAiProviderApi } from './services/ai-settings.js';
+import { loadAiSettings as loadAiSettingsApi, saveAiSettings as saveAiSettingsApi, testAiProvider as testAiProviderApi, loadImportLimits as loadImportLimitsApi, saveImportLimits as saveImportLimitsApi } from './services/ai-settings.js';
 import { initCloudinary, getImageUrl, isImageAttachment } from './services/cloudinary.js';
 import { getDashboardStats, getRecentPatients } from './services/dashboard.js';
 import { getPatients, deletePatient, togglePatientStatus, GOVERNORATES } from './services/patients.js';
@@ -173,6 +173,20 @@ function app() {
         aiSettingsInvalid: {},
         aiSettingsRowSeq: 0,
         aiSettingsMaxModels: 8,
+        // The import limits (imports per day, rows per file, ...). They live
+        // in `import_settings`, which only the ai-settings function may write,
+        // so an admin raises the daily quota here instead of in the SQL
+        // editor.
+        aiLimits: {},
+        aiLimitsDefaults: {},
+        aiLimitsSaving: false,
+        aiLimitsMessage: null,
+        aiLimitFields: [
+            { key: 'JOBS_PER_USER_DAY', labelKey: 'aiSettings.limits.jobsPerDay', hintKey: 'aiSettings.limits.jobsPerDayHint', default: 20 },
+            { key: 'MAX_ROWS', labelKey: 'aiSettings.limits.maxRows', hintKey: 'aiSettings.limits.maxRowsHint', default: 500 },
+            { key: 'MAX_FILES', labelKey: 'aiSettings.limits.maxFiles', hintKey: 'aiSettings.limits.maxFilesHint', default: 10 },
+            { key: 'PROVIDER_TOKENS_PER_MINUTE', labelKey: 'aiSettings.limits.tokensPerMinute', hintKey: 'aiSettings.limits.tokensPerMinuteHint', default: 6000 },
+        ],
         aiProviderOptions: [
             { id: 'openrouter', labelKey: 'aiSettings.provider.openrouter' },
             { id: 'cloudflare', labelKey: 'aiSettings.provider.cloudflare' },
@@ -524,6 +538,9 @@ function app() {
                 // Options and AI settings are independent: a failed option
                 // load must not leave the AI card silently empty.
                 await this.loadAiSettings();
+                // The import limits live in their own table; a failure there
+                // must not hide the provider settings.
+                await this.loadImportLimits();
             }
         },
         
@@ -556,8 +573,58 @@ function app() {
             }
         },
 
-        applyAiSettings(data) {
-            const firstLoad = this.aiSettings === null;
+        /** The import limits and their defaults (super admin). */
+        async loadImportLimits() {
+            if (!this.isSuperAdmin) return;
+            this.aiLimitsMessage = null;
+            try {
+                const data = await loadImportLimitsApi();
+                this.aiLimits = { ...(data.limits ?? {}) };
+                this.aiLimitsDefaults = { ...(data.defaults ?? {}) };
+            } catch (error) {
+                console.error('Import limits load failed:', error);
+                this.aiLimitsMessage = this.aiErrorView(error, 'aiSettings.limits.loadFailed').key;
+            }
+        },
+
+        /** The value of one limit: the override, or the default. */
+        aiLimitValue(key) {
+            const value = this.aiLimits?.[key];
+            if (value !== undefined && value !== null && value !== '') return value;
+            return this.aiLimitsDefaults?.[key] ?? '';
+        },
+
+        aiLimitSet(key, value) {
+            this.aiLimits = { ...(this.aiLimits ?? {}) };
+            const number = Number(value);
+            if (!Number.isFinite(number) || number <= 0) {
+                delete this.aiLimits[key];
+            } else {
+                this.aiLimits[key] = number;
+            }
+            this.aiLimitsMessage = null;
+        },
+
+        /** Write the limits back (the only writer of `import_settings`). */
+        async saveImportLimits() {
+            if (!this.isSuperAdmin || this.aiLimitsSaving) return;
+            this.aiLimitsSaving = true;
+            this.aiLimitsMessage = null;
+            try {
+                const data = await saveImportLimitsApi(this.aiLimits ?? {});
+                this.aiLimits = { ...(data.limits ?? {}) };
+                this.aiLimitsDefaults = { ...(data.defaults ?? {}) };
+                this.aiLimitsMessage = t('aiSettings.limits.saved');
+            } catch (error) {
+                console.error('Import limits save failed:', error);
+                const view = this.aiErrorView(error, 'aiSettings.limits.saveFailed');
+                this.aiLimitsMessage = t(view.key, view.params);
+            } finally {
+                this.aiLimitsSaving = false;
+            }
+        },
+
+        applyAiSettings(data) {            const firstLoad = this.aiSettings === null;
             this.aiSettings = data;
             this.aiSettingsForm.enabled = data.enabled === true;
             const chain = Array.isArray(data.chain) ? data.chain : [];

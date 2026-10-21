@@ -41,8 +41,8 @@ function json(body: unknown, status = 200): Response {
     });
 }
 
-function fail(code: string, status = 400): Response {
-    return json({ ok: false, code, message_key: `importAgent.error.${code}` }, status);
+function fail(code: string, status = 400, params: Record<string, unknown> = {}): Response {
+    return json({ ok: false, code, message_key: `importAgent.error.${code}`, params }, status);
 }
 
 function todayIso(): string {
@@ -267,15 +267,23 @@ async function actionCreate(body: Record<string, unknown>, ctx: Context) {
         await audit(service, user.id, 'job.rejected', 'n/a', { code: 'TOO_MANY_JOBS' });
         return fail('TOO_MANY_JOBS', 429);
     }
+    // Daily quota: the imports that actually ran. A cancelled or failed
+    // import was stopped (or broke) before it produced anything, so it does
+    // not count - otherwise every retry burns the quota and the account is
+    // locked out for a day after a few attempts. The real cost guard is the
+    // daily token cap; this cap only stops the provider from being spammed.
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { count } = await service
         .from('import_jobs')
         .select('id', { count: 'exact', head: true })
         .eq('created_by', user.id)
+        .not('status', 'in', '(cancelled,failed)')
         .gte('created_at', since);
     if ((count ?? 0) >= limits.JOBS_PER_USER_DAY) {
         await audit(service, user.id, 'job.rejected', 'n/a', { code: 'JOBS_PER_DAY' });
-        return fail('JOBS_PER_DAY', 429);
+        // The message names the numbers: the account hit the app's own
+        // quota, not the provider's.
+        return fail('JOBS_PER_DAY', 429, { count: count ?? 0, limit: limits.JOBS_PER_USER_DAY });
     }
 
     // Freeze the live option lists into the job (spec §4.3, §9.3 config).

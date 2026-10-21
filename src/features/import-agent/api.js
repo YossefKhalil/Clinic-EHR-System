@@ -93,7 +93,7 @@ export async function callJob(action, payload = {}) {
         if (status === 401) {
             throw new ImportApiError('UNAUTHORIZED', 'importAgent.error.UNAUTHORIZED', { status });
         }
-        if (body?.code) throw new ImportApiError(body.code, body.message_key);
+        if (body?.code) throw new ImportApiError(body.code, body.message_key, { params: body.params ?? {} });
         throw new ImportApiError('INTERNAL', 'importAgent.error.INTERNAL', { status });
     }
     if (!data || data.ok !== true) {
@@ -101,7 +101,7 @@ export async function callJob(action, payload = {}) {
         if (String(code).startsWith('UNAUTHORIZED')) {
             throw new ImportApiError('UNAUTHORIZED', 'importAgent.error.UNAUTHORIZED');
         }
-        throw new ImportApiError(code, data?.message_key);
+        throw new ImportApiError(code, data?.message_key, { params: data?.params ?? {} });
     }
     return data;
 }

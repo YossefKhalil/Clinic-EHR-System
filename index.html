@@ -2102,6 +2102,38 @@
 
                                 <hr class="my-4">
 
+                                <div class="d-flex flex-wrap align-items-start gap-2">
+                                    <div>
+                                        <h5 class="mb-1" x-text="t('aiSettings.limits.title')"></h5>
+                                        <div class="small text-muted" x-text="t('aiSettings.limits.hint')"></div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" @click="loadImportLimits()"
+                                        x-text="t('aiSettings.limits.reload')"></button>
+                                </div>
+
+                                <div class="row g-2 mt-2">
+                                    <template x-for="field in aiLimitFields" :key="field.key">
+                                        <div class="col-sm-6 col-lg-3">
+                                            <label class="form-label small mb-1" :for="'ai-limit-' + field.key" x-text="t(field.labelKey)"></label>
+                                            <input type="number" min="1" class="form-control form-control-sm" :id="'ai-limit-' + field.key"
+                                                :value="aiLimitValue(field.key)" @change="aiLimitSet(field.key, $event.target.value)"
+                                                :disabled="aiLimitsSaving" :aria-label="t(field.labelKey)">
+                                            <div class="form-text" x-text="t(field.hintKey, { default: field.default })"></div>
+                                        </div>
+                                    </template>
+                                </div>
+
+                                <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                                    <button type="button" class="btn btn-sm btn-primary" @click="saveImportLimits()" :disabled="aiLimitsSaving">
+                                        <span class="spinner-border spinner-border-sm me-1" x-show="aiLimitsSaving" x-cloak></span>
+                                        <i class="bi bi-save me-1" x-show="!aiLimitsSaving"></i>
+                                        <span x-text="t('aiSettings.limits.save')"></span>
+                                    </button>
+                                    <span class="small text-muted" x-show="aiLimitsMessage" x-text="aiLimitsMessage"></span>
+                                </div>
+
+                                <hr class="my-4">
+
                                 <div class="d-flex flex-wrap align-items-center justify-content-end gap-2">
                                     <button type="button" class="btn btn-link text-secondary text-decoration-none" @click="aiDiscardChanges()" :disabled="aiSettingsSaving" x-text="t('aiSettings.discard')"></button>
                                     <button type="button" class="btn btn-primary" @click="saveAiSettings()" :disabled="aiSettingsSaving || aiSettingsLoading">

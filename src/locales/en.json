@@ -615,5 +615,22 @@
   "importAgent.reject.IMAGE_NO_CANVAS": "The image was sent to the model without being resized.",
   "importAgent.reject.IMAGE_DECODE_FAILED": "The image could not be opened.",
   "importAgent.reject.IMAGE_TOO_TALL": "The photo is very tall: it was cut into several parts for the model.",
-  "importAgent.review.source.imageNote": "The source of this row is a photo of a note."
+  "importAgent.review.source.imageNote": "The source of this row is a photo of a note.",
+  "aiSettings.limits.title": "Import limits",
+  "aiSettings.limits.hint": "The daily quota and the file limits of the import agent. They apply to every account.",
+  "aiSettings.limits.reload": "Reload",
+  "aiSettings.limits.save": "Save limits",
+  "aiSettings.limits.saved": "The import limits were saved.",
+  "aiSettings.limits.loadFailed": "The import limits could not be loaded.",
+  "aiSettings.limits.saveFailed": "The import limits could not be saved.",
+  "aiSettings.limits.unknownKey": "Unknown limit: :key",
+  "aiSettings.limits.badValue": "The value for :key is not a positive number.",
+  "aiSettings.limits.jobsPerDay": "Imports per day",
+  "aiSettings.limits.jobsPerDayHint": "Default: :default per account and day.",
+  "aiSettings.limits.maxRows": "Rows per import",
+  "aiSettings.limits.maxRowsHint": "Default: :default rows.",
+  "aiSettings.limits.maxFiles": "Files per import",
+  "aiSettings.limits.maxFilesHint": "Default: :default files.",
+  "aiSettings.limits.tokensPerMinute": "Provider tokens per minute",
+  "aiSettings.limits.tokensPerMinuteHint": "The budget the pump respects. Default: :default."
 }

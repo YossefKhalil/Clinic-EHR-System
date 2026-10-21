@@ -9,6 +9,10 @@
 //            it, and a key used by the chain cannot be removed.
 //   test   : prove credentials with a cheap provider endpoint. Draft values
 //            are tested without saving them.
+//   limits : the import limits (imports per day, rows per file, ...). The
+//            row lives in `import_settings`, which no client may touch, so
+//            this action is the only writer: an admin raises the daily
+//            quota without opening the SQL editor.
 //
 // No action ever returns a secret or logs one.
 
@@ -29,6 +33,7 @@ import {
     type AiProviderId,
     type AiSettingsRow,
 } from '../_shared/ai-settings.ts';
+import { LIMITS, OVERRIDABLE_KEYS, resolveLimits } from '../_shared/import-core/limits.js';
 
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
@@ -312,6 +317,64 @@ async function actionSave(body: Record<string, unknown>, service: Service, userI
     return json(await publicSettings(await loadRow(service)));
 }
 
+async function actionLimits(body: Record<string, unknown>, service: Service, userId: string) {
+    const { data: row } = await service
+        .from('import_settings')
+        .select('limits')
+        .eq('id', true)
+        .maybeSingle();
+    const current = (row?.limits ?? {}) as Record<string, unknown>;
+
+    // The limits the admin wants to change (only the known keys).
+    const incoming = (body.limits ?? {}) as Record<string, unknown>;
+    const next: Record<string, unknown> = { ...current };
+    for (const [key, value] of Object.entries(incoming)) {
+        if (!OVERRIDABLE_KEYS.includes(key)) {
+            return json({ ok: false, code: 'UNKNOWN_LIMIT', message_key: 'aiSettings.limits.unknownKey', params: { key } }, 400);
+        }
+        if (value === null || value === '' || value === undefined) {
+            delete next[key];
+            continue;
+        }
+        const number = Number(value);
+        if (!Number.isFinite(number) || number <= 0) {
+            return json({ ok: false, code: 'BAD_LIMIT', message_key: 'aiSettings.limits.badValue', params: { key } }, 400);
+        }
+        next[key] = number;
+    }
+
+    // The merge must be valid: resolveLimits throws on an unknown key.
+    try {
+        resolveLimits(next);
+    } catch (error) {
+        return json({ ok: false, code: 'BAD_LIMIT', message_key: 'aiSettings.limits.badValue', params: { detail: String((error as Error)?.message ?? '') } }, 400);
+    }
+
+    const { error } = await service
+        .from('import_settings')
+        .update({ limits: next, updated_at: new Date().toISOString(), updated_by: userId })
+        .eq('id', true);
+    if (error) {
+        console.error('limits update failed', error.message);
+        return fail('SAVE_FAILED', 500);
+    }
+    return json({ ok: true, limits: next, defaults: LIMITS });
+}
+
+async function actionLimitsStatus(service: Service) {
+    const { data: row } = await service
+        .from('import_settings')
+        .select('limits, updated_at')
+        .eq('id', true)
+        .maybeSingle();
+    return json({
+        ok: true,
+        limits: (row?.limits ?? {}) as Record<string, unknown>,
+        defaults: LIMITS,
+        updated_at: row?.updated_at ?? null,
+    });
+}
+
 async function actionTest(body: Record<string, unknown>, service: Service) {
     const provider = body.provider;
     if (!isAiProvider(provider)) return fail('BAD_REQUEST', 400);
@@ -471,6 +534,8 @@ Deno.serve(async (req) => {
         }
         if (action === 'save') return await actionSave(body, service, user.id);
         if (action === 'test') return await actionTest(body, service);
+        if (action === 'limits') return await actionLimitsStatus(service);
+        if (action === 'limits_save') return await actionLimits(body, service, user.id);
         return fail('BAD_REQUEST', 400);
     } catch (err) {
         console.error('ai-settings failed', action, (err as Error)?.message);
