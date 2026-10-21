@@ -193,7 +193,24 @@
                                 :aria-label="t('Manage') + ': ' + t('Total Patients')">
                                 <span x-text="t('Manage')"></span> <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>
                             </button>
+                            <button type="button" class="btn btn-sm btn-link text-secondary p-1"
+                                @click="statsCardOpen = !statsCardOpen"
+                                :aria-expanded="statsCardOpen ? 'true' : 'false'"
+                                :aria-label="statsCardOpen ? t('Collapse') : t('Expand')">
+                                <i class="bi" :class="statsCardOpen ? 'bi-chevron-up' : 'bi-chevron-down'" aria-hidden="true"></i>
+                            </button>
                         </div>
+
+                        <!-- Folded: the same numbers in one line. -->
+                        <div class="d-flex flex-wrap align-items-center gap-3 small text-muted mt-2" x-show="!statsCardOpen" x-cloak>
+                            <span><strong class="text-success" x-text="stats.completed"></strong> <span x-text="t('Completed')"></span></span>
+                            <span><strong class="text-danger" x-text="stats.pending"></strong> <span x-text="t('Pending')"></span></span>
+                            <template x-for="entry in sectionStatEntries()" :key="'fold-sec-' + entry.key">
+                                <span><strong :class="'text-' + sectionColor(entry.key)" x-text="entry.count"></strong> <span x-text="entry.label"></span></span>
+                            </template>
+                        </div>
+
+                        <div x-show="statsCardOpen">
 
                         <!-- The sections come first: they are the breakdown of
                              the total above them. -->
@@ -231,6 +248,7 @@
                                 </div>
                             </div>
                         </div>
+                        </div>
                     </div>
                 </div>
 
@@ -240,9 +258,29 @@
                 <div class="card border-0 shadow-sm mb-4">
                     <div class="card-header bg-white border-bottom py-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
                         <h5 class="mb-0 fw-semibold"><i class="bi bi-currency-dollar me-2 text-primary"></i><span x-text="t('Financial Summary')"></span></h5>
-                        <span class="text-muted small" x-text="isSuperAdmin ? t('Financial summary across all patients') : t('Financial summary in your section')"></span>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="text-muted small" x-text="isSuperAdmin ? t('Financial summary across all patients') : t('Financial summary in your section')"></span>
+                            <button type="button" class="btn btn-sm btn-link text-secondary p-1"
+                                @click="financialCardOpen = !financialCardOpen"
+                                :aria-expanded="financialCardOpen ? 'true' : 'false'"
+                                :aria-label="financialCardOpen ? t('Collapse') : t('Expand')">
+                                <i class="bi" :class="financialCardOpen ? 'bi-chevron-up' : 'bi-chevron-down'" aria-hidden="true"></i>
+                            </button>
+                        </div>
                     </div>
                     <div class="card-body p-4">
+
+                        <!-- Folded: the same totals in one line. -->
+                        <div class="d-flex flex-wrap align-items-center gap-3 small" x-show="!financialCardOpen" x-cloak>
+                            <span class="fw-bold" x-text="formatMoney(priceStats?.grandTotal)"></span>
+                            <span class="text-muted" x-text="t('EGP')"></span>
+                            <span class="text-muted"><span x-text="priceStats?.totalPatients ?? 0"></span> <span x-text="t('patients')"></span></span>
+                            <template x-for="entry in sourceFinancialEntries()" :key="'fold-src-' + entry.key">
+                                <span class="text-muted"><span x-text="entry.label"></span>: <strong :class="'text-' + sourceColor(entry.key)" x-text="formatMoney(entry.total)"></strong></span>
+                            </template>
+                        </div>
+
+                        <div x-show="financialCardOpen">
                         <!-- A failed summary request never takes the dashboard down: warning + retry. -->
                         <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2 mb-0" x-show="priceStatsError">
                             <i class="bi bi-exclamation-triangle-fill"></i>
@@ -333,6 +371,7 @@
                                 </div>
                             </div>
                         </div>
+                        </div>
                     </div>
                 </div>
 
@@ -397,7 +436,7 @@
                         <!-- The filter control (issue #13) lives in the toolbar row:
                              its panel is anchored to it, the applied-filter chips
                              stay under the toolbar. -->
-                <div class="filter-toolbar mb-4" @click.outside="showFilters && closeFilters()">
+                <div class="filter-toolbar" @click.outside="showFilters && closeFilters()">
                     <div class="d-flex flex-wrap align-items-center gap-2">
                         <button type="button" id="patientFiltersToggle" x-ref="patientFiltersToggle"
                             aria-haspopup="dialog" aria-controls="patientFiltersPanel"

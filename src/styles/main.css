@@ -323,8 +323,16 @@ button.stat-link {
     min-width: 0;
 }
 
+/* The button sits in the toolbar row next to the other two: the same
+   height, no extra offset. The 44px tap target is kept on mobile only. */
 .filter-toggle {
-    min-height: 44px;
+    min-height: auto;
+}
+
+@media (max-width: 575.98px) {
+    .filter-toggle {
+        min-height: 44px;
+    }
 }
 
 .filter-panel {

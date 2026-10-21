@@ -978,11 +978,14 @@ CREATE OR REPLACE FUNCTION public.import_commit(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $commit$
 DECLARE
     v_job public.import_jobs%ROWTYPE;
-    v_batch_id UUID := uuid_generate_v4();
+    -- gen_random_uuid() is a core function: uuid_generate_v4() lives in
+    -- the extension's schema, which this function's search_path does not
+    -- include.
+    v_batch_id UUID := gen_random_uuid();
     v_created INT := 0;
     v_filled INT := 0;
     v_skipped INT := 0;

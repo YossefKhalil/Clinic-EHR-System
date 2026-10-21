@@ -164,6 +164,9 @@ function app() {
         // Settings tabs (#16): Clinic options / Users / AI & Import. Users are
         // fetched when their tab is shown, not on every Settings entry.
         settingsTab: 'options',
+        // The dashboard cards can be folded into one line.
+        statsCardOpen: true,
+        financialCardOpen: true,
         
         // Governorates & editable options
         governorates: GOVERNORATES,
