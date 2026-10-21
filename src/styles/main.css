@@ -500,45 +500,14 @@ i.bi {
 }
 
 /*
- * The navbar keeps the arrangement of the English interface in every
- * language: the brand on the left, the search next to it, the links and the
- * account menus on the right. Only the text inside follows the language.
+ * The navbar mirrors with the reading direction: the brand first (the start
+ * of the direction), the search right after it, the links and the account
+ * menus last. In Arabic the row is mirrored - the brand on the right, the
+ * search next to it, the links on the far left.
  *
- * The container is therefore laid out left to right, while every item that
- * holds text is laid out right to left - so an Arabic label reads from the
- * right, and the magnifier of the search sits on the right of the field.
+ * The source order is the order, and the build of Bootstrap that fits the
+ * language does the mirroring. No extra rules, so nothing can fight.
  */
-.navbar .container {
-    direction: ltr;
-}
-
-.navbar .container .navbar-nav > li,
-.navbar .container .global-search {
-    direction: rtl;
-}
-
-/*
- * The navbar items are placed explicitly (desktop).
- *
- * The order is written down instead of being left to the flex order of the
- * source: the brand first (the start of the reading direction), the search
- * right after it, the links and the account menus last. In Arabic the row is
- * mirrored, so the brand is on the right, the search next to it - always in
- * the same place, whichever build of Bootstrap is loaded.
- */
-@media (min-width: 992px) {
-    .navbar .container > .navbar-brand {
-        order: 1;
-    }
-
-    .navbar .container > .global-search {
-        order: 2;
-    }
-
-    .navbar .container > .navbar-collapse {
-        order: 3;
-    }
-}
 
 /* Navbar global search */
 .global-search {

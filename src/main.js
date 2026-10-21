@@ -1,9 +1,16 @@
 import './styles/main.css';
-import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
-// The RTL build of Bootstrap, as a separate asset. Without it the app flips
-// the direction of the document but keeps the physical utilities of the LTR
-// build, so some elements move with the text order and others do not.
+// Both builds of Bootstrap are loaded as separate assets, and only ONE of
+// them is in the page at a time: the LTR one for the other languages, the
+// RTL one for Arabic.
+//
+// Two builds at once fight each other: they define the same physical
+// utilities, and both of them are `!important`, so `.ms-auto` would leave
+// an auto margin on the left AND on the right. A group with such a margin
+// floats in the middle of its row instead of hugging the end - that was the
+// empty strip in the Arabic navbar - and every icon would get a margin on
+// the wrong side as well.
+import bootstrapLtrUrl from 'bootstrap/dist/css/bootstrap.min.css?url';
 import bootstrapRtlUrl from 'bootstrap/dist/css/bootstrap.rtl.min.css?url';
 import bootstrapBundle from 'bootstrap/dist/js/bootstrap.bundle.min.js';
 import Alpine from 'alpinejs';
@@ -598,22 +605,26 @@ function app() {
         },
 
         /**
-         * Load the RTL build of Bootstrap for the Arabic interface (and
-         * remove it again for the others), so the physical utilities mirror
-         * with the text order.
+         * Load the build of Bootstrap that fits the language: the RTL one for
+         * the Arabic interface, the LTR one for the others, so the physical
+         * utilities mirror with the text order.
+         *
+         * The link sits at the end of the head, where the stylesheet of
+         * Bootstrap used to be bundled, so the order of the rules stays the
+         * same as before.
          */
         applyBootstrapDirection() {
             const rtl = getLocale() === 'ar';
-            const existing = document.getElementById('bs-rtl');
-            if (rtl && !existing) {
-                const link = document.createElement('link');
-                link.id = 'bs-rtl';
+            const url = rtl ? bootstrapRtlUrl : bootstrapLtrUrl;
+            let link = document.getElementById('bs-core');
+            if (!link) {
+                link = document.createElement('link');
+                link.id = 'bs-core';
                 link.rel = 'stylesheet';
-                link.href = bootstrapRtlUrl;
                 document.head.appendChild(link);
-            } else if (!rtl && existing) {
-                existing.remove();
             }
+            const wanted = new URL(url, window.location.href).href;
+            if (link.href !== wanted) link.href = wanted;
         },
 
         // Whether the dashboard cards are folded is remembered per browser.
