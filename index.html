@@ -397,61 +397,115 @@
                     </div>
                 </div>
 
-                <form @submit.prevent="handleFilter()" class="mb-4">
-                    <div class="row g-2 align-items-end">
-                        <div class="col-md-3">
-                            <label class="form-label text-muted small mb-1" x-text="t('Search')"></label>
-                            <input type="text" class="form-control form-control-sm shadow-sm" x-model="patientFilters.search" :placeholder="t('Search any patient field...')">
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label text-muted small mb-1" x-text="t('Status')"></label>
-                            <select class="form-select form-select-sm shadow-sm" x-model="patientFilters.is_completed">
-                                <option value="">All</option>
-                                <option value="false" x-text="t('Pending')"></option>
-                                <option value="true" x-text="t('Completed')"></option>
-                            </select>
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label text-muted small mb-1"><i class="bi bi-calendar-event me-1"></i><span x-text="t('Registered From')"></span></label>
-                            <input type="date" class="form-control form-control-sm shadow-sm" x-model="patientFilters.date_from">
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label text-muted small mb-1"><i class="bi bi-calendar-event-fill me-1"></i><span x-text="t('Registered To')"></span></label>
-                            <input type="date" class="form-control form-control-sm shadow-sm" x-model="patientFilters.date_to">
-                        </div>
-                        <div class="col-md-1 d-flex gap-2">
-                            <button type="submit" class="btn btn-primary btn-sm w-100 shadow-sm"><i class="bi bi-search"></i></button>
-                            <button type="button" class="btn btn-outline-secondary btn-sm shadow-sm" @click="resetFilters()"><i class="bi bi-x-lg"></i></button>
-                        </div>
-                        <div class="col-md-4" x-show="isSuperAdmin">
-                            <label class="form-label text-muted small mb-1" x-text="t('Follower')"></label>
-                            <select class="form-select form-select-sm shadow-sm" x-model="patientFilters.follower">
-                                <option value="" x-text="t('-- All Followers --')"></option>
-                                <template x-for="opt in activeOptions('follower')" :key="'fl-' + opt.key">
-                                    <option :value="opt.key" x-text="optionLabel('follower', opt.key)"></option>
-                                </template>
-                            </select>
-                        </div>
-                        <div class="col-md-4" x-show="isSuperAdmin">
-                            <label class="form-label text-muted small mb-1" x-text="t('Section')"></label>
-                            <select class="form-select form-select-sm shadow-sm" x-model="patientFilters.section">
-                                <option value="" x-text="t('-- All Sections --')"></option>
-                                <template x-for="opt in activeOptions('section')" :key="'fs-' + opt.key">
-                                    <option :value="opt.key" x-text="optionLabel('section', opt.key)"></option>
-                                </template>
-                            </select>
-                        </div>
-                        <div class="col-md-4" x-show="isSuperAdmin">
-                            <label class="form-label text-muted small mb-1" x-text="t('Source of Money')"></label>
-                            <select class="form-select form-select-sm shadow-sm" x-model="patientFilters.source_of_money">
-                                <option value="" x-text="t('-- All Sources --')"></option>
-                                <template x-for="opt in activeOptions('source')" :key="'fo-' + opt.key">
-                                    <option :value="opt.key" x-text="optionLabel('source', opt.key)"></option>
-                                </template>
-                            </select>
-                        </div>
+                <!-- Filters toolbar (issue #13): every filter lives behind one
+                     Filters control. Desktop: anchored popover. Mobile: bottom
+                     sheet. The chips show the APPLIED filters; the panel stages
+                     edits until Apply. The toolbar acts on outside clicks for
+                     both the popover and the sheet, so the wrapper owns
+                     @click.outside (clicking the button/scrim is inside it). -->
+                <div class="filter-toolbar mb-4" @click.outside="showFilters && closeFilters()">
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <button type="button" id="patientFiltersToggle" x-ref="patientFiltersToggle"
+                            aria-haspopup="dialog" aria-controls="patientFiltersPanel"
+                            :aria-expanded="showFilters ? 'true' : 'false'"
+                            :class="(showFilters || activeFilterCount()) ? 'btn-primary' : 'btn-outline-secondary'"
+                            class="btn filter-toggle"
+                            @click="showFilters ? closeFilters() : openFilters()">
+                            <i class="bi bi-funnel-pe"></i>
+                            <span x-text="t('Filters')"></span>
+                            <span class="badge text-bg-light border" x-show="activeFilterCount()" x-cloak x-text="activeFilterCount()"></span>
+                        </button>
+                        <button type="button" class="btn filter-clear-all text-secondary" x-show="activeFilterCount()" x-cloak @click="clearAllFilters()">
+                            <i class="bi bi-x-circle"></i><span x-text="t('Clear all')"></span>
+                        </button>
                     </div>
-                </form>
+
+                    <!-- Applied-filter chips (removed one without reopening the panel) -->
+                    <div class="filter-chips d-flex flex-wrap gap-2 mt-2" x-show="activeFilterCount()" x-cloak :aria-label="t('Active filters')">
+                        <template x-for="chip in appliedFilterChips()" :key="chip.key">
+                            <span class="chip">
+                                <span class="chip-label" x-text="chip.label"></span>
+                                <button type="button" class="chip-remove" :aria-label="chip.aria" @click="removeAppliedFilter(chip.key)">
+                                    <i class="bi bi-x-lg" aria-hidden="true"></i>
+                                </button>
+                            </span>
+                        </template>
+                    </div>
+
+                    <div class="filter-scrim" x-show="showFilters" x-cloak @click="closeFilters()"></div>
+
+                    <div id="patientFiltersPanel" x-ref="filterPanel" class="filter-panel" role="dialog" aria-modal="true"
+                        :aria-label="t('Filters')" x-show="showFilters" x-cloak
+                        @keydown="filtersPanelKeydown($event)">
+                        <div class="filter-panel-header d-flex align-items-center justify-content-between">
+                            <h6 class="mb-0 fw-semibold" x-text="t('Filters')"></h6>
+                            <button type="button" class="btn-close" :aria-label="t('Close')" @click="closeFilters()"></button>
+                        </div>
+                        <form class="filter-panel-body" @submit.prevent="applyFilters()">
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label class="form-label mb-1" for="patientFilters.search" x-text="t('Search')"></label>
+                                    <input type="search" id="patientFilters.search" class="form-control" x-model="filterDraft.search" :placeholder="t('Search any patient field...')">
+                                </div>
+                                <div class="col-12 col-sm-6">
+                                    <label class="form-label mb-1" for="patientFilters.status" x-text="t('Status')"></label>
+                                    <select id="patientFilters.status" class="form-select" x-model="filterDraft.is_completed">
+                                        <option value="" x-text="t('All')"></option>
+                                        <option value="false" x-text="t('Pending')"></option>
+                                        <option value="true" x-text="t('Completed')"></option>
+                                    </select>
+                                </div>
+                                <div class="col-6 col-sm-3">
+                                    <label class="form-label mb-1" for="patientFilters.dateFrom" x-text="t('Registered From')"></label>
+                                    <input type="date" id="patientFilters.dateFrom" class="form-control" x-model="filterDraft.date_from">
+                                </div>
+                                <div class="col-6 col-sm-3">
+                                    <label class="form-label mb-1" for="patientFilters.dateTo" x-text="t('Registered To')"></label>
+                                    <input type="date" id="patientFilters.dateTo" class="form-control" x-model="filterDraft.date_to">
+                                </div>
+                            </div>
+
+                            <div x-show="isSuperAdmin" x-cloak>
+                                <div class="filter-scope-heading" x-text="t('Scope')"></div>
+                                <div class="row g-3">
+                                    <div class="col-12 col-sm-4">
+                                        <label class="form-label mb-1" for="patientFilters.follower" x-text="t('Follower')"></label>
+                                        <select id="patientFilters.follower" class="form-select" x-model="filterDraft.follower">
+                                            <option value="" x-text="t('-- All Followers --')"></option>
+                                            <template x-for="opt in activeOptions('follower')" :key="'fl-' + opt.key">
+                                                <option :value="opt.key" x-text="optionLabel('follower', opt.key)"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div class="col-12 col-sm-4">
+                                        <label class="form-label mb-1" for="patientFilters.section" x-text="t('Section')"></label>
+                                        <select id="patientFilters.section" class="form-select" x-model="filterDraft.section">
+                                            <option value="" x-text="t('-- All Sections --')"></option>
+                                            <template x-for="opt in activeOptions('section')" :key="'fs-' + opt.key">
+                                                <option :value="opt.key" x-text="optionLabel('section', opt.key)"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div class="col-12 col-sm-4">
+                                        <label class="form-label mb-1" for="patientFilters.source" x-text="t('Source of Money')"></label>
+                                        <select id="patientFilters.source" class="form-select" x-model="filterDraft.source_of_money">
+                                            <option value="" x-text="t('-- All Sources --')"></option>
+                                            <template x-for="opt in activeOptions('source')" :key="'fo-' + opt.key">
+                                                <option :value="opt.key" x-text="optionLabel('source', opt.key)"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Sticky actions on the mobile sheet -->
+                            <div class="filter-panel-footer">
+                                <button type="button" class="btn btn-outline-secondary filter-panel-reset" @click="resetFilters()" x-text="t('Reset')"></button>
+                                <button type="submit" class="btn btn-primary filter-panel-apply" x-text="t('Apply')"></button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
 
                 <div class="card shadow-sm border-0">
                     <div class="card-body p-0">

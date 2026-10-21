@@ -77,6 +77,205 @@
 }
 
 /*
+ * Patients filters toolbar + panel (issue #13).
+ *
+ * ONE component for both shells: the panel is an anchored popover beside the
+ * Filters button from 768px up, and a bottom sheet below that. Everything is
+ * positioned with logical properties, so RTL needs no extra rules: the panel
+ * opens toward the reading direction and the sheet keeps its safe-area inset.
+ */
+.filter-toolbar {
+    position: relative;
+    min-width: 0;
+}
+
+.filter-toggle {
+    min-height: 44px;
+}
+
+.filter-panel {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    inset-inline-start: 0;
+    z-index: 1045;
+    width: min(41rem, 100%);
+    padding: 1rem 1.1rem;
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 0.75rem;
+    box-shadow: 0 0.85rem 2rem rgba(0, 0, 0, 0.18);
+}
+
+.filter-panel-body {
+    max-height: 65vh;
+    overflow-y: auto;
+}
+
+.filter-scope-heading {
+    margin-block-start: 1rem;
+    margin-inline: -0.25rem;
+    padding: 0.35rem 0.25rem;
+    border-bottom: 1px solid #e9ecef;
+    font-weight: 600;
+    font-size: 0.8rem;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #6c757d;
+}
+
+.filter-panel-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-block-start: 1rem;
+    padding-block-start: 0.75rem;
+    border-top: 1px solid #e9ecef;
+}
+
+.filter-panel-footer .filter-panel-reset,
+.filter-panel-footer .filter-panel-apply {
+    min-width: 6.5rem;
+}
+
+/* Applied-filter chips */
+.filter-chips {
+    row-gap: 0.5rem;
+}
+
+.filter-chips .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    max-inline-size: 100%;
+    padding: 0.3rem 0.35rem 0.3rem 0.75rem;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    line-height: 1.2;
+}
+
+.filter-chips .chip-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.filter-chips .chip-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.65rem;
+    height: 1.65rem;
+    flex-shrink: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: #6c757d;
+    font-size: 0.7rem;
+}
+
+.filter-chips .chip-remove:hover {
+    background: rgba(13, 110, 253, 0.1);
+    color: #0d6efd;
+}
+
+/* Bottom sheet (<768px): full width, scrollable body, sticky actions. */
+@media (max-width: 767.98px) {
+    .filter-scrim {
+        position: fixed;
+        inset: 0;
+        z-index: 1040;
+        border: 0;
+        background: rgba(13, 23, 38, 0.45);
+    }
+
+    .filter-panel {
+        position: fixed;
+        inset-block-start: auto;
+        inset-inline-start: 0;
+        inset-inline-end: 0;
+        inset-block-end: 0;
+        z-index: 1055;
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        max-width: 100%;
+        max-height: 85vh;
+        padding: 0.9rem 1rem 0;
+        margin: 0;
+        border-radius: 1rem 1rem 0 0;
+        border: 0;
+        border-block-start: 1px solid #dee2e6;
+        overflow: hidden;
+    }
+
+    /* Track the visual viewport too, so an open on-screen keyboard keeps the
+       Apply/Reset actions reachable. */
+    @supports (height: 100dvh) {
+        .filter-panel {
+            max-height: 80dvh;
+        }
+    }
+
+    .filter-panel-header {
+        padding-block-end: 0.6rem;
+    }
+
+    .filter-panel-body {
+        max-height: none;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 0.5rem 0.15rem 1rem;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Sticky action bar at the sheet's bottom edge. */
+    .filter-panel-footer {
+        position: sticky;
+        inset-block-end: 0;
+        margin-inline: -1rem;
+        margin-block-start: 0;
+        padding: 0.75rem 1rem;
+        padding-block-end: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+        background: #fff;
+        border-block-start: 1px solid #e9ecef;
+        border-radius: 0 0 1rem 1rem;
+    }
+
+    /* 44px tap targets */
+    .filter-toolbar .btn,
+    .filter-panel .form-control,
+    .filter-panel .form-select {
+        min-height: 44px;
+    }
+
+    /* The header close button and the chip remove stay visually small, so
+       grow only their interactive surface with transparent padding instead
+       of scaling the glyph. Negative margins keep the chip/header rows at
+       their natural height. */
+    .filter-panel-header .btn-close,
+    .filter-chips .chip-remove {
+        box-sizing: content-box;
+        padding: 10px;
+        background-clip: content-box;
+        width: 24px;
+        height: 24px;
+        margin: -10px;
+    }
+
+    .filter-panel .form-label {
+        font-size: 0.85rem;
+    }
+
+    .filter-chips .chip {
+        padding-inline: 0.85rem 0.5rem;
+    }
+}
+
+/*
  * Icon spacing — direction-agnostic.
  *
  * Bootstrap Icons render as inline glyphs with no side bearing, so an icon in
