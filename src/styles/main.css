@@ -94,6 +94,29 @@
  */
 
 /*
+ * Dropdowns anchored to the inline-end of their trigger (issue #21).
+ *
+ * Bootstrap reads the document direction when its script is evaluated and
+ * freezes the Popper placement of `.dropdown-menu-end` at that moment
+ * (`isRTL()` -> PLACEMENT_BOTTOMEND). src/main.js applies the saved locale
+ * afterwards, so in Arabic the frozen placement is still the LTR one and the
+ * menu anchors to the physical right edge of the caret: it hangs beside the
+ * split-button group instead of opening underneath it. Popper's viewport flip
+ * hides this whenever the group hugs a page edge, which is why it only shows
+ * up at some widths.
+ *
+ * `--bs-position` is the switch Bootstrap re-reads on every open. `start`
+ * selects the mirrored placement, matching the anchor the RTL stylesheet
+ * already gives the menu (`[data-bs-popper] { left: 0; right: auto }`). This
+ * relies on Bootstrap being evaluated while the document is still LTR, which
+ * index.html guarantees (`<html dir="ltr">`; the locale is applied in
+ * `initI18n()`).
+ */
+[dir="rtl"] .dropdown-menu-end {
+    --bs-position: start;
+}
+
+/*
  * Dashboard summary cards (issue #14).
  *
  * Desktop (>=992px) keeps the original look — the row renders 4-up and the

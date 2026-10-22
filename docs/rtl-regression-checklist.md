@@ -26,7 +26,7 @@ the dropdown-anchor changes also with a real tap (touch target sizes).
 | Component | What to verify in RTL |
 | --- | --- |
 | Patients — "Add New Patient" split button | Main segment: outer radius on the inline-start side, square inner edge. Caret segment: mirror of that, one shared seam, no notch/white gap. When the import feature is off, the control renders as one normally rounded button. |
-| Patients — split button dropdown | Menu opens aligned to the trigger's inline-start edge, extends toward the inline-end, never runs off-screen at any breakpoint, does not shift the trigger, closes with Esc and returns focus. |
+| Patients — split button dropdown | Menu opens beneath the group: in LTR its inline-end edge lines up with the caret's inline-end edge, in RTL the mirror does (inline-start to inline-start). Check it with the trigger away from a page edge as well — Popper's viewport flip can mask a wrong anchor when the group hugs the edge. Never runs off-screen at any breakpoint, does not shift the trigger, closes with Esc and returns focus. |
 | Patients table — actions group (view/edit/delete) | One outer radius per flow end, shared internal borders, no double border, delete stays the flow-end member, focus ring visible above neighbours. |
 | Users table — actions group (edit/delete) | Same as above. |
 | Settings — AI chain row (up / down / delete) | Group mirrors correctly; up/down/delete stays in reading order; delete at the inline-end; red outline intact. |
