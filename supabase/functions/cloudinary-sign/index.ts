@@ -141,11 +141,10 @@ Deno.serve(async (req: Request) => {
         const resourceType = body.resource_type === 'raw' ? 'raw' : 'image';
         const format = String(body.format || '').trim();
 
-        // Raw assets (PDFs) store the extension inside the public_id; image
-        // assets keep it in the separate `format` field.
-        const source = resourceType === 'raw' || !format || publicId.endsWith(`.${format}`)
-            ? publicId
-            : `${publicId}.${format}`;
+        // Authenticated delivery URL:
+        // - For images: source = public_id (WITHOUT format extension)
+        // - For raw (PDFs): source = public_id (already includes extension)
+        const source = resourceType === 'raw' ? publicId : publicId;
 
         const signature = await signDeliveryPath('', source, apiSecret);
         const url = `https://res.cloudinary.com/${cloudName}/${resourceType}/authenticated/${signature}/${source}`;
