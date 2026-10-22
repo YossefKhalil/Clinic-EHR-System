@@ -2310,16 +2310,21 @@ function app() {
                     error: null,
                 };
                 this.patientAttachments.push(entry);
+                const entryIndex = this.patientAttachments.length - 1;
                 
                 try {
                     const uploaded = await uploadAttachment(file, {
                         folder: this.attachmentFolder(),
-                        onProgress: (percent) => { entry.progress = percent; },
+                        onProgress: (percent) => {
+                            // Use array index to ensure Alpine reactivity fires
+                            this.patientAttachments[entryIndex].progress = percent;
+                        },
                     });
-                    Object.assign(entry, uploaded, { uploading: false, progress: 100 });
+                    // Merge upload result and mark complete
+                    Object.assign(this.patientAttachments[entryIndex], uploaded, { uploading: false, progress: 100 });
                 } catch (error) {
-                    entry.uploading = false;
-                    entry.error = error.message || this.t('Upload failed');
+                    this.patientAttachments[entryIndex].uploading = false;
+                    this.patientAttachments[entryIndex].error = error.message || this.t('Upload failed');
                 }
             }
         },
