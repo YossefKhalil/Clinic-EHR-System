@@ -586,7 +586,7 @@
                         </form>
                     </div>
                 </div>
-                        <button class="btn btn-success shadow-sm me-2" @click="exportPatients()" :disabled="exporting">
+                        <button class="btn btn-success shadow-sm" @click="exportPatients()" :disabled="exporting">
                             <span x-show="exporting" class="spinner-border spinner-border-sm me-1" x-cloak></span>
                             <i class="bi bi-file-earmark-spreadsheet me-1" x-show="!exporting"></i>
                             <span x-text="exporting ? t('Preparing...') : t('Excel export')"></span>
@@ -596,7 +596,7 @@
                              only one member, so the control must keep a normal
                              button's radius in both LTR and RTL instead of
                              carrying the 'rounded-end' patch-up hack. -->
-                        <div class="shadow-sm me-2" :class="importEnabled ? 'btn-group' : ''">
+                        <div class="shadow-sm" :class="importEnabled ? 'btn-group' : ''">
                             <button type="button" class="btn btn-primary" @click="openPatientForm()">
                                 <i class="bi bi-person-plus-fill me-1"></i> <span x-text="t('Add New Patient')"></span>
                             </button>
