@@ -128,6 +128,17 @@ here, and the fixes are worth knowing about:
   `import-job` diff does not apply; the four `case` lines have to be added by
   hand.
 
+The whole change was reviewed adversarially before it went out, and the
+review found seven more defects in what the comments contained, all of them
+fixed here: the runtime was called with the v2 signature (so every chunk
+would have been extracted with no prompt), the vision model was never
+recognised (the probe read a protobuf key as a four-byte number), the files
+of the two-model layout were dropped when the settings were saved, a
+cancelled chunk was stored as a finished one, a chunk taken over by another
+window could still be marked as failed, the settings the admin saved were
+ignored by the run, and a text field in the card was read as a number. The
+tests in `tests/unit/local-*.test.js` cover each of them.
+
 ## What is dark, and why
 
 The OCR path (Phase 2) is written but cannot run yet:
