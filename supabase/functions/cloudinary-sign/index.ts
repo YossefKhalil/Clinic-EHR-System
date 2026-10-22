@@ -141,18 +141,18 @@ Deno.serve(async (req: Request) => {
         const resourceType = body.resource_type === 'raw' ? 'raw' : 'image';
         const format = String(body.format || '').trim();
 
-        // Authenticated delivery URL:
-        // - For images: source = public_id (WITHOUT format extension)
-        // - For raw (PDFs): public_id includes extension; strip it for the
-        //   signature source, but keep it in the delivery URL path.
-        const source = resourceType === 'raw'
-            ? publicId.replace(/\.[^.]+$/, '')
-            : publicId;
+        // Authenticated delivery URL signature source:
+        // - For images: public_id does NOT include extension; Cloudinary expects
+        //   the bare public_id (e.g., "folder/image").
+        // - For raw (PDFs): public_id INCLUDES extension (e.g.,
+        //   "folder/file.PDF"); the full public_id must be signed.
+        // The original logic handled this correctly: raw uses publicId as-is.
+        const source = resourceType === 'raw' || !format || publicId.endsWith(`.${format}`)
+            ? publicId
+            : `${publicId}.${format}`;
 
         const signature = await signDeliveryPath('', source, apiSecret);
-        // For raw, deliver with the original public_id (with extension)
-        const deliverySource = resourceType === 'raw' ? publicId : source;
-        const url = `https://res.cloudinary.com/${cloudName}/${resourceType}/authenticated/${signature}/${deliverySource}`;
+        const url = `https://res.cloudinary.com/${cloudName}/${resourceType}/authenticated/${signature}/${source}`;
         return json({ url });
     }
 
