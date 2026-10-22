@@ -226,6 +226,7 @@ flowchart LR
 ### Operational notes
 
 - Cloudinary uploads use an unsigned preset. Scope the preset to the expected file types and size, and monitor usage; the preset is not an authentication boundary.
+- **Cloudinary Free product environments block delivery of PDF (and ZIP/archive) files by default.** Patient PDFs upload fine and then return `401` with `X-Cld-Error: deny or ACL failure` on open, while images keep working, and the delivery signature is not the cause. Enable **Settings → Security → Allow delivery of PDF and ZIP files** for the product environment that `VITE_CLOUDINARY_CLOUD_NAME` points at (paid plans have no such block). Cloudinary caches the denied response per URL, so retry after the change or bust the cache before concluding it did not help.
 - This repository is a software project, not a certified medical device or a compliance package. Deployers are responsible for their own regulatory, consent, retention, and security obligations.
 
 ## Getting started
