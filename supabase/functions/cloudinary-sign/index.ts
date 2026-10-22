@@ -15,8 +15,8 @@
 // Secrets (supabase secrets set ...):
 //   CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
 //
-// JWT verification is handled by the Supabase gateway (verify_jwt is on by
-// default), so only signed-in staff can call this function.
+// The gateway enforces verify_jwt, and the handler resolves the token against
+// /auth/v1/user so the public anon key alone cannot mint signatures.
 
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
@@ -79,6 +79,24 @@ Deno.serve(async (req: Request) => {
     }
     if (req.method !== 'POST') {
         return json({ error: 'Method not allowed' }, 405);
+    }
+
+    // The gateway checks that the JWT is well-formed, but the public anon key
+    // is also a valid JWT. Resolve it to a real user so an anonymous caller
+    // cannot mint upload signatures.
+    const authHeader = req.headers.get('Authorization') || '';
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (!token) {
+        return json({ error: 'Sign in required' }, 401);
+    }
+    const userResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/auth/v1/user`, {
+        headers: {
+            apikey: Deno.env.get('SUPABASE_ANON_KEY') || '',
+            Authorization: `Bearer ${token}`,
+        },
+    });
+    if (!userResponse.ok) {
+        return json({ error: 'Sign in required' }, 401);
     }
 
     const cloudName = Deno.env.get('CLOUDINARY_CLOUD_NAME');
