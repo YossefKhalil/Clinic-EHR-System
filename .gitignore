@@ -1,6 +1,7 @@
 node_modules
 dist
 .env
+supabase/.temp/
 
 # Local model files: never committed (1.1 GB+)
 models/*
