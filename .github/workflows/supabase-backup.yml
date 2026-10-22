@@ -1,0 +1,102 @@
+name: Supabase daily backup
+
+# Free tier has no backups and no point-in-time recovery. This workflow takes a
+# nightly pg_dump, encrypts it with a passphrase, and stores it as a GitHub
+# Actions artifact (30-day retention). Optionally it can also push the
+# encrypted dump to a private `backups` branch for longer retention.
+#
+# Repository secrets used (names only; values are write-only in GitHub):
+#   SUPABASE_DB_URL      - already configured for the schema workflow
+#   BACKUP_PASSPHRASE    - the gpg passphrase. Set this yourself; store a copy
+#                          offline. Losing it makes every backup unreadable.
+
+on:
+  schedule:
+    - cron: '0 2 * * *'   # 02:00 UTC daily
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # only needed if the git-push step below is enabled
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets are configured
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::SUPABASE_DB_URL is not set."
+            exit 1
+          fi
+          if [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::error::BACKUP_PASSPHRASE is not set. Add it under Settings -> Secrets and variables -> Actions. Store a copy offline: losing it makes every backup unreadable."
+            exit 1
+          fi
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Dump database
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          FILE="backup-$(date -u +%F).dump"
+          pg_dump "$SUPABASE_DB_URL" \
+            --no-owner --no-acl --clean --if-exists \
+            -Fc -f "$FILE"
+          echo "FILE=$FILE" >> "$GITHUB_ENV"
+          ls -lh "$FILE"
+
+      - name: Encrypt dump
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          # add-mask keeps the passphrase out of the logs even if a command
+          # echoes it.
+          echo "::add-mask::$BACKUP_PASSPHRASE"
+          printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --yes \
+            --pinentry-mode loopback --passphrase-fd 0 \
+            --symmetric --cipher-algo AES256 \
+            --output "${{ env.FILE }}.gpg" "${{ env.FILE }}"
+          echo "ENCRYPTED_FILE=${{ env.FILE }}.gpg" >> "$GITHUB_ENV"
+          ls -lh "${{ env.FILE }}.gpg"
+
+      - name: Verify the encrypted dump is readable
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --yes \
+            --pinentry-mode loopback --passphrase-fd 0 --decrypt \
+            "${{ env.ENCRYPTED_FILE }}" > "${{ env.FILE }}"
+          pg_restore --list "${{ env.FILE }}" | head -5
+          rm -f "${{ env.FILE }}"
+          echo "Encrypted dump verified OK"
+
+      - name: Upload encrypted dump as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-backup-${{ github.run_number }}
+          path: ${{ env.ENCRYPTED_FILE }}
+          retention-days: 30
+
+      # ---------- OPTIONAL: keep backups longer than 30 days ----------
+      # Uncomment to push each encrypted dump to a `backups` branch of THIS
+      # repo. Requires a private repository.
+      #
+      # - name: Push to backups branch
+      #   run: |
+      #     git config user.name  "github-actions[bot]"
+      #     git config user.email "github-actions[bot]@users.noreply.github.com"
+      #     git checkout --orphan backups 2>/dev/null || git checkout backups
+      #     git rm -rf . 2>/dev/null || true
+      #     cp "${{ env.ENCRYPTED_FILE }}" .
+      #     git add "${{ env.ENCRYPTED_FILE }}"
+      #     git commit -m "backup $(date -u +%F)" || echo "nothing to commit"
+      #     git push origin backups --force

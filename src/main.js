@@ -2336,12 +2336,16 @@ function app() {
         
         attachmentUrl(attachment, width = 320) {
             if (!attachment) return '';
+            // Authenticated assets cannot use on-the-fly transformations, so
+            // the stored signed URL is the only deliverable form.
+            if (attachment.authenticated) return attachment.url || '';
             if (!this.attachmentIsImage(attachment) || !attachment.public_id) return attachment.url || '';
             return getImageUrl(attachment.public_id, { width, quality: 80 });
         },
         
         attachmentFullUrl(attachment) {
             if (!attachment) return '';
+            if (attachment.authenticated) return attachment.url || '';
             if (!this.attachmentIsImage(attachment) || !attachment.public_id) return attachment.url || '';
             return getImageUrl(attachment.public_id, { width: 1600, quality: 90 });
         },
