@@ -70,7 +70,7 @@ describe('clampLocalConfig', () => {
             runtime: { leaseSeconds: 1, parallel: 99, maxAttempts: 0 },
         });
         expect(clamped.text.contextTokens).toBe(131072);
-        expect(clamped.text.threads).toBe(64);
+        expect(clamped.text.threads).toBe(16);
         expect(clamped.text.maxOutputTokens).toBe(256);
         expect(clamped.runtime.leaseSeconds).toBe(60);
         expect(clamped.runtime.parallel).toBe(4);

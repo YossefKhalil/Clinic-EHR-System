@@ -161,8 +161,10 @@ export function importAgentWizard() {
         async loadEngine() {
             const state = await loadImportState();
             if (!state) return;
-            this.engine = state.engine === 'local' ? 'local' : 'cloud';
+            this.engine = state.engine;
             this.localAvailable = state.localEnabled === true;
+            // The runtime settings the clinic saved in the settings card.
+            this.localConfig = state.localConfig ?? null;
             this.localModelReady = this.engine !== 'local' ? true : await this.hasLocalModel();
         },
 
@@ -203,6 +205,8 @@ export function importAgentWizard() {
         localAvailable: false,
         localModelReady: true,
         localPhase: '',
+        // The runtime settings the clinic saved in the settings card.
+        localConfig: null,
 
         // extraction
         job: null,
@@ -472,7 +476,9 @@ export function importAgentWizard() {
                 throw new api.ImportApiError('NO_MODEL_PROFILE');
             }
             const device = await probeDevice();
-            const { config } = resolveLocalConfig(device.tier, {});
+            // The clinic's own settings come first; the device tier fills
+            // the gaps.
+            const { config } = resolveLocalConfig(device.tier, this.localConfig ?? {});
             const payload = { mode: profile.mode };
             if (profile.multimodal?.name) {
                 payload.name = profile.multimodal.name;
@@ -657,6 +663,7 @@ export function importAgentWizard() {
                     api,
                     jobId: this.job.id,
                     hints: this.hints?.trim() ?? '',
+                    config: this.localConfig ?? {},
                     signal: controller.signal,
                     onProgress: (event) => {
                         if (event?.phase === 'ocr') this.localPhase = 'reading_photos';

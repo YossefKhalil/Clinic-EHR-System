@@ -39,6 +39,10 @@ import { loadOptions as fetchOptions, allOptions, createOption, updateOption, co
 import { buildSearchDictionary, searchTermVariants, maritalStatusLabel } from './services/search-terms.js';
 import { importAgentWizard, importAgentEnter } from './features/import-agent/ui.js';
 
+// The local runtime fields that hold text rather than a number. Reading a
+// text field as a number turns it into NaN, which the server stores as null.
+const LOCAL_TEXT_CONFIG = new Set(['text.chatTemplate', 'text.kvCacheType']);
+
 // A tab left open across a deploy still points at the previous build's
 // hashed chunks, so the next dynamic import 404s ("error loading dynamically
 // imported module"). Reload once to pull the fresh index.html; the
@@ -238,6 +242,8 @@ function app() {
         // The engine before the current change, so a switch that needs the
         // consent can be held.
         aiEngineBefore: 'off',
+        // The card holds changes that are not saved yet.
+        aiSettingsDirty: false,
         // Whether this deployment allows the local engine at all.
         aiLocalEnabled: false,
         // The cloud consent record: the clinic accepted that the data leaves
@@ -1011,6 +1017,7 @@ function app() {
             this.aiSettingsTestResults = { openrouter: null, cloudflare: null, openai: null, groq: null };
             this.aiSettingsInvalid = {};
             this.aiSettingsMessage = null;
+            this.aiSettingsDirty = false;
         },
 
         /** The local draft, as the server knows it. */
@@ -1019,27 +1026,33 @@ function app() {
             const profile = data.local_profile ?? {};
             const config = data.local_config ?? {};
             state.mode = profile.mode === 'split' ? 'split' : 'single';
+            // A model the admin checked keeps its badge: the check did not
+            // become invalid because the card was reloaded.
+            const keepStatus = (slot, name) => {
+                const current = this.aiLocal?.[slot];
+                return current && current.name === name ? current.status : 'warn';
+            };
             state.multimodal = {
                 ...emptySlot(),
                 name: profile.name ?? '',
                 size: profile.size ?? 0,
                 sha256: profile.sha256 ?? '',
                 kind: 'gguf',
-                status: profile.name ? 'warn' : 'none',
+                status: profile.name ? keepStatus('multimodal', profile.name) : 'none',
             };
             state.text = {
                 ...emptySlot(),
                 name: profile.textName ?? '',
                 size: profile.textSize ?? 0,
                 kind: 'gguf',
-                status: profile.textName ? 'warn' : 'none',
+                status: profile.textName ? keepStatus('text', profile.textName) : 'none',
             };
             state.vision = {
                 ...emptySlot(),
                 name: profile.visionName ?? '',
                 size: profile.visionSize ?? 0,
                 kind: 'onnx',
-                status: profile.visionName ? 'warn' : 'none',
+                status: profile.visionName ? keepStatus('vision', profile.visionName) : 'none',
             };
             state.support = {
                 ...state.support,
@@ -1069,6 +1082,7 @@ function app() {
          */
         aiOnEngineChange(engine) {
             this.aiSettingsMessage = null;
+            this.aiSettingsDirty = true;
             if (engine === 'local' && !this.aiLocalEnabled) {
                 this.aiEngine = 'off';
                 this.aiEngineBefore = 'off';
@@ -1115,6 +1129,7 @@ function app() {
         async aiLocalBrowse(slot) {
             this.aiLocalMessage = null;
             this.aiLocalVerifying = slot;
+            this.aiSettingsDirty = true;
             try {
                 const picked = await pickAndVerify(this.aiLocal, slot);
                 if (!picked) return;
@@ -1134,6 +1149,7 @@ function app() {
         /** Pick the folder with the tokenizer and the config files. */
         async aiLocalBrowseSupport() {
             this.aiLocalMessage = null;
+            this.aiSettingsDirty = true;
             try {
                 const picked = await pickSupportFiles(this.aiLocal);
                 if (!picked) {
@@ -1155,22 +1171,41 @@ function app() {
         aiLocalRemove(slot) {
             this.aiLocal[slot] = emptySlot();
             this.aiLocalMessage = null;
+            this.aiSettingsDirty = true;
         },
 
         /** The layout changed: the other slot is not used any more. */
         aiOnLocalLayoutChange() {
             this.aiLocalMessage = null;
+            this.aiSettingsDirty = true;
         },
 
-        /** Write one runtime value. */
+        /**
+         * Write one runtime value.
+         *
+         * The kind of the field decides how the value is read: a switch is a
+         * boolean, a text field is text, everything else is a number. A
+         * number field that was cleared falls back to the default, not to
+         * NaN.
+         */
         aiLocalSetConfig(group, key, value) {
             if (!this.aiLocal.config[group]) return;
             const current = this.aiLocal.config[group][key];
-            const next = typeof current === 'boolean' ? Boolean(value) : Number(value);
+            let next;
+            if (LOCAL_TEXT_CONFIG.has(`${group}.${key}`)) {
+                const text = String(value ?? '').trim();
+                next = text === '' && key === 'chatTemplate' ? null : text;
+            } else if (typeof current === 'boolean') {
+                next = Boolean(value);
+            } else {
+                const number = Number(value);
+                next = Number.isFinite(number) ? number : current;
+            }
             this.aiLocal.config = {
                 ...this.aiLocal.config,
                 [group]: { ...this.aiLocal.config[group], [key]: next },
             };
+            this.aiSettingsDirty = true;
         },
 
         /** The badge class of a model slot. */
@@ -1790,6 +1825,58 @@ function app() {
             }
         },
         
+        // ---- The sort of the patients table ---------------------------------
+
+        // The columns the table can be sorted by, with the label of their
+        // header - the menu of the sort button and the header of the table
+        // always say the same thing.
+        sortOptions() {
+            return [
+                { key: 'name', label: this.t('Patient Name') },
+                { key: 'national_id', label: this.t('National ID') },
+                { key: 'mobile', label: this.t('Mobile No.') },
+                { key: 'governorate', label: this.t('Governorate') },
+                { key: 'is_completed', label: this.t('Status') },
+                { key: 'follower', label: this.t('Follower') },
+                { key: 'source_of_money', label: this.t('Source of Money') },
+                { key: 'section', label: this.t('Section') },
+                { key: 'created_at', label: this.t('Registered Date') },
+            ];
+        },
+
+        // Sort by a column: the same column again flips the direction, a new
+        // column starts at the beginning - ascending, and the newest first
+        // for the date.
+        async sortPatientsBy(key) {
+            const current = this.patientSort;
+            const dir = current.key === key
+                ? (current.dir === 'asc' ? 'desc' : 'asc')
+                : (key === 'created_at' ? 'desc' : 'asc');
+            this.patientSort = { key, dir };
+            await this.loadPatients();
+        },
+
+        // The arrow of a column: the direction of the current sort, or a
+        // faint sign that the column can be sorted at all.
+        sortIcon(key) {
+            if (this.patientSort.key !== key) return 'bi-arrow-down-up';
+            return this.patientSort.dir === 'asc' ? 'bi-sort-up' : 'bi-sort-down';
+        },
+
+        // What the sort button says right now.
+        sortSummary() {
+            const option = this.sortOptions().find((o) => o.key === this.patientSort.key);
+            const label = option ? option.label : this.t('Registered Date');
+            const dir = this.patientSort.dir === 'asc' ? this.t('Ascending') : this.t('Descending');
+            return `${this.t('Sort')}: ${label} (${dir})`;
+        },
+
+        // For the screen readers: what the column is sorted by.
+        ariaSort(key) {
+            if (this.patientSort.key !== key) return 'none';
+            return this.patientSort.dir === 'asc' ? 'ascending' : 'descending';
+        },
+
         // ---- Patients filters panel (issue #13) ------------------------------
         
         // Number of active filters: drives the count badge and the chips row.
@@ -1914,58 +2001,6 @@ function app() {
                 section: allOptions('section'),
                 source: allOptions('source'),
             }));
-        },
-
-        // ---- The sort of the patients table ---------------------------------
-
-        // The columns the table can be sorted by, with the label of their
-        // header - the menu of the sort button and the header of the table
-        // always say the same thing.
-        sortOptions() {
-            return [
-                { key: 'name', label: this.t('Patient Name') },
-                { key: 'national_id', label: this.t('National ID') },
-                { key: 'mobile', label: this.t('Mobile No.') },
-                { key: 'governorate', label: this.t('Governorate') },
-                { key: 'is_completed', label: this.t('Status') },
-                { key: 'follower', label: this.t('Follower') },
-                { key: 'source_of_money', label: this.t('Source of Money') },
-                { key: 'section', label: this.t('Section') },
-                { key: 'created_at', label: this.t('Registered Date') },
-            ];
-        },
-
-        // Sort by a column: the same column again flips the direction, a new
-        // column starts at the beginning - ascending, and the newest first
-        // for the date.
-        async sortPatientsBy(key) {
-            const current = this.patientSort;
-            const dir = current.key === key
-                ? (current.dir === 'asc' ? 'desc' : 'asc')
-                : (key === 'created_at' ? 'desc' : 'asc');
-            this.patientSort = { key, dir };
-            await this.loadPatients();
-        },
-
-        // The arrow of a column: the direction of the current sort, or a
-        // faint sign that the column can be sorted at all.
-        sortIcon(key) {
-            if (this.patientSort.key !== key) return 'bi-arrow-down-up';
-            return this.patientSort.dir === 'asc' ? 'bi-sort-up' : 'bi-sort-down';
-        },
-
-        // What the sort button says right now.
-        sortSummary() {
-            const option = this.sortOptions().find((o) => o.key === this.patientSort.key);
-            const label = option ? option.label : this.t('Registered Date');
-            const dir = this.patientSort.dir === 'asc' ? this.t('Ascending') : this.t('Descending');
-            return `${this.t('Sort')}: ${label} (${dir})`;
-        },
-
-        // For the screen readers: what the column is sorted by.
-        ariaSort(key) {
-            if (this.patientSort.key !== key) return 'none';
-            return this.patientSort.dir === 'asc' ? 'ascending' : 'descending';
         },
 
         // Navbar search. One box, zero options: it searches every patient

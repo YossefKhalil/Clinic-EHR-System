@@ -53,6 +53,7 @@ export function createLocalState() {
             name: '',
             message: '',
             missing: [...OCR_SUPPORT_FILES],
+            files: {},
         },
         config: structuredClone(DEFAULT_LOCAL_CONFIG),
         device: null,
@@ -166,10 +167,13 @@ export async function pickSupportFiles(state, fileList = null) {
     if (!support) return false;
     const missing = missingSupportFiles(support);
     state.support = {
+        ...state.support,
         status: missing.length === 0 ? 'ok' : 'warn',
         name: support.name || Object.keys(support.files).join(', '),
         message: missing.length === 0 ? '' : missing.join(', '),
         missing,
+        // The files themselves: the tokenizer needs them to load.
+        files: support.files,
     };
     return true;
 }
@@ -198,10 +202,12 @@ export async function restoreLocalState(state) {
     if (stored.support?.files) {
         const missing = missingSupportFiles(stored.support);
         state.support = {
+            ...state.support,
             status: missing.length === 0 ? 'ok' : 'warn',
             name: stored.support.name ?? '',
             message: missing.join(', '),
             missing,
+            files: stored.support.files,
         };
     }
     return state;
@@ -223,7 +229,9 @@ export async function persistLocalState(state) {
         };
     }
     if (state.support.status !== 'none') {
-        profile.support = { name: state.support.name, files: {} };
+        // The tokenizer and the config files are kept: the OCR model cannot
+        // load without them.
+        profile.support = { name: state.support.name, files: state.support.files ?? {} };
     }
     await saveProfile(profile);
     return profile;

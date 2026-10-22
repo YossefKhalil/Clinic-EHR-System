@@ -146,6 +146,8 @@ export async function ocrImageBitmap(bitmap, ocrConfig = null) {
     if (!ready) throw new Error('Falcon not initialized');
     const cfg = ocrConfig || activeOcrConfig;
     if (!cfg) throw new Error('OCR_CONFIG_MISSING');
+    // The runtime is loaded once; the strips are read with it.
+    const { ort } = await loadRuntime();
 
     // The long side is capped first, so the strips stay small.
     const scale = Math.min(1, cfg.imageLongSide / Math.max(bitmap.width, bitmap.height));
@@ -172,7 +174,6 @@ export async function ocrImageBitmap(bitmap, ocrConfig = null) {
         const attention = buildAttentionMask(tokens.length, spatialMask);
         const lastPromptPos = Number(posT[posT.length - 1]);
 
-        const ort = activeOcrConfig ? (await loadRuntime()).ort : null;
         const feeds = {
             tokens: new ort.Tensor('int64', BigInt64Array.from(tokens.map((token) => BigInt(token))), [1, tokens.length]),
             image_patches: new ort.Tensor('float32', patches, [1, N, 768]),

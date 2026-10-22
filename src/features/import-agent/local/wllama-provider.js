@@ -89,9 +89,9 @@ export async function initWllama(modelSource, options = {}) {
     const wasmUrl = (await import('@wllama/wllama/esm/wasm/wllama.wasm?url')).default;
 
     wllama = new Wllama({ default: wasmUrl }, { suppressNativeLog: true, allowOffline: true });
-    const loadParams = buildLoadParams(config, {
-        progressCallback: (progress) => options.onProgress?.(progress.loaded || 0, progress.total || 1),
-    });
+    // The runtime has no progress callback for a file that is already in
+    // hand, so the panel shows the phase instead of a byte counter.
+    const loadParams = buildLoadParams(config);
 
     if (modelSource.url) {
         await wllama.loadModelFromUrl(modelSource.url, loadParams);
@@ -110,7 +110,7 @@ export async function initWllama(modelSource, options = {}) {
 
     // Warm up so the first real chunk is not the slow one.
     try {
-        await wllama.createCompletion('hi', { max_tokens: 1, temperature: 0 });
+        await wllama.createCompletion({ prompt: 'hi', max_tokens: 1, temperature: 0 });
     } catch { /* the warm-up is best effort */ }
 
     return { ok: true, config, chatTemplate: modelTemplate };
@@ -188,13 +188,14 @@ export function createLocalProvider() {
                         content.push({ type: 'image', data: await dataUrlToBuffer(part.dataUrl) });
                     }
                 }
-                const response = await wllama.createChatCompletion(
-                    [
+                const response = await wllama.createChatCompletion({
+                    messages: [
                         { role: 'system', content: request.system || '' },
                         { role: 'user', content },
                     ],
-                    { ...sampling, abortSignal },
-                );
+                    ...sampling,
+                    abortSignal,
+                });
                 const text = response?.choices?.[0]?.message?.content ?? '';
                 return {
                     text: String(text),
@@ -217,7 +218,8 @@ export function createLocalProvider() {
                     system: request.system || '',
                     user: userText,
                 });
-                const response = await wllama.createCompletion(prompt, {
+                const response = await wllama.createCompletion({
+                    prompt,
                     ...sampling,
                     stop: config.text.stopSequences?.length ? config.text.stopSequences : undefined,
                     abortSignal,
@@ -232,13 +234,14 @@ export function createLocalProvider() {
                 };
             }
 
-            const response = await wllama.createChatCompletion(
-                [
+            const response = await wllama.createChatCompletion({
+                messages: [
                     { role: 'system', content: request.system || '' },
                     { role: 'user', content: userText },
                 ],
-                { ...sampling, abortSignal },
-            );
+                ...sampling,
+                abortSignal,
+            });
             const text = response?.choices?.[0]?.message?.content ?? '';
             return {
                 text: String(text),

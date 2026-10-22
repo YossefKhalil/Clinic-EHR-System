@@ -35,8 +35,14 @@ export const ADAPTERS = Object.freeze({
     ONNX_FALCON_OCR: 'onnx-falcon-ocr',
 });
 
-/** How many bytes the probe reads from the head of a file. */
-const PROBE_WINDOW = 4 * 1024 * 1024;
+/**
+ * How many bytes the probe reads from the head of a file.
+ *
+ * A GGUF puts its metadata before its weights, but the metadata of a large
+ * vocabulary is big: the window has to hold the keys and the tensor list,
+ * or the file looks truncated.
+ */
+const PROBE_WINDOW = 16 * 1024 * 1024;
 
 /** The kind a filename claims. */
 export function fileKind(name) {
@@ -52,13 +58,16 @@ export function sniffKind(bytes) {
         if (bytes[0] === 0x47 && bytes[1] === 0x47 && bytes[2] === 0x55 && bytes[3] === 0x46) return 'gguf';
         if (bytes[0] === 0x50 && bytes[1] === 0x4b) return 'zip'; // ONNX in a zip container
     }
-    if (bytes.byteLength >= 8) {
-        // A bare ONNX file is a protobuf: field 7 (graph) is usually first,
-        // so the top byte is 0x3a (field 7, wire type 2).
-        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-        const key = view.getUint32(0, true);
+    // An ONNX file is a protobuf. Its first field is a key, and a key is a
+    // varint: a small field number with a wire type. `ir_version` (field 1)
+    // and `graph` (field 7) are the two the exporters put first.
+    if (bytes.byteLength >= 1) {
+        const key = bytes[0];
         const field = key >>> 3;
-        if (field === 7 && (key & 0x7) === 2) return 'onnx';
+        const wire = key & 0x7;
+        if ((field === 1 && wire === 0) || (field === 7 && wire === 2) || (field === 2 && wire === 2)) {
+            return 'onnx';
+        }
     }
     return 'unknown';
 }
@@ -119,11 +128,11 @@ export async function probeModelFile(file, options = {}) {
         };
     }
 
-    if (actual === 'gguf') return probeGguf(head, capabilities, warnings, options);
+    if (actual === 'gguf') return probeGguf(head, capabilities, warnings, options, file.name);
     return probeOnnx(head, capabilities, warnings, options);
 }
 
-function probeGguf(head, capabilities, warnings, options) {
+function probeGguf(head, capabilities, warnings, options, fileName = '') {
     let header;
     try {
         header = parseGgufHeader(head);
@@ -144,7 +153,7 @@ function probeGguf(head, capabilities, warnings, options) {
     capabilities.architecture = header.architecture;
     capabilities.chatTemplate = header.chatTemplate;
     capabilities.contextLength = header.contextLength;
-    capabilities.multimodal = hasVisionTensors(header.tensors);
+    capabilities.multimodal = hasVisionTensors(header.tensors, fileName);
 
     if (!isSupportedArchitecture(header.architecture, options.supportedArchitectures)) {
         return {

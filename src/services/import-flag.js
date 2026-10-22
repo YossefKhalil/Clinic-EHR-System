@@ -41,6 +41,10 @@ export async function loadImportState({ force = false } = {}) {
             enabled: data.enabled === true,
             engine: data.engine === 'local' ? 'local' : (data.enabled === true ? 'cloud' : 'off'),
             localEnabled: data.local_enabled === true,
+            // The local setup the clinic saved: the model names and the
+            // runtime settings. The files stay in the browser.
+            localProfile: data.local_profile && typeof data.local_profile === 'object' ? data.local_profile : null,
+            localConfig: data.local_config && typeof data.local_config === 'object' ? data.local_config : null,
         };
         return cached;
     } catch {

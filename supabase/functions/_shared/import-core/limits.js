@@ -120,7 +120,7 @@ export const LIMITS = {
 export const LOCAL_RUNTIME_BOUNDS = Object.freeze({
     contextTokens: { min: 1024, max: 131072 },
     batchSize: { min: 32, max: 2048 },
-    threads: { min: 1, max: 64 },
+    threads: { min: 1, max: 16 },
     gpuLayers: { min: -1, max: 999 },
     maxOutputTokens: { min: 256, max: 32768 },
     sheetRowsPerChunk: { min: 1, max: 50 },

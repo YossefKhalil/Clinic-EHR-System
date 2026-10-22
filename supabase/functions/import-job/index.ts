@@ -1384,6 +1384,10 @@ function actionEnabled(ctx: Context) {
         // Which engine the card shows.
         engine: engineOf(ctx.settingsRow),
         local_enabled: localInferenceEnabled(),
+        // The local setup the clinic saved: the names and the hashes of the
+        // models, and the runtime settings. The files stay in the browser.
+        local_profile: objectAt(ctx.settingsRow?.local_profile),
+        local_config: clampLocalConfig(objectAt(ctx.settingsRow?.local_config)),
     });
 }
 
@@ -1473,10 +1477,17 @@ async function actionLocalClaim(body: Record<string, unknown>, ctx: Context) {
         bounds.maxAttempts.min,
         Math.min(bounds.maxAttempts.max, Number.isFinite(requestedAttempts) ? requestedAttempts : runtime.maxAttempts),
     );
+    // More than one chunk at a time multiplies the model memory, so the
+    // server clamps it to the same bound the browser uses.
+    const requestedParallel = Number(body.parallel ?? runtime.parallel);
+    const parallel = Math.max(
+        1,
+        Math.min(bounds.parallel.max, Number.isFinite(requestedParallel) ? requestedParallel : runtime.parallel),
+    );
 
     const { data, error } = await service.rpc('import_claim_chunks', {
         p_job_id: job.id,
-        p_limit: 1,
+        p_limit: parallel,
         p_lease_seconds: leaseSeconds,
         p_max_attempts: maxAttempts,
     });
@@ -1496,11 +1507,18 @@ async function actionLocalClaim(body: Record<string, unknown>, ctx: Context) {
         }
         // Another tab may hold the running chunk. Ask the client to wait
         // instead of terminating its loop.
-        return json({ ok: true, done: false, chunk: null, progress, retry_after_ms: 2000 });
+        return json({ ok: true, done: false, chunk: null, chunks: [], progress, retry_after_ms: 2000 });
     }
-    const row = claimed[0];
     const progress = await chunkProgress(service, job.id);
-    return json({ ok: true, done: false, chunk: row, progress, lease_seconds: leaseSeconds });
+    return json({
+        ok: true,
+        done: false,
+        // The first chunk on its own, and the whole batch.
+        chunk: claimed[0],
+        chunks: claimed,
+        progress,
+        lease_seconds: leaseSeconds,
+    });
 }
 
 async function actionLocalSubmit(body: Record<string, unknown>, ctx: Context) {
@@ -1570,6 +1588,8 @@ async function actionLocalFail(body: Record<string, unknown>, ctx: Context) {
     // Transient failures requeue until the attempts run out; deterministic
     // ones (a model that cannot be used) fail at once, so the user sees the
     // cause instead of a retry loop.
+    // Only the claim holder may fail a chunk: another tab may have taken it
+    // over already, and its rows must not be marked as failed.
     const canRetry = retryable && (chunk.attempts ?? 0) < maxAttempts;
     await service
         .from('import_chunks')
@@ -1577,7 +1597,8 @@ async function actionLocalFail(body: Record<string, unknown>, ctx: Context) {
             ? { status: 'queued', error_code: code, lease_until: null }
             : { status: 'failed', error_code: code, lease_until: null })
         .eq('id', chunkId)
-        .eq('job_id', job.id);
+        .eq('job_id', job.id)
+        .eq('status', 'running');
 
     await failExhausted(service, job.id, limits, maxAttempts);
     const progress = await chunkProgress(service, job.id);

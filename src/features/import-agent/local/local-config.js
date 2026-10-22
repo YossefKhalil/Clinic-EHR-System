@@ -108,9 +108,6 @@ export function resolveLocalConfig(tier, overrides = {}) {
     const merged = deepMerge(deepMerge(DEFAULT_LOCAL_CONFIG, deviceDefaults(tier)), overrides);
     const config = clampLocalConfig(merged);
     const warnings = [];
-    if (config.text.contextTokens < 1024) {
-        warnings.push('contextTokens below 1024; extraction quality will suffer');
-    }
     if (config.text.contextTokens > 65536) {
         warnings.push('contextTokens above 64k; the KV cache may exceed the device memory');
     }

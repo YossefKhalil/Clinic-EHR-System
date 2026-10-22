@@ -52,6 +52,7 @@ export async function runLocalImport(input) {
     if (!profile || !profileComplete(profile)) throw error('NO_MODEL_PROFILE', 'no model profile');
 
     const device = await probeDevice();
+    // The clinic's own settings come first; the device tier fills the gaps.
     const { config } = resolveLocalConfig(device.tier, input.config ?? {});
 
     onProgress?.({ phase: 'loading_models' });

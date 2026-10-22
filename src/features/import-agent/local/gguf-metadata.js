@@ -203,7 +203,9 @@ export function parseGgufHeader(input) {
     const chatTemplate = typeof metadata['tokenizer.chat_template'] === 'string'
         ? metadata['tokenizer.chat_template']
         : null;
-    const contextLength = Number(metadata['<arch>.context_length'] ?? 0) || null;
+    const contextLength = architecture
+        ? Number(metadata[`${architecture}.context_length`] ?? 0) || null
+        : null;
 
     return { version, architecture, chatTemplate, contextLength, tensors, metadata };
 }
@@ -215,8 +217,15 @@ export function parseGgufHeader(input) {
  */
 const VISION_TENSOR_PREFIXES = ['clip.', 'vision.', 'mmproj.', 'image_'];
 
-/** True when the file carries a vision tower (llama.cpp's mmproj layout). */
-export function hasVisionTensors(tensors) {
+/**
+ * True when the file carries a vision tower.
+ *
+ * llama.cpp keeps the vision tower in a separate `.mmproj` file, and a GGUF
+ * that holds one is named that way. A GGUF with the vision tower inside it
+ * is found by the tensor names.
+ */
+export function hasVisionTensors(tensors, fileName = '') {
+    if (/\.mmproj$/i.test(String(fileName ?? ''))) return true;
     return tensors.some((tensor) => VISION_TENSOR_PREFIXES.some(
         (prefix) => tensor.name.startsWith(prefix),
     ));

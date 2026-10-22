@@ -95,9 +95,6 @@ export default defineConfig({
       configurePreviewServer(server) { server.middlewares.use(modelMiddleware()); },
     },
   ],
-  worker: {
-    format: 'es',
-  },
   optimizeDeps: {
     // The model runtimes ship their own wasm and must not be pre-bundled.
     exclude: ['onnxruntime-web', '@wllama/wllama', '@huggingface/transformers'],

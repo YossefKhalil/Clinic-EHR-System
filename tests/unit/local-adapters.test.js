@@ -85,6 +85,13 @@ describe('sniffKind', () => {
         expect(sniffKind(new Uint8Array([0x50, 0x4b, 3, 4]))).toBe('zip');
         expect(sniffKind(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]))).toBe('unknown');
     });
+
+    it('recognises an ONNX graph', () => {
+        // A protobuf key is a varint: field 1 (ir_version) with the varint
+        // wire type, or field 7 (the graph) with the length wire type.
+        expect(sniffKind(new Uint8Array([0x08, 0x07]))).toBe('onnx');
+        expect(sniffKind(new Uint8Array([0x3a, 0x10, 0, 0]))).toBe('onnx');
+    });
 });
 
 describe('probeModelFile', () => {
@@ -135,5 +142,14 @@ describe('probeModelFile', () => {
         const result = await probeModelFile(file);
         expect(result.ok).toBe(false);
         expect(result.code).toBe(PROBE_CODES.FILE_TYPE_UNKNOWN);
+    });
+
+    it('refuses an ONNX graph whose shape matches no known adapter', async () => {
+        // A protobuf with a graph field, but a graph that is not the OCR one.
+        const graph = new Uint8Array([0x0a, 0x02, 0x61, 0x62]);
+        const file = fakeFile('vision.onnx', graph);
+        const result = await probeModelFile(file);
+        expect(result.ok).toBe(false);
+        expect([PROBE_CODES.ONNX_IO_UNMATCHED, PROBE_CODES.FILE_TYPE_UNKNOWN]).toContain(result.code);
     });
 });
