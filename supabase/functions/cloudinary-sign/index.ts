@@ -143,11 +143,16 @@ Deno.serve(async (req: Request) => {
 
         // Authenticated delivery URL:
         // - For images: source = public_id (WITHOUT format extension)
-        // - For raw (PDFs): source = public_id (already includes extension)
-        const source = resourceType === 'raw' ? publicId : publicId;
+        // - For raw (PDFs): public_id includes extension; strip it for the
+        //   signature source, but keep it in the delivery URL path.
+        const source = resourceType === 'raw'
+            ? publicId.replace(/\.[^.]+$/, '')
+            : publicId;
 
         const signature = await signDeliveryPath('', source, apiSecret);
-        const url = `https://res.cloudinary.com/${cloudName}/${resourceType}/authenticated/${signature}/${source}`;
+        // For raw, deliver with the original public_id (with extension)
+        const deliverySource = resourceType === 'raw' ? publicId : source;
+        const url = `https://res.cloudinary.com/${cloudName}/${resourceType}/authenticated/${signature}/${deliverySource}`;
         return json({ url });
     }
 

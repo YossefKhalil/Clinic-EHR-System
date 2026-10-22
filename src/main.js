@@ -2392,8 +2392,8 @@ function app() {
                 visit_date: this.patientForm.visit_date ? String(this.patientForm.visit_date).slice(0, 10) : null,
                 notes: this.patientNotes.map(n => n.trim()).filter(Boolean),
                 is_completed: this.editingPatient?.is_completed ?? false,
-                attachments: this.patientAttachments.map(({ public_id, url, name, size, mime, uploaded_at }) => ({
-                    public_id, url, name, size, mime, uploaded_at,
+                attachments: this.patientAttachments.map(({ public_id, url, name, size, mime, uploaded_at, authenticated, resource_type, format }) => ({
+                    public_id, url, name, size, mime, uploaded_at, authenticated, resource_type, format,
                 })),
             };
             if (!this.editingPatient) {
