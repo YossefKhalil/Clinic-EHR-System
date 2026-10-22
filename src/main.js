@@ -15,7 +15,7 @@ import bootstrapRtlUrl from 'bootstrap/dist/css/bootstrap.rtl.min.css?url';
 import bootstrapBundle from 'bootstrap/dist/js/bootstrap.bundle.min.js';
 import Alpine from 'alpinejs';
 import { initI18n, t, setLocale, getLocale } from './services/i18n.js';
-import { initSupabase, supabase, getCurrentUser, signIn, signOut } from './services/supabase.js';
+import { initSupabase, supabase, getCurrentUser, signInWithIdentifier, signOut } from './services/supabase.js';
 import { loadImportEnabled, clearImportFlagCache } from './services/import-flag.js';
 import { loadAiSettings as loadAiSettingsApi, saveAiSettings as saveAiSettingsApi, testAiProvider as testAiProviderApi, loadImportLimits as loadImportLimitsApi, saveImportLimits as saveImportLimitsApi, resetCloudConsent as resetCloudConsentApi } from './services/ai-settings.js';
 import {
@@ -133,7 +133,7 @@ function app() {
         // mock data, without a session. Never touches real data.
         mockPreview: false,
         
-        loginForm: { email: '', password: '' },
+        loginForm: { identifier: '', password: '' },
         loginError: null,
         loginLoading: false,
         
@@ -526,9 +526,9 @@ function app() {
         loginErrorMessage(error) {
             const message = String(error?.message || '');
             const rejected = error?.status === 400 || error?.status === 401
-                || /invalid login credentials|invalid credentials/i.test(message);
+                || /invalid login credentials|invalid credentials|invalid username or password/i.test(message);
 
-            return rejected ? this.t('Invalid email or password') : this.t('Login failed. Please try again.');
+            return rejected ? this.t('Invalid username or password') : this.t('Login failed. Please try again.');
         },
         
         async handleLogin() {
@@ -536,7 +536,7 @@ function app() {
             this.loginError = null;
             
             try {
-                await signIn(this.loginForm.email, this.loginForm.password);
+                await signInWithIdentifier(this.loginForm.identifier, this.loginForm.password);
             } catch (error) {
                 // Credentials were rejected. Say so on the form instead of
                 // leaving the page looking frozen with no feedback at all.
@@ -549,7 +549,7 @@ function app() {
             // Nothing below may strand them on the login screen: a missing
             // profile row or a failed dashboard fetch is reported, not fatal.
             this.updateAuthState();
-            this.loginForm = { email: '', password: '' };
+            this.loginForm = { identifier: '', password: '' };
             this.currentPage = 'dashboard';
             this.loginLoading = false;
             

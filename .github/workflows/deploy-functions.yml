@@ -118,3 +118,10 @@ jobs:
 
       - name: Deploy cloudinary-sign
         run: supabase functions deploy cloudinary-sign --project-ref "$PROJECT_REF"
+
+      # --no-verify-jwt: the caller is signed out by definition. The function
+      # resolves a username (the email local part) to its account email with
+      # the service role and performs the password grant, so a username never
+      # reveals the address behind it and both failure modes look the same.
+      - name: Deploy login
+        run: supabase functions deploy login --no-verify-jwt --project-ref "$PROJECT_REF"

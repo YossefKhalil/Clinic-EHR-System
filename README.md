@@ -287,6 +287,7 @@ To apply the schema from CI, add the `SUPABASE_DB_URL` repository secret and run
 supabase login
 supabase link --project-ref <project-ref>
 supabase functions deploy manage-user
+supabase functions deploy login --no-verify-jwt
 supabase functions deploy import-cleanup --no-verify-jwt
 supabase functions deploy import-job
 supabase functions deploy ai-settings
@@ -327,6 +328,12 @@ where email = 'you@example.com';
 ```
 
 Administrators can then assign roles and sections from Settings.
+
+The sign-in form takes the account **email or its username** — the part before
+the `@`. A username is resolved to the account email inside the `login` Edge
+Function (never in the browser), so staff never need a working mailbox and a
+username never reveals the address behind it. Two accounts whose emails share a
+local part (`sara@a.com`, `sara@b.com`) must sign in with the full address.
 
 ### 6. Run locally
 

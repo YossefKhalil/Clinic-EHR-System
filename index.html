@@ -144,8 +144,10 @@
                                 </div>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label" x-text="t('Email')"></label>
-                                <input id="email" type="email" class="form-control" x-model="loginForm.email" required autofocus autocomplete="username">
+                                <label class="form-label" x-text="t('Username or email')"></label>
+                                <!-- A username has no @, so the field cannot be type="email";
+                                     the account email still works and is signed in directly. -->
+                                <input id="identifier" type="text" class="form-control" x-model="loginForm.identifier" required autofocus autocomplete="username" autocapitalize="none" spellcheck="false">
                             </div>
                             <div class="mt-4 mb-3">
                                 <label class="form-label" x-text="t('Password')"></label>
