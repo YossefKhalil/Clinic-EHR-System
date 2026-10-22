@@ -101,3 +101,20 @@ jobs:
       # on and anon callers are rejected before the handler runs.
       - name: Deploy ai-settings
         run: supabase functions deploy ai-settings --project-ref "$PROJECT_REF"
+
+      # Signs Cloudinary uploads and delivery URLs. The default JWT check stays
+      # on: only signed-in staff can request a signature. The Cloudinary API
+      # key/secret are project secrets (CLOUDINARY_API_KEY / _SECRET /
+      # _CLOUD_NAME) and never reach the browser.
+      - name: Check Cloudinary secrets
+        run: |
+          set -euo pipefail
+          secrets="$(supabase secrets list --project-ref "$PROJECT_REF")"
+          for name in CLOUDINARY_CLOUD_NAME CLOUDINARY_API_KEY CLOUDINARY_API_SECRET; do
+            if ! grep -q "$name" <<< "$secrets"; then
+              echo "::warning::$name is not set. cloudinary-sign will answer 500 until it is (supabase secrets set)."
+            fi
+          done
+
+      - name: Deploy cloudinary-sign
+        run: supabase functions deploy cloudinary-sign --project-ref "$PROJECT_REF"
