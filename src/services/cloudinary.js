@@ -103,9 +103,14 @@ async function uploadAuthenticated(file, { folder, onProgress, resourceType }) {
     formData.append('signature', signed.signature);
     formData.append('type', signed.type);
     if (signed.folder) formData.append('folder', signed.folder);
+    // Every signed parameter must also be sent, or Cloudinary recomputes a
+    // different signature and rejects the upload.
+    if (signed.allowed_formats) formData.append('allowed_formats', signed.allowed_formats);
 
+    // `type` is a form field, not a URL segment: authenticated uploads still
+    // go to /<resource_type>/upload. The old /authenticated path 404s.
     const payload = await new Promise((resolve, reject) => {
-        postToCloudinary(resourceType, 'authenticated', formData, onProgress, resolve, reject, (body) => body);
+        postToCloudinary(resourceType, 'upload', formData, onProgress, resolve, reject, (body) => body);
     });
 
     const usedResourceType = payload.resource_type || resourceType;
