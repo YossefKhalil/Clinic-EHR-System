@@ -17,6 +17,7 @@ import Alpine from 'alpinejs';
 import { initI18n, t, setLocale, getLocale } from './services/i18n.js';
 import { initSupabase, supabase, getCurrentUser, signInWithIdentifier, signOut } from './services/supabase.js';
 import { loadImportEnabled, clearImportFlagCache } from './services/import-flag.js';
+import { dbErrorMessage } from './services/error-message.js';
 import { loadAiSettings as loadAiSettingsApi, saveAiSettings as saveAiSettingsApi, testAiProvider as testAiProviderApi, loadImportLimits as loadImportLimitsApi, saveImportLimits as saveImportLimitsApi, resetCloudConsent as resetCloudConsentApi } from './services/ai-settings.js';
 import {
     createLocalState,
@@ -146,6 +147,7 @@ function app() {
         // Patients
         patients: [],
         patientsLoading: false,
+        patientsError: false,
         patientFilters: emptyPatientFilters(),
         // The sort of the patients table: the key is the column that was
         // pressed, the direction is 'asc' or 'desc'. The newest row first is
@@ -295,6 +297,9 @@ function app() {
         // Cloudinary attachment entries: saved DB shape plus transient
         // uploading/progress/error state while a file is in flight.
         patientAttachments: [],
+        // Token for the next attachment entry: an in-flight upload finds
+        // its row by it even after the array shifts under it (issue #26).
+        attachmentSeq: 0,
         
         // User form
         editingUser: null,
@@ -1752,7 +1757,7 @@ function app() {
                 this.showAlert(this.t('Option added.'), 'success');
             } catch (error) {
                 console.error(error);
-                this.showAlert(this.t('Could not save the option.') + ' ' + (error.message || ''), 'danger');
+                this.showAlert(this.t('Could not save the option.') + ' ' + this.errorMessage(error), 'danger');
             }
         },
         
@@ -1769,7 +1774,7 @@ function app() {
                 this.showAlert(this.t('Option saved.'), 'success');
             } catch (error) {
                 console.error(error);
-                this.showAlert(this.t('Could not save the option.') + ' ' + (error.message || ''), 'danger');
+                this.showAlert(this.t('Could not save the option.') + ' ' + this.errorMessage(error), 'danger');
             } finally {
                 row._saving = false;
             }
@@ -1791,7 +1796,7 @@ function app() {
                 this.showAlert(this.t('Option removed.'), 'success');
             } catch (error) {
                 console.error(error);
-                this.showAlert(this.t('Could not remove the option.') + ' ' + (error.message || ''), 'danger');
+                this.showAlert(this.t('Could not remove the option.') + ' ' + this.errorMessage(error), 'danger');
             } finally {
                 row._removing = false;
             }
@@ -1810,14 +1815,22 @@ function app() {
                 console.error('User list load failed:', error);
                 // The message lands in the tab with a retry action instead of
                 // leaving a blank table.
-                this.usersError = error.message || this.t('Could not load the user list.');
+                this.usersError = this.errorMessage(error);
             } finally {
                 this.usersLoading = false;
             }
         },
         
+        // Database errors reach the UI translated and short (issue #34);
+        // English Postgres strings like "duplicate key value violates
+        // constraint" must never surface in an Arabic clinic system.
+        errorMessage(error) {
+            return dbErrorMessage(error, (key) => this.t(key));
+        },
+        
         async loadPatients() {
             this.patientsLoading = true;
+            this.patientsError = false;
             try {
                 const noEmpty = {};
                 Object.entries(this.patientFilters).forEach(([k, v]) => {
@@ -1829,6 +1842,12 @@ function app() {
                     sort: this.patientSort.key,
                     dir: this.patientSort.dir,
                 }, this.isSuperAdmin, this.profile?.section);
+            } catch (error) {
+                // Keep the rows already on screen: a failed refresh must
+                // neither empty the table nor leave it silently stale
+                // (issue #27). The banner offers a retry.
+                console.error('Patient list load failed:', error);
+                this.patientsError = true;
             } finally {
                 this.patientsLoading = false;
             }
@@ -2159,7 +2178,7 @@ function app() {
                 const filename = await exportPatientsToExcel(noEmpty, this.isSuperAdmin, this.profile?.section);
                 this.showAlert(this.t('Export ready:') + ' ' + filename);
             } catch (error) {
-                this.showAlert(error.message || 'Export failed', 'danger');
+                this.showAlert(this.errorMessage(error), 'danger');
             } finally {
                 this.exporting = false;
             }
@@ -2308,6 +2327,7 @@ function app() {
                 }
                 
                 const entry = {
+                    _token: ++this.attachmentSeq,
                     public_id: null,
                     url: null,
                     name: file.name,
@@ -2319,21 +2339,31 @@ function app() {
                     error: null,
                 };
                 this.patientAttachments.push(entry);
-                const entryIndex = this.patientAttachments.length - 1;
+                // Writes must go through the array so Alpine re-renders, and
+                // must find the entry again by its stable token: removing an
+                // earlier file while this one uploads shifts the indexes, and
+                // removing this file itself means its result must be dropped
+                // instead of written into another entry (issue #26).
+                const token = entry._token;
+                const liveEntry = () => this.patientAttachments.find((att) => att._token === token);
                 
                 try {
                     const uploaded = await uploadAttachment(file, {
                         folder: this.attachmentFolder(),
                         onProgress: (percent) => {
-                            // Use array index to ensure Alpine reactivity fires
-                            this.patientAttachments[entryIndex].progress = percent;
+                            const target = liveEntry();
+                            if (target) target.progress = percent;
                         },
                     });
                     // Merge upload result and mark complete
-                    Object.assign(this.patientAttachments[entryIndex], uploaded, { uploading: false, progress: 100 });
+                    const target = liveEntry();
+                    if (target) Object.assign(target, uploaded, { uploading: false, progress: 100 });
                 } catch (error) {
-                    this.patientAttachments[entryIndex].uploading = false;
-                    this.patientAttachments[entryIndex].error = error.message || this.t('Upload failed');
+                    const target = liveEntry();
+                    if (target) {
+                        target.uploading = false;
+                        target.error = error.message || this.t('Upload failed');
+                    }
                 }
             }
         },
@@ -2395,6 +2425,10 @@ function app() {
                 marital_status: this.patientForm.marital_status || null,
                 age: toNullableNumber(this.patientForm.age),
                 price: toNullableNumber(this.patientForm.price),
+                // children_count is an INTEGER column, so the '' a cleared
+                // field produces is rejected the same way '' dates are
+                // (issue #25).
+                children_count: toNullableNumber(this.patientForm.children_count),
                 // Postgres date columns reject '' outright ("invalid input
                 // syntax for type date"), so empty date fields go as null.
                 date_of_birth: this.patientForm.date_of_birth ? String(this.patientForm.date_of_birth).slice(0, 10) : null,
@@ -2420,7 +2454,7 @@ function app() {
                 this.currentPage = 'patients';
                 await this.loadPatients();
             } catch (error) {
-                this.showAlert(error.message || 'Error saving patient', 'danger');
+                this.showAlert(this.errorMessage(error), 'danger');
             }
         },
         
@@ -2464,7 +2498,7 @@ function app() {
                 this.closeUserForm();
                 await this.loadUsers();
             } catch (error) {
-                this.showAlert(error.message || 'Error saving user', 'danger');
+                this.showAlert(this.errorMessage(error), 'danger');
             }
         },
         
@@ -2476,7 +2510,7 @@ function app() {
                 this.users = this.users.filter(x => x.id !== u.id);
                 this.showAlert(this.t('user deleted successfully'));
             } catch (error) {
-                this.showAlert(error.message || 'Error deleting user', 'danger');
+                this.showAlert(this.errorMessage(error), 'danger');
             }
         }
     };
