@@ -1779,8 +1779,13 @@ function app() {
                     this.aiNotify('warning', 'aiSettings.local.modelMissing');
                     return false;
                 }
+                // Support files are only required when the vision model is
+                // actually ready (verified). A vision model in error state
+                // (e.g., wrong file type, verification failed) should not
+                // block saving a text-only configuration.
                 if (this.aiLocal.mode === 'split'
                     && this.aiLocal.vision.name
+                    && this.aiLocal.vision.status === 'ok'
                     && (this.aiLocal.support.missing ?? []).length > 0) {
                     this.aiNotify('warning', 'aiSettings.local.supportMissing', {
                         files: this.aiLocal.support.missing.join(', '),

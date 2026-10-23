@@ -73,8 +73,14 @@ class ProtoReader {
             case WIRE_FIXED32: this.offset += 4; return;
             // Wire types 3 (start group) and 4 (end group) are deprecated in protobuf
             // but ONNX files may still contain them. Skip them.
+            // Wire types 6 and 7 are reserved; some tools may emit them. Skip gracefully.
             case 3: this.skipGroup(); return;
             case 4: return; // end group - just return
+            case 6:
+            case 7:
+                // Reserved wire types - skip as length-delimited with zero length
+                // to avoid throwing on malformed or non-ONNX protobuf data.
+                return;
             default:
                 throw new OnnxError('ONNX_WIRE_TYPE_UNKNOWN', `unknown protobuf wire type ${wireType}`);
         }
@@ -408,6 +414,10 @@ async function skipBlobField(reader, wireType) {
         case WIRE_FIXED32: await reader.skip(4); return;
         case 3: await skipBlobGroup(reader); return;
         case 4: return;
+        // Wire types 6 and 7 are reserved; some tools may emit them. Skip gracefully.
+        case 6:
+        case 7:
+            return;
         default: throw new OnnxError('ONNX_WIRE_TYPE_UNKNOWN', `unknown protobuf wire type ${wireType}`);
     }
 }
