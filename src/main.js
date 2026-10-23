@@ -401,10 +401,14 @@ function app() {
                 window.localeChanged = () => {
                     this.localeLabel = t('locale_label');
                     this.currentDate = this.formatToday();
+                    document.title = t('Medical File');
                 };
 
                 this.localeLabel = t('locale_label');
                 this.currentDate = this.formatToday();
+                // The tab title follows the language too (the static <title>
+                // is the Arabic name for the first paint and for no-JS).
+                document.title = t('Medical File');
                 this.patientTableFont = this.loadPatientTableFont();
                 this.applyBootstrapDirection();
                 const cards = this.loadCardState();
