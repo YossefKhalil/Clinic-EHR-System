@@ -87,6 +87,56 @@ export async function createSupabaseLikeDb() {
     return db;
 }
 
+// The users/patients shape of a database created before the per-section
+// access model: no is_super_admin, no read/write arrays, no patients.mobile /
+// attachments / registered_by_name. `schema.sql` must upgrade it in place.
+const LEGACY_SCHEMA = `
+CREATE TABLE public.users (
+    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    is_admin BOOLEAN DEFAULT FALSE,
+    section TEXT CHECK (section IN ('agamy', 'dekhila')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE public.patients (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL,
+    national_id TEXT UNIQUE,
+    record_type TEXT NOT NULL DEFAULT 'patient',
+    date_of_birth DATE,
+    age INTEGER,
+    marital_status TEXT,
+    children_count INTEGER,
+    governorate TEXT,
+    address TEXT,
+    problem TEXT,
+    solution TEXT,
+    notes JSONB DEFAULT '[]'::jsonb,
+    visit_date DATE,
+    is_completed BOOLEAN DEFAULT FALSE,
+    price DECIMAL(10, 2),
+    follower TEXT,
+    section TEXT CHECK (section IN ('agamy', 'dekhila')),
+    source_of_money TEXT CHECK (source_of_money IN ('charity', 'country')),
+    CHECK (record_type IN ('patient','food','classroom','well')),
+    user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+`;
+
+/** A Postgres that predates the per-section access model, for upgrade tests. */
+export async function createLegacyDb() {
+    const db = new PGlite({ extensions: { uuid_ossp } });
+    await db.exec(SUPABASE_PRELUDE);
+    await db.exec('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";');
+    await db.exec(LEGACY_SCHEMA);
+    return db;
+}
+
 /**
  * Runs one tests/rls/*.sql script inside a transaction that is always rolled
  * back, so scripts can seed fixtures and switch roles freely.

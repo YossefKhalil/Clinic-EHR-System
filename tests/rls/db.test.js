@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createSupabaseLikeDb, runRlsScript, SCHEMA_PATH } from './harness.js';
+import { createLegacyDb, createSupabaseLikeDb, runRlsScript, SCHEMA_PATH } from './harness.js';
 
 const VERIFY_PATH = fileURLToPath(new URL('../../supabase/verify-schema.sql', import.meta.url));
 
@@ -32,6 +32,26 @@ describe('RLS / DB', () => {
         // The same script the schema workflow runs after applying the schema:
         // it must pass on a database created from schema.sql.
         await expect(db.exec(readFileSync(VERIFY_PATH, 'utf8'))).resolves.toBeDefined();
+    }, 60000);
+
+    it('upgrades a database created before the per-section model in place', async () => {
+        // Regression: CREATE TABLE IF NOT EXISTS is a no-op on an existing
+        // table, so the new columns must be added before the functions that
+        // reference them. The Deploy workflow applies schema.sql to the
+        // hosted database this way.
+        const legacy = await createLegacyDb();
+        try {
+            await expect(legacy.exec(readFileSync(SCHEMA_PATH, 'utf8'))).resolves.toBeDefined();
+            await expect(legacy.exec(readFileSync(VERIFY_PATH, 'utf8'))).resolves.toBeDefined();
+            const { rows } = await legacy.query(
+                `SELECT count(*)::int AS n FROM information_schema.columns
+                 WHERE table_schema = 'public' AND table_name = 'users'
+                   AND column_name IN ('is_super_admin', 'read_sections', 'write_sections')`,
+            );
+            expect(rows[0].n).toBe(3);
+        } finally {
+            await legacy.close();
+        }
     }, 60000);
 
     it('01-access: two sections plus an admin see and write exactly their own things', async () => {

@@ -54,6 +54,23 @@ CREATE TABLE IF NOT EXISTS public.patients (
 -- food, classroom, well) get the column here - before anything reads it.
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS record_type TEXT NOT NULL DEFAULT 'patient';
 
+-- Columns added after the first release. They are declared here, right after
+-- the tables, because `CREATE TABLE IF NOT EXISTS` above is a no-op on an
+-- existing database and Postgres validates a SQL function body when it is
+-- created -- so `is_admin()`/`can_read_section()` below would fail before the
+-- later migration block could add the columns they reference.
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS read_sections JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS write_sections JSONB DEFAULT '[]'::jsonb;
+-- Legacy column; no policy or Edge Function consults it any more.
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS can_manage_users BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS age INTEGER;
+ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS mobile TEXT;
+ALTER TABLE public.patients ALTER COLUMN national_id DROP NOT NULL;
+-- Medical/lab papers & images are stored on Cloudinary; the row keeps only
+-- the metadata array [{ public_id, url, name, size, mime, uploaded_at }].
+ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]'::jsonb;
+
 -- User profiles trigger
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
@@ -424,14 +441,10 @@ CREATE OR REPLACE TRIGGER update_app_options_updated_at
     BEFORE UPDATE ON public.app_options
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
--- Idempotent column migrations for databases created by an older schema.
--- Safe to re-run: each line is a no-op when the column is already present.
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN DEFAULT FALSE;
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS read_sections JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS write_sections JSONB DEFAULT '[]'::jsonb;
--- Legacy column; no policy or Edge Function consults it any more.
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS can_manage_users BOOLEAN DEFAULT FALSE;
-
+-- Idempotent data migrations for databases created by an older schema. The
+-- columns themselves are added next to their CREATE TABLE above; these mirror
+-- older rows into the per-section model. Safe to re-run.
+--
 -- Normalise the per-section arrays so the JSONB containment checks (?) never
 -- have to reason about NULL.
 UPDATE public.users SET read_sections = '[]'::jsonb WHERE read_sections IS NULL;
@@ -459,12 +472,6 @@ WHERE u.section IS NOT NULL
       SELECT 1 FROM public.app_options o
       WHERE o.kind = 'section' AND o.key = u.section
   );
-ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS age INTEGER;
-ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS mobile TEXT;
-ALTER TABLE public.patients ALTER COLUMN national_id DROP NOT NULL;
--- Medical/lab papers & images are stored on Cloudinary; the row keeps only
--- the metadata array [{ public_id, url, name, size, mime, uploaded_at }].
-ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]'::jsonb;
 
 -- Backfill profile rows for auth users created while the trigger was missing
 -- or broken (sign-in otherwise succeeds but the profile cannot be loaded).
