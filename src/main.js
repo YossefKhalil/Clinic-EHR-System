@@ -379,7 +379,15 @@ function app() {
                 this.userForm = this.emptyUserForm();
 
                 await initI18n();
-                await initSupabase();
+                // A slow or blocked auth call must not strand the shell on the
+                // loader: after a bounded wait, show the login screen and let
+                // the auth listener sign the user in when the client is ready.
+                // The client itself is created synchronously, so supabase() is
+                // usable even if getSession() has not settled.
+                await Promise.race([
+                    initSupabase(),
+                    new Promise((resolve) => setTimeout(resolve, 8000)),
+                ]);
                 initCloudinary();
 
                 const authUser = getCurrentUser();
