@@ -3,7 +3,7 @@ import { supabase } from './supabase.js';
 export async function getUsers() {
     const { data, error } = await supabase()
         .from('users')
-        .select('id, name, email, is_admin, section, created_at')
+        .select('id, name, email, is_admin, is_super_admin, section, read_sections, write_sections, can_manage_users, created_at')
         .order('created_at', { ascending: true });
 
     if (error) throw error;
@@ -51,13 +51,13 @@ async function callManageUser(action, payload) {
     return res.json();
 }
 
-export async function createUser({ email, password, name, is_admin, section }) {
-    const data = await callManageUser('create', { email, password, name, is_admin, section });
+export async function createUser({ email, password, name, is_admin, is_super_admin, section, read_sections, write_sections, can_manage_users }) {
+    const data = await callManageUser('create', { email, password, name, is_admin, is_super_admin, section, read_sections, write_sections, can_manage_users });
     return data.user;
 }
 
-export async function updateUser(id, { name, is_admin, section, password = null }) {
-    return callManageUser('update', { id, name, is_admin, section, password: password || null });
+export async function updateUser(id, { name, is_admin, is_super_admin, section, read_sections, write_sections, can_manage_users, password = null }) {
+    return callManageUser('update', { id, name, is_admin, is_super_admin, section, read_sections, write_sections, can_manage_users, password: password || null });
 }
 
 export async function deleteUser(id) {

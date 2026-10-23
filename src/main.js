@@ -161,6 +161,8 @@ function app() {
         user: null,
         profile: null,
         isSuperAdmin: false,
+        isSuperUser: false,
+        canManageUsers: false,
         currentPage: 'login',
         // Bumped whenever the session ends. An async loader captures it before
         // its request and drops the response if it no longer matches, so a
@@ -440,7 +442,9 @@ function app() {
             if (this.mockPreview) return;
             this.user = getCurrentUser();
             this.isLoggedIn = !!this.user;
-            this.isSuperAdmin = !!this.profile?.is_admin;
+            this.isSuperAdmin = !!(this.profile?.is_super_admin || this.profile?.is_admin);
+            this.isSuperUser = !!this.profile?.is_super_admin;
+            this.canManageUsers = !!(this.profile?.is_super_admin || this.profile?.can_manage_users);
 
             if (this.isLoggedIn) {
                 // Fire-and-forget: failures must never block or break auth.
@@ -452,6 +456,8 @@ function app() {
                 // another tab), so it must not depend on logout() running.
                 this.profile = null;
                 this.isSuperAdmin = false;
+                this.isSuperUser = false;
+                this.canManageUsers = false;
                 this.resetSessionState();
             }
         },
@@ -509,7 +515,7 @@ function app() {
             this.patientAttachments = [];
             this.patientForm = this.newPatientForm();
             this.editingUser = null;
-            this.userForm = { name: '', email: '', password: '', is_admin: false, section: '' };
+            this.userForm = { name: '', email: '', password: '', is_admin: false, is_super_admin: false, section: '', read_sections: [], write_sections: [], can_manage_users: false };
 
             // Import resume entries
             this.importEnabled = true;
@@ -652,9 +658,10 @@ function app() {
         // with no granted scope (reads permitted by "Users can view own
         // profile" alone). Shown under the name on the dashboard.
         roleLabel() {
+            if (this.profile?.is_super_admin || this.isSuperUser) return this.t('Super Admin');
             if (this.isSuperAdmin) return this.t('Super Admin');
             if (this.profile?.section) return this.t('Section') + ': ' + this.optionLabel('section', this.profile.section);
-            return this.t('No role assigned');
+            return this.t('User');
         },
         
         t(key, params = {}) {
@@ -711,6 +718,8 @@ function app() {
             this.profile = null;
             this.isLoggedIn = false;
             this.isSuperAdmin = false;
+            this.isSuperUser = false;
+            this.canManageUsers = false;
             this.resetSessionState();
             try {
                 await signOut();
@@ -735,9 +744,8 @@ function app() {
                 this.currentPage = 'login';
                 return;
             }
-            // Settings is super-admin-only: no nav entry is rendered for other
-            // roles and this guard keeps a stale page value from reaching it.
-            if (page === 'settings' && !this.isSuperAdmin) return;
+            // Settings is accessible to users who can manage users
+            if (page === 'settings' && !this.canManageUsers && !this.isSuperAdmin) return;
             // The import entry is hidden when the ai_settings flag is off.
             if (page === 'import' && !this.importEnabled) return;
             // Retired pages (#15, #16): the financial summary lives on the
@@ -2989,7 +2997,7 @@ function app() {
         
         openUserForm() {
             this.editingUser = null;
-            this.userForm = { name: '', email: '', password: '', is_admin: false, section: '' };
+            this.userForm = { name: '', email: '', password: '', is_admin: false, is_super_admin: false, section: '', read_sections: [], write_sections: [], can_manage_users: false };
             // Create/edit is a Bootstrap modal over Settings → Users (#16) so
             // the table stays visible behind the form.
             this.showUserFormModal();
@@ -2997,7 +3005,17 @@ function app() {
         
         editUser(u) {
             this.editingUser = u;
-            this.userForm = { name: u.name || '', email: u.email || '', password: '', is_admin: !!u.is_admin, section: u.section || '' };
+            this.userForm = {
+                name: u.name || '',
+                email: u.email || '',
+                password: '',
+                is_admin: !!u.is_admin,
+                is_super_admin: !!u.is_super_admin,
+                section: u.section || '',
+                read_sections: Array.isArray(u.read_sections) ? u.read_sections : [],
+                write_sections: Array.isArray(u.write_sections) ? u.write_sections : [],
+                can_manage_users: !!u.can_manage_users,
+            };
             this.showUserFormModal();
         },
         
@@ -3009,7 +3027,7 @@ function app() {
             bootstrapBundle?.Modal?.getOrCreateInstance(document.getElementById('userFormModal'))?.hide();
             // A fresh form for the next open (openUserForm/editUser set the
             // real values; this just clears the modal's leftovers).
-            this.userForm = { name: '', email: '', password: '', is_admin: false, section: '' };
+            this.userForm = { name: '', email: '', password: '', is_admin: false, is_super_admin: false, section: '', read_sections: [], write_sections: [], can_manage_users: false };
         },
         
         async submitUserForm() {

@@ -12,7 +12,11 @@ CREATE TABLE IF NOT EXISTS public.users (
     name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
     is_admin BOOLEAN DEFAULT FALSE,
+    is_super_admin BOOLEAN DEFAULT FALSE,
     section TEXT CHECK (section IN ('agamy', 'dekhila')),
+    read_sections JSONB DEFAULT '[]'::jsonb,
+    write_sections JSONB DEFAULT '[]'::jsonb,
+    can_manage_users BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -76,7 +80,7 @@ CREATE OR REPLACE TRIGGER on_auth_user_created
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.patients ENABLE ROW LEVEL SECURITY;
 
--- SECURITY DEFINER helper to check admin status without RLS recursion
+-- SECURITY DEFINER helper to check admin/super admin status without RLS recursion
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -86,7 +90,69 @@ SET search_path = public
 AS $$
     SELECT EXISTS (
         SELECT 1 FROM public.users
-        WHERE id = auth.uid() AND is_admin = TRUE
+        WHERE id = auth.uid() AND (is_super_admin = TRUE OR is_admin = TRUE)
+    );
+$$;
+
+CREATE OR REPLACE FUNCTION public.is_super_admin()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.users
+        WHERE id = auth.uid() AND is_super_admin = TRUE
+    );
+$$;
+
+CREATE OR REPLACE FUNCTION public.can_manage_users()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.users
+        WHERE id = auth.uid() AND (is_super_admin = TRUE OR can_manage_users = TRUE)
+    );
+$$;
+
+CREATE OR REPLACE FUNCTION public.can_read_section(p_section TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.users
+        WHERE id = auth.uid() AND (
+            is_super_admin = TRUE OR
+            is_admin = TRUE OR
+            (read_sections IS NOT NULL AND read_sections ? p_section) OR
+            (section = p_section AND is_admin = FALSE) OR
+            (section = p_section)
+        )
+    );
+$$;
+
+CREATE OR REPLACE FUNCTION public.can_write_section(p_section TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.users
+        WHERE id = auth.uid() AND (
+            is_super_admin = TRUE OR
+            is_admin = TRUE OR
+            (write_sections IS NOT NULL AND write_sections ? p_section)
+        )
     );
 $$;
 
@@ -109,8 +175,16 @@ $$;
 -- SECURITY DEFINER, so lock down who may execute them.
 REVOKE ALL ON FUNCTION public.is_admin() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.is_section_user(TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.is_super_admin() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.can_manage_users() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.can_read_section(TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.can_write_section(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.is_section_user(TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.is_super_admin() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.can_manage_users() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.can_read_section(TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.can_write_section(TEXT) TO authenticated;
 
 -- Every policy below is written as DROP + CREATE so this whole file can be
 -- re-run against an existing database to repair policies created by an
@@ -126,36 +200,56 @@ CREATE POLICY "Users can view own profile" ON public.users
 
 DROP POLICY IF EXISTS "Admins can view all users" ON public.users;
 CREATE POLICY "Admins can view all users" ON public.users
-    FOR SELECT USING (public.is_admin());
+    FOR SELECT USING (public.is_admin() OR public.can_manage_users());
+
+DROP POLICY IF EXISTS "Users can view all users" ON public.users;
+CREATE POLICY "Users can view all users" ON public.users
+    FOR SELECT USING (public.is_super_admin() OR public.can_manage_users());
 
 DROP POLICY IF EXISTS "Admins can insert users" ON public.users;
 CREATE POLICY "Admins can insert users" ON public.users
-    FOR INSERT WITH CHECK (public.is_admin());
+    FOR INSERT WITH CHECK (public.is_super_admin() OR public.can_manage_users());
 
 DROP POLICY IF EXISTS "Admins can update users" ON public.users;
 CREATE POLICY "Admins can update users" ON public.users
-    FOR UPDATE USING (public.is_admin());
+    FOR UPDATE USING (public.is_super_admin() OR public.can_manage_users());
 
 DROP POLICY IF EXISTS "Admins can delete users" ON public.users;
 CREATE POLICY "Admins can delete users" ON public.users
-    FOR DELETE USING (public.is_admin());
+    FOR DELETE USING (public.is_super_admin() OR public.can_manage_users());
 
 -- Patients policies
 DROP POLICY IF EXISTS "Admins can do everything with patients" ON public.patients;
 CREATE POLICY "Admins can do everything with patients" ON public.patients
     FOR ALL USING (public.is_admin());
 
+DROP POLICY IF EXISTS "Users can view patients in permitted sections" ON public.patients;
+CREATE POLICY "Users can view patients in permitted sections" ON public.patients
+    FOR SELECT USING (public.can_read_section(patients.section) OR public.is_admin());
+
 DROP POLICY IF EXISTS "Section users can view patients in their section" ON public.patients;
 CREATE POLICY "Section users can view patients in their section" ON public.patients
     FOR SELECT USING (public.is_section_user(patients.section));
+
+DROP POLICY IF EXISTS "Users can insert patients in writable sections" ON public.patients;
+CREATE POLICY "Users can insert patients in writable sections" ON public.patients
+    FOR INSERT WITH CHECK (public.can_write_section(patients.section) OR public.is_admin());
 
 DROP POLICY IF EXISTS "Section users can insert patients in their section" ON public.patients;
 CREATE POLICY "Section users can insert patients in their section" ON public.patients
     FOR INSERT WITH CHECK (public.is_section_user(patients.section));
 
+DROP POLICY IF EXISTS "Users can update patients in writable sections" ON public.patients;
+CREATE POLICY "Users can update patients in writable sections" ON public.patients
+    FOR UPDATE USING (public.can_write_section(patients.section) OR public.is_admin());
+
 DROP POLICY IF EXISTS "Section users can update patients in their section" ON public.patients;
 CREATE POLICY "Section users can update patients in their section" ON public.patients
     FOR UPDATE USING (public.is_section_user(patients.section));
+
+DROP POLICY IF EXISTS "Users can delete patients in writable sections" ON public.patients;
+CREATE POLICY "Users can delete patients in writable sections" ON public.patients
+    FOR DELETE USING (public.can_write_section(patients.section) OR public.is_admin());
 
 DROP POLICY IF EXISTS "Section users can delete patients in their section" ON public.patients;
 CREATE POLICY "Section users can delete patients in their section" ON public.patients
@@ -302,6 +396,12 @@ CREATE OR REPLACE TRIGGER update_app_options_updated_at
 
 -- Idempotent column migrations for databases created by an older schema.
 -- Safe to re-run: each line is a no-op when the column is already present.
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS read_sections JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS write_sections JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS can_manage_users BOOLEAN DEFAULT FALSE;
+-- Migrate existing admins to super admins
+UPDATE public.users SET is_super_admin = TRUE, can_manage_users = TRUE WHERE is_admin = TRUE AND is_super_admin = FALSE;
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS age INTEGER;
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS mobile TEXT;
 ALTER TABLE public.patients ALTER COLUMN national_id DROP NOT NULL;

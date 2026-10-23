@@ -96,7 +96,7 @@
                                     <span class="dropdown-item-text text-muted small" x-text="user?.email"></span>
                                 </li>
                                 <li><hr class="dropdown-divider"></li>
-                                <li x-show="isSuperAdmin">
+                                <li x-show="canManageUsers || isSuperAdmin">
                                     <button type="button" class="dropdown-item" :class="{ active: currentPage === 'settings' }" @click="navigate('settings')">
                                         <i class="bi bi-gear me-2"></i><span x-text="t('Settings')"></span>
                                     </button>
@@ -2811,15 +2811,15 @@
                                         </div>
                                     </div>
 
-                                    <div class="mb-4 pt-2">
+                                    <div class="mb-3 pt-2">
                                         <div class="form-check form-switch">
-                                            <input class="form-check-input" type="checkbox" role="switch" id="is_admin" x-model="userForm.is_admin">
-                                            <label class="form-check-label fw-semibold ms-2" for="is_admin">
-                                                <span x-text="t('Grant Administrator Privileges')"></span>
+                                            <input class="form-check-input" type="checkbox" role="switch" id="is_super_admin" x-model="userForm.is_super_admin" :disabled="!(profile?.is_super_admin || isSuperUser)">
+                                            <label class="form-check-label fw-semibold ms-2" for="is_super_admin">
+                                                <span x-text="t('Super Admin (Full Access)')"></span>
                                             </label>
                                         </div>
                                         <div class="form-text ms-4 text-muted">
-                                            <span x-text="t('Admins can manage system settings, users, and delete clinic data records.')"></span>
+                                            <span x-text="t('Super admins can do anything and manage users.')"></span>
                                         </div>
                                     </div>
 

@@ -31,11 +31,11 @@ Deno.serve(async (req) => {
 
         const { data: callerProfile } = await supabase
             .from('users')
-            .select('is_admin')
+            .select('is_admin, is_super_admin, can_manage_users')
             .eq('id', caller.id)
             .single();
 
-        if (!callerProfile?.is_admin) {
+        if (!callerProfile?.is_super_admin && !callerProfile?.can_manage_users && !callerProfile?.is_admin) {
             return json({ error: 'Forbidden: admin only' }, 403);
         }
 
@@ -43,12 +43,16 @@ Deno.serve(async (req) => {
         const { action } = body;
 
         if (action === 'create') {
-            const { email, password, name, is_admin, section } = body;
+            const { email, password, name, is_admin, is_super_admin, section, read_sections, write_sections, can_manage_users } = body;
+            // Only super admins can create other super admins
+            if (is_super_admin && !callerProfile?.is_super_admin) {
+                return json({ error: 'Only super admins can create super admins' }, 403);
+            }
             const { data: created, error } = await supabase.auth.admin.createUser({
                 email,
                 password,
                 email_confirm: true,
-                user_metadata: { name, is_admin, section: is_admin ? null : section },
+                user_metadata: { name, is_admin, is_super_admin, section: (is_admin || is_super_admin) ? null : section },
             });
             if (error) return json({ error: error.message }, 400);
 
@@ -61,8 +65,12 @@ Deno.serve(async (req) => {
                     id: created.user.id,
                     name,
                     email,
-                    is_admin,
-                    section: is_admin ? null : section,
+                    is_admin: is_admin || is_super_admin || false,
+                    is_super_admin: is_super_admin || false,
+                    section: (is_admin || is_super_admin) ? null : section,
+                    read_sections: read_sections || [],
+                    write_sections: write_sections || [],
+                    can_manage_users: can_manage_users || is_super_admin || false,
                 })
                 .select()
                 .single();
@@ -81,14 +89,35 @@ Deno.serve(async (req) => {
         }
 
         if (action === 'update') {
-            const { id, name, is_admin, section, password } = body;
-            const updates = { name, is_admin, section: is_admin ? null : section };
+            const { id, name, is_admin, is_super_admin, section, read_sections, write_sections, can_manage_users, password } = body;
+            // Only super admins can make someone a super admin or modify super admins
+            if (is_super_admin && !callerProfile?.is_super_admin) {
+                return json({ error: 'Only super admins can create/modify super admins' }, 403);
+            }
+            // Don't allow non-super-admin to modify a super admin
+            const { data: targetProfile } = await supabase
+                .from('users')
+                .select('is_super_admin')
+                .eq('id', id)
+                .single();
+            if (targetProfile?.is_super_admin && !callerProfile?.is_super_admin) {
+                return json({ error: 'Cannot modify super admin' }, 403);
+            }
+            const updates = {
+                name,
+                is_admin: is_admin || is_super_admin || false,
+                is_super_admin: is_super_admin || false,
+                section: (is_admin || is_super_admin) ? null : section,
+                read_sections: read_sections || [],
+                write_sections: write_sections || [],
+                can_manage_users: can_manage_users || is_super_admin || false,
+            };
 
             // Keep the old profile so a failed password write can put it back:
             // the admin sees one failed operation, not a partial success.
             const { data: before, error: readErr } = await supabase
                 .from('users')
-                .select('name, is_admin, section')
+                .select('name, is_admin, is_super_admin, section, read_sections, write_sections, can_manage_users')
                 .eq('id', id)
                 .single();
             if (readErr) return json({ error: readErr.message }, 400);
@@ -109,7 +138,11 @@ Deno.serve(async (req) => {
                         .update({
                             name: before.name,
                             is_admin: before.is_admin,
+                            is_super_admin: before.is_super_admin,
                             section: before.section,
+                            read_sections: before.read_sections,
+                            write_sections: before.write_sections,
+                            can_manage_users: before.can_manage_users,
                         })
                         .eq('id', id);
                     if (rollbackErr) {
@@ -127,6 +160,17 @@ Deno.serve(async (req) => {
 
         if (action === 'delete') {
             const { id } = body;
+            if (!callerProfile?.is_super_admin) {
+                return json({ error: 'Only super admins can delete users' }, 403);
+            }
+            const { data: targetProfile } = await supabase
+                .from('users')
+                .select('is_super_admin')
+                .eq('id', id)
+                .single();
+            if (targetProfile?.is_super_admin && targetProfile.id === caller.id) {
+                return json({ error: 'Cannot delete yourself' }, 403);
+            }
             // Auth first: the FK cascades auth.users -> public.users. If this
             // fails, the account is untouched and the admin can retry.
             const { error } = await supabase.auth.admin.deleteUser(id);
