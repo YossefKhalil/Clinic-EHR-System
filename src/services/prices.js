@@ -33,14 +33,11 @@ export function aggregatePriced(rows = []) {
     return { sectionTotals, sourceTotals, grandTotal, totalPatients: rows.length };
 }
 
-export async function getPriceStats(isSuperAdmin = false, userSection = null) {
-    let query = supabase().from('patients').select('section, source_of_money, price');
-
-    if (!isSuperAdmin && userSection) {
-        query = query.eq('section', userSection);
-    }
-
-    const { data, error } = await query;
+export async function getPriceStats() {
+    // RLS already restricts the rows to the sections this account may read.
+    const { data, error } = await supabase()
+        .from('patients')
+        .select('section, source_of_money, price');
     if (error) throw error;
 
     return aggregatePriced(data || []);

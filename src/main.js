@@ -161,8 +161,6 @@ function app() {
         user: null,
         profile: null,
         isSuperAdmin: false,
-        isSuperUser: false,
-        canManageUsers: false,
         currentPage: 'login',
         // Bumped whenever the session ends. An async loader captures it before
         // its request and drops the response if it no longer matches, so a
@@ -357,6 +355,8 @@ function app() {
         // User form
         editingUser: null,
         userForm: null,
+        // Inline validation/error message shown inside the user modal.
+        userFormError: null,
         
         // Alerts
         alertMessage: null,
@@ -370,7 +370,7 @@ function app() {
                 // input logs a TypeError on load (23 of them) before any form is
                 // opened, and the bindings only recover once the form is opened.
                 this.patientForm = this.newPatientForm();
-                this.userForm = { name: '', email: '', password: '', is_admin: false, section: '' };
+                this.userForm = this.emptyUserForm();
 
                 await initI18n();
                 await initSupabase();
@@ -442,9 +442,9 @@ function app() {
             if (this.mockPreview) return;
             this.user = getCurrentUser();
             this.isLoggedIn = !!this.user;
-            this.isSuperAdmin = !!(this.profile?.is_super_admin || this.profile?.is_admin);
-            this.isSuperUser = !!this.profile?.is_super_admin;
-            this.canManageUsers = !!(this.profile?.is_super_admin || this.profile?.can_manage_users);
+            // One privileged role: a Super Admin. Everyone else is scoped by
+            // the section grants on their profile.
+            this.isSuperAdmin = !!this.profile?.is_super_admin;
 
             if (this.isLoggedIn) {
                 // Fire-and-forget: failures must never block or break auth.
@@ -456,8 +456,6 @@ function app() {
                 // another tab), so it must not depend on logout() running.
                 this.profile = null;
                 this.isSuperAdmin = false;
-                this.isSuperUser = false;
-                this.canManageUsers = false;
                 this.resetSessionState();
             }
         },
@@ -515,7 +513,7 @@ function app() {
             this.patientAttachments = [];
             this.patientForm = this.newPatientForm();
             this.editingUser = null;
-            this.userForm = { name: '', email: '', password: '', is_admin: false, is_super_admin: false, section: '', read_sections: [], write_sections: [], can_manage_users: false };
+            this.userForm = this.emptyUserForm();
 
             // Import resume entries
             this.importEnabled = true;
@@ -653,15 +651,79 @@ function app() {
         },
         
         // Role = what the account is allowed to do, straight from the users
-        // table: an admin row sees and touches every clinic's data, a section
-        // staff row only their own clinic's, and neither means a plain viewer
-        // with no granted scope (reads permitted by "Users can view own
-        // profile" alone). Shown under the name on the dashboard.
+        // table: a Super Admin works in every section and manages users;
+        // everyone else is described by the sections they may read.
         roleLabel() {
-            if (this.profile?.is_super_admin || this.isSuperUser) return this.t('Super Admin');
             if (this.isSuperAdmin) return this.t('Super Admin');
-            if (this.profile?.section) return this.t('Section') + ': ' + this.optionLabel('section', this.profile.section);
-            return this.t('User');
+            const sections = this.readableSectionKeys();
+            if (!sections.length) return this.t('No section access');
+            return this.t('Staff') + ' · ' + sections.map((key) => this.optionLabel('section', key)).join(', ');
+        },
+
+        // ---- Section permissions -------------------------------------------
+        //
+        // The database is authoritative (can_read_section/can_write_section);
+        // these helpers only decide which controls the UI offers, so they must
+        // mirror the same rule: Super Admin everything, otherwise the granted
+        // arrays, with write implying read.
+
+        /** Sections this account may see, in the configured order. */
+        readableSectionKeys() {
+            const options = this.activeOptions('section').map((option) => option.key);
+            if (this.isSuperAdmin) return options;
+            return options.filter((key) => this.canReadSection(key));
+        },
+
+        /** Sections this account may add, edit or delete. */
+        writableSectionKeys() {
+            const options = this.activeOptions('section').map((option) => option.key);
+            if (this.isSuperAdmin) return options;
+            return options.filter((key) => this.canWriteSection(key));
+        },
+
+        /** Active section options this account may write to. */
+        writableSectionOptions() {
+            return this.activeOptions('section').filter((option) => this.canWriteSection(option.key));
+        },
+
+        /** Reads the granted keys from the profile, tolerating a missing array. */
+        profileSectionGrants(...fields) {
+            const granted = new Set();
+            fields.forEach((field) => {
+                const value = this.profile?.[field];
+                if (Array.isArray(value)) value.forEach((key) => granted.add(key));
+            });
+            return [...granted];
+        },
+
+        /**
+         * A row created before per-section grants existed carries only the
+         * primary `section` column. RLS still honours it while both arrays are
+         * empty, so the UI must too.
+         */
+        hasLegacySectionGrant() {
+            return !!this.profile?.section
+                && !this.profileSectionGrants('read_sections').length
+                && !this.profileSectionGrants('write_sections').length;
+        },
+
+        canReadSection(section) {
+            if (this.isSuperAdmin) return true;
+            if (!section) return false;
+            if (this.profileSectionGrants('read_sections', 'write_sections').includes(section)) return true;
+            return this.hasLegacySectionGrant() && this.profile.section === section;
+        },
+
+        canWriteSection(section) {
+            if (this.isSuperAdmin) return true;
+            if (!section) return false;
+            if (this.profileSectionGrants('write_sections').includes(section)) return true;
+            return this.hasLegacySectionGrant() && this.profile.section === section;
+        },
+
+        /** The section a new patient lands in before the user picks one. */
+        defaultSection() {
+            return this.writableSectionKeys()[0] || '';
         },
         
         t(key, params = {}) {
@@ -718,8 +780,6 @@ function app() {
             this.profile = null;
             this.isLoggedIn = false;
             this.isSuperAdmin = false;
-            this.isSuperUser = false;
-            this.canManageUsers = false;
             this.resetSessionState();
             try {
                 await signOut();
@@ -744,8 +804,9 @@ function app() {
                 this.currentPage = 'login';
                 return;
             }
-            // Settings is accessible to users who can manage users
-            if (page === 'settings' && !this.canManageUsers && !this.isSuperAdmin) return;
+            // Settings is Super-Admin-only: its Users tab is the only way to
+            // manage accounts, so no other role may reach the page.
+            if (page === 'settings' && !this.isSuperAdmin) return;
             // The import entry is hidden when the ai_settings flag is off.
             if (page === 'import' && !this.importEnabled) return;
             // Retired pages (#15, #16): the financial summary lives on the
@@ -889,16 +950,16 @@ function app() {
         async showDashboard() {
             if (!this.isLoggedIn) return;
             const epoch = this.sessionEpoch;
-            const section = this.profile?.section || null;
             // One navigation pass: stats, recent patients and the financial
             // summary load in parallel (#15), so the dashboard never makes a
             // duplicate prices request. Stats/table failures keep the old
             // behavior (bubble up to the caller); a financial-summary failure
-            // is contained inside its own card (warning + retry).
+            // is contained inside its own card (warning + retry). RLS limits
+            // every query to the sections this account may read.
             const [_summary, stats, recent] = await Promise.allSettled([
                 this.loadPriceStats(),
-                getDashboardStats(this.isSuperAdmin, section),
-                getRecentPatients(this.isSuperAdmin, section),
+                getDashboardStats(),
+                getRecentPatients(),
             ]);
             // The session ended while the dashboard was loading: these rows
             // belong to the previous user and must not reach the new shell.
@@ -917,7 +978,7 @@ function app() {
             if (!this.isLoggedIn) return;
             const epoch = this.sessionEpoch;
             try {
-                const priceStats = await getPriceStats(this.isSuperAdmin, this.profile?.section);
+                const priceStats = await getPriceStats();
                 if (epoch !== this.sessionEpoch) return;
                 this.priceStats = priceStats;
                 this.priceStatsError = null;
@@ -998,13 +1059,9 @@ function app() {
             return entries;
         },
         sectionStatEntries() {
-            const entries = this.optionStatEntries('section', this.stats?.sections);
-            // Section staff only ever see their own section's numbers on the
-            // dashboard, so show just that entry for them.
-            if (!this.isSuperAdmin && this.profile?.section) {
-                return entries.filter((entry) => entry.key === this.profile.section);
-            }
-            return entries;
+            // RLS already removed any section this account cannot read, so the
+            // counts only ever describe permitted sections.
+            return this.optionStatEntries('section', this.stats?.sections);
         },
         sourceStatEntries() { return this.optionStatEntries('source', this.stats?.sources); },
         
@@ -2217,7 +2274,7 @@ function app() {
                     ...noEmpty,
                     sort: this.patientSort.key,
                     dir: this.patientSort.dir,
-                }, this.isSuperAdmin, this.profile?.section, {
+                }, {
                     page: this.patientPage,
                     pageSize: this.patientPageSize,
                 });
@@ -2443,7 +2500,6 @@ function app() {
                 try {
                     const results = await getPatients(
                         { search: query, filter_by: 'all', search_terms: this.searchTerms(query) },
-                        this.isSuperAdmin, this.profile?.section,
                         { limit: 5 },
                     );
                     // Ignore stale responses: only the latest request may
@@ -2541,6 +2597,10 @@ function app() {
         },
         
         async toggleStatus(patient) {
+            if (!this.canWriteSection(patient?.section)) {
+                this.showAlert(this.t('You do not have write access to this section.'), 'danger');
+                return;
+            }
             try {
                 await togglePatientStatus(patient.id, !patient.is_completed);
                 patient.is_completed = !patient.is_completed;
@@ -2551,6 +2611,10 @@ function app() {
         },
         
         async removePatient(patient) {
+            if (!this.canWriteSection(patient?.section)) {
+                this.showAlert(this.t('You do not have write access to this section.'), 'danger');
+                return;
+            }
             if (!confirm(this.t('Are you sure you want to delete this patient?'))) return;
             try {
                 await deletePatient(patient.id);
@@ -2574,7 +2638,7 @@ function app() {
                 Object.entries(this.patientFilters).forEach(([k, v]) => {
                     if (v !== '' && v !== null && v !== undefined) noEmpty[k] = v;
                 });
-                const filename = await exportPatientsToExcel(noEmpty, this.isSuperAdmin, this.profile?.section);
+                const filename = await exportPatientsToExcel(noEmpty);
                 this.showAlert(this.t('Export ready:') + ' ' + filename);
             } catch (error) {
                 this.showAlert(this.errorMessage(error), 'danger');
@@ -2709,26 +2773,35 @@ function app() {
                 visit_date: '',
                 price: '',
                 follower: '',
-                section: this.profile?.section || '',
+                section: this.defaultSection(),
                 source_of_money: '',
             };
         },
         
-        // The RLS insert policy requires either an admin row or a matching
-        // section; an empty-string section would satisfy neither and Postgres
-        // answers with the opaque row-level-security message.
+        // The RLS insert policy requires a writable section on the row; an
+        // empty-string section would satisfy neither and Postgres answers with
+        // the opaque row-level-security message.
         validatePatientForm() {
             // An expired session is not a missing clinic section. Check the
             // session first so the form says what actually happened.
             if (!this.isLoggedIn || !this.user) {
                 return this.t('Your session has expired. Please sign in again.');
             }
-            if (this.isSuperAdmin || this.profile?.section) return null;
-            return this.t('Your account has no clinic section assigned. Ask a Super Admin to set your section or grant you administrator access.');
+            if (!this.writableSectionKeys().length) {
+                return this.t('Your account has no section write access. Ask a Super Admin to grant it.');
+            }
+            if (!this.canWriteSection(this.patientForm?.section)) {
+                return this.t('You do not have write access to this section.');
+            }
+            return null;
         },
         
         async openPatientForm() {
             if (!this.isLoggedIn) { this.currentPage = 'login'; return; }
+            if (!this.writableSectionKeys().length) {
+                this.showAlert(this.t('Your account has no section write access. Ask a Super Admin to grant it.'), 'danger');
+                return;
+            }
             this.editingPatient = null;
             this.patientForm = this.newPatientForm();
             this.refreshAge();
@@ -2739,6 +2812,10 @@ function app() {
         
         async editPatient(patient) {
             if (!this.isLoggedIn) { this.currentPage = 'login'; return; }
+            if (!this.canWriteSection(patient?.section)) {
+                this.showAlert(this.t('You do not have write access to this section.'), 'danger');
+                return;
+            }
             this.editingPatient = patient;
             this.patientForm = {
                 name: patient.name || '',
@@ -2755,7 +2832,7 @@ function app() {
                 visit_date: patient.visit_date ? String(patient.visit_date).slice(0, 10) : '',
                 price: patient.price ?? '',
                 follower: patient.follower || '',
-                section: patient.section || this.profile?.section || '',
+                section: patient.section || this.defaultSection(),
                 source_of_money: patient.source_of_money || '',
             };
             this.refreshAge();
@@ -2995,42 +3072,149 @@ function app() {
             }
         },
         
+        /** A blank user form; also used to clear the modal after a save. */
+        emptyUserForm() {
+            return {
+                name: '',
+                email: '',
+                password: '',
+                is_super_admin: false,
+                read_sections: [],
+                write_sections: [],
+            };
+        },
+
+        /** The sections offered in the create/edit permission matrix. */
+        userSectionOptions() {
+            return this.activeOptions('section');
+        },
+
+        /** A Super Admin editing their own account must not lock themselves out. */
+        isEditingSelf() {
+            return !!this.editingUser && this.editingUser.id === this.user?.id;
+        },
+
         openUserForm() {
+            if (!this.isSuperAdmin) return;
             this.editingUser = null;
-            this.userForm = { name: '', email: '', password: '', is_admin: false, is_super_admin: false, section: '', read_sections: [], write_sections: [], can_manage_users: false };
-            // Create/edit is a Bootstrap modal over Settings → Users (#16) so
-            // the table stays visible behind the form.
+            this.userForm = this.emptyUserForm();
+            this.userFormError = null;
+            // Create/edit is a Bootstrap modal over Settings → Users so the
+            // table stays visible behind the form.
             this.showUserFormModal();
         },
-        
+
         editUser(u) {
+            if (!this.isSuperAdmin) return;
             this.editingUser = u;
             this.userForm = {
                 name: u.name || '',
                 email: u.email || '',
                 password: '',
-                is_admin: !!u.is_admin,
                 is_super_admin: !!u.is_super_admin,
-                section: u.section || '',
-                read_sections: Array.isArray(u.read_sections) ? u.read_sections : [],
-                write_sections: Array.isArray(u.write_sections) ? u.write_sections : [],
-                can_manage_users: !!u.can_manage_users,
+                read_sections: Array.isArray(u.read_sections) ? [...u.read_sections] : [],
+                write_sections: Array.isArray(u.write_sections) ? [...u.write_sections] : [],
             };
+            this.userFormError = null;
             this.showUserFormModal();
         },
-        
+
         showUserFormModal() {
             bootstrapBundle?.Modal?.getOrCreateInstance(document.getElementById('userFormModal'))?.show();
         },
-        
+
         closeUserForm() {
             bootstrapBundle?.Modal?.getOrCreateInstance(document.getElementById('userFormModal'))?.hide();
             // A fresh form for the next open (openUserForm/editUser set the
             // real values; this just clears the modal's leftovers).
-            this.userForm = { name: '', email: '', password: '', is_admin: false, is_super_admin: false, section: '', read_sections: [], write_sections: [], can_manage_users: false };
+            this.userForm = this.emptyUserForm();
+            this.userFormError = null;
         },
-        
+
+        // ---- Permission matrix (create/edit) --------------------------------
+
+        userCanRead(section) {
+            return (this.userForm?.read_sections || []).includes(section);
+        },
+
+        userCanWrite(section) {
+            return (this.userForm?.write_sections || []).includes(section);
+        },
+
+        toggleUserRead(section, checked) {
+            const read = new Set(this.userForm.read_sections || []);
+            const write = new Set(this.userForm.write_sections || []);
+            if (checked) {
+                read.add(section);
+            } else {
+                // Read off also clears write: a write grant the user cannot see
+                // would be meaningless.
+                read.delete(section);
+                write.delete(section);
+            }
+            this.userForm.read_sections = [...read];
+            this.userForm.write_sections = [...write];
+        },
+
+        toggleUserWrite(section, checked) {
+            const write = new Set(this.userForm.write_sections || []);
+            const read = new Set(this.userForm.read_sections || []);
+            if (checked) {
+                // Write implies read.
+                write.add(section);
+                read.add(section);
+            } else {
+                write.delete(section);
+            }
+            this.userForm.read_sections = [...read];
+            this.userForm.write_sections = [...write];
+        },
+
+        grantAllUserRead() {
+            const keys = this.userSectionOptions().map((opt) => opt.key);
+            this.userForm.read_sections = keys;
+            this.userForm.write_sections = (this.userForm.write_sections || [])
+                .filter((key) => keys.includes(key));
+        },
+
+        clearUserPermissions() {
+            this.userForm.read_sections = [];
+            this.userForm.write_sections = [];
+        },
+
+        setUserSuperAdmin(checked) {
+            this.userForm.is_super_admin = !!checked;
+            // A Super Admin reaches every section through the role flag, so
+            // stale per-section grants are cleared to keep the form honest if
+            // the role is later removed.
+            if (checked) this.clearUserPermissions();
+        },
+
         async submitUserForm() {
+            if (!this.isSuperAdmin) return;
+            this.userFormError = null;
+
+            if (!String(this.userForm.name || '').trim()) {
+                this.userFormError = this.t('Full name is required');
+                return;
+            }
+            if (!String(this.userForm.email || '').trim()) {
+                this.userFormError = this.t('A valid email address is required');
+                return;
+            }
+            if (!this.editingUser && !this.userForm.password) {
+                this.userFormError = this.t('Password is required');
+                return;
+            }
+            if (this.userForm.password && this.userForm.password.length < 6) {
+                this.userFormError = this.t('Password must be at least 6 characters');
+                return;
+            }
+            if (!this.userForm.is_super_admin && !this.userForm.read_sections?.length) {
+                this.userFormError = this.t('Select at least one section this user can read.');
+                return;
+            }
+
             const { createUser, updateUser } = await import('./services/users.js');
             try {
                 if (this.editingUser) {
@@ -3040,21 +3224,26 @@ function app() {
                     await createUser(this.userForm);
                     this.showAlert(this.t('user created successfully'));
                 }
-                // The modal closes on success only, so a failed save stays open
-                // with its alert; the admin remains on Settings → Users.
+                // Close on success only: a failed save stays open with its
+                // message so the Super Admin can correct the field.
                 this.closeUserForm();
                 await this.loadUsers();
             } catch (error) {
-                this.showAlert(this.errorMessage(error), 'danger');
+                this.userFormError = this.errorMessage(error);
             }
         },
-        
+
         async removeUser(u) {
+            if (!this.isSuperAdmin) return;
+            if (u.id === this.user?.id) {
+                this.showAlert(this.t('You cannot delete your own account.'), 'warning');
+                return;
+            }
             if (!confirm(this.t('Are you sure you want to delete this user?'))) return;
             const { deleteUser } = await import('./services/users.js');
             try {
                 await deleteUser(u.id);
-                this.users = this.users.filter(x => x.id !== u.id);
+                this.users = this.users.filter((x) => x.id !== u.id);
                 this.showAlert(this.t('user deleted successfully'));
             } catch (error) {
                 this.showAlert(this.errorMessage(error), 'danger');

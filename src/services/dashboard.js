@@ -1,15 +1,12 @@
 import { supabase } from './supabase.js';
 
-export async function getDashboardStats(isSuperAdmin, userSection = null) {
+export async function getDashboardStats() {
     // Only the columns the cards aggregate. Notes, attachments and the other
     // free-text fields would otherwise be downloaded on every dashboard visit.
-    let query = supabase().from('patients').select('is_completed, section, source_of_money');
-    
-    if (!isSuperAdmin && userSection) {
-        query = query.eq('section', userSection);
-    }
-    
-    const { data: patients, error } = await query;
+    // RLS limits the rows to the sections this account may read.
+    const { data: patients, error } = await supabase()
+        .from('patients')
+        .select('is_completed, section, source_of_money');
     if (error) throw error;
     
     const total = patients.length;
@@ -26,18 +23,13 @@ export async function getDashboardStats(isSuperAdmin, userSection = null) {
     return { total, completed, pending, sections, sources };
 }
 
-export async function getRecentPatients(isSuperAdmin, userSection = null, limit = 5) {
-    let query = supabase()
+export async function getRecentPatients(limit = 5) {
+    // RLS limits the rows to the sections this account may read.
+    const { data, error } = await supabase()
         .from('patients')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(limit);
-    
-    if (!isSuperAdmin && userSection) {
-        query = query.eq('section', userSection);
-    }
-    
-    const { data, error } = await query;
     if (error) throw error;
     
     // registered_by_name is denormalized onto the patient row (schema.sql) so

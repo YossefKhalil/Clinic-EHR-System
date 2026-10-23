@@ -1,11 +1,12 @@
 -- Seed data for initial setup
 
--- First user (admin) - will be created via Supabase Auth signup
--- Use the Supabase dashboard to create the first admin user:
+-- First user (Super Admin) - created via Supabase Auth signup.
+-- Use the Supabase dashboard to create the first account:
 -- Email: admin@clinic.com
 -- Password: (choose a secure password)
--- Then update the users table:
--- UPDATE users SET is_admin = TRUE WHERE email = 'admin@clinic.com';
+-- Then promote it to the only privileged role:
+-- UPDATE public.users SET is_super_admin = TRUE, is_admin = TRUE
+--     WHERE email = 'admin@clinic.com';
 
 -- Sample followers enum
 CREATE TYPE follower_type AS ENUM (

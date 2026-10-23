@@ -589,10 +589,10 @@ Deno.serve(async (req) => {
     const service = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
     const { data: profile } = await service
         .from('users')
-        .select('is_admin')
+        .select('is_admin, is_super_admin')
         .eq('id', user.id)
         .maybeSingle();
-    if (!profile?.is_admin) return fail('FORBIDDEN', 403);
+    if (!profile?.is_super_admin && !profile?.is_admin) return fail('FORBIDDEN', 403);
 
     let body: Record<string, unknown>;
     try {
