@@ -91,6 +91,15 @@ export function sniffKind(bytes) {
         if (bytes[0] === 0x47 && bytes[1] === 0x47 && bytes[2] === 0x55 && bytes[3] === 0x46) return 'gguf';
         if (bytes[0] === 0x50 && bytes[1] === 0x4b) return 'zip'; // ONNX in a zip container
     }
+    // Fast-path: reject obvious JSON files (support files like tokenizer.json)
+    // before the protobuf sniffing logic misidentifies them.
+    if (bytes.byteLength >= 1) {
+        const first = bytes[0];
+        // JSON files start with '{' (0x7B) or '[' (0x5B) or whitespace/BOM.
+        if (first === 0x7b || first === 0x5b || first === 0x20 || first === 0x09 || first === 0x0a || first === 0x0d || first === 0xef) {
+            return 'unknown';
+        }
+    }
     // An ONNX file is a protobuf. Its first field is a key, and a key is a
     // varint: a small field number with a wire type. `ir_version` (field 1)
     // and `graph` (field 7) are the two the exporters put first.
