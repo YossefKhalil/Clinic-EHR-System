@@ -7,6 +7,66 @@
     <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
     <link rel="apple-touch-icon" href="/favicon.png">
     <title>الملف الطبي</title>
+    <script>
+        // Polyfills for browsers that support ES modules but predate a few
+        // APIs the app relies on. Chrome 91 (the Android 9 WebView, still
+        // current on many devices) is missing all four, and a missing API here
+        // makes Alpine fail to build its scope -- every x-text/x-show binding
+        // throws "ReferenceError: ... is not defined" and the app renders
+        // blank. Classic script, so it runs before the deferred module.
+        (function () {
+            if (!Array.prototype.at) {
+                Object.defineProperty(Array.prototype, 'at', {
+                    configurable: true,
+                    writable: true,
+                    value: function at(index) {
+                        var len = this.length >>> 0;
+                        var i = Math.trunc(index) || 0;
+                        if (i < 0) i += len;
+                        return i < 0 || i >= len ? undefined : this[i];
+                    },
+                });
+            }
+            if (!Object.hasOwn) {
+                Object.defineProperty(Object, 'hasOwn', {
+                    configurable: true,
+                    writable: true,
+                    value: function hasOwn(object, key) {
+                        return Object.prototype.hasOwnProperty.call(object, key);
+                    },
+                });
+            }
+            if (typeof window.structuredClone !== 'function') {
+                // Only ever used on plain config objects, so a JSON round-trip
+                // is a correct stand-in.
+                window.structuredClone = function structuredClone(value) {
+                    return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+                };
+            }
+            try {
+                if (window.crypto && !window.crypto.randomUUID) {
+                    Object.defineProperty(window.crypto, 'randomUUID', {
+                        configurable: true,
+                        writable: true,
+                        value: function randomUUID() {
+                            var bytes = new Uint8Array(16);
+                            if (window.crypto.getRandomValues) {
+                                window.crypto.getRandomValues(bytes);
+                            } else {
+                                for (var j = 0; j < 16; j += 1) bytes[j] = Math.floor(Math.random() * 256);
+                            }
+                            bytes[6] = (bytes[6] & 15) | 64;
+                            bytes[8] = (bytes[8] & 63) | 128;
+                            var hex = [];
+                            for (var k = 0; k < 16; k += 1) hex.push((bytes[k] + 256).toString(16).slice(1));
+                            return hex.slice(0, 4).join('') + '-' + hex.slice(4, 6).join('') + '-' +
+                                hex.slice(6, 8).join('') + '-' + hex.slice(8, 10).join('') + '-' + hex.slice(10, 16).join('');
+                        },
+                    });
+                }
+            } catch (e) { /* a read-only crypto: the app degrades, it does not crash */ }
+        })();
+    </script>
 </head>
 <body class="bg-light" x-data="app()" x-init="init()">
 
