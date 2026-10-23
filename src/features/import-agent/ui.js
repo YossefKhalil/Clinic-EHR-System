@@ -168,12 +168,17 @@ export function importAgentWizard() {
             this.localModelReady = this.engine !== 'local' ? true : await this.hasLocalModel();
         },
 
-        /** True when a local model is set up on this computer. */
+        /** True when a usable local model is set up on this computer. */
         async hasLocalModel() {
             try {
-                const { loadProfile, profileComplete } = await import('./local/model-profile.js');
+                const { loadProfile, profileComplete, profileNeedsRepair } = await import('./local/model-profile.js');
                 const profile = await loadProfile();
-                return Boolean(profile && profileComplete(profile));
+                if (!profile || !profileComplete(profile)) return false;
+                const slot = profile.mode === 'single' ? profile.multimodal : profile.text;
+                // A name without a handle is a profile copied from another
+                // browser (or one saved before handles were kept). It cannot
+                // be loaded until the clinic picks the file again.
+                return Boolean(slot?.handle) && !profileNeedsRepair(slot);
             } catch {
                 return false;
             }
@@ -466,35 +471,39 @@ export function importAgentWizard() {
          * a resume knows which model produced the records.
          */
         async localSetup() {
-            const [{ loadProfile, profileComplete }, { probeDevice }, { resolveLocalConfig }] = await Promise.all([
+            const [
+                { loadProfile, profileComplete, profileNeedsRepair },
+                { probeDevice },
+                { resolveLocalConfig },
+                { localProfileSummary },
+                { fileFromHandle },
+            ] = await Promise.all([
                 import('./local/model-profile.js'),
                 import('./local/manifest.js'),
                 import('./local/local-config.js'),
+                import('@import-core/local-runtime.js'),
+                import('./local/model-store.js'),
             ]);
             const profile = await loadProfile();
             if (!profile || !profileComplete(profile)) {
                 throw new api.ImportApiError('NO_MODEL_PROFILE');
             }
+            // The runner reads the handle, not the name. A profile copied from
+            // another browser has the name but no handle, and asking here gives
+            // the clinic a specific repair message before a job is created.
+            const slot = profile.mode === 'single' ? profile.multimodal : profile.text;
+            if (!slot?.handle || profileNeedsRepair(slot)) {
+                throw new api.ImportApiError('MODEL_PROFILE_HANDLE_MISSING');
+            }
+            const file = await fileFromHandle(slot.handle);
+            if (!file) {
+                throw new api.ImportApiError('MODEL_FILE_UNREACHABLE');
+            }
             const device = await probeDevice();
             // The clinic's own settings come first; the device tier fills
             // the gaps.
             const { config } = resolveLocalConfig(device.tier, this.localConfig ?? {});
-            const payload = { mode: profile.mode };
-            if (profile.multimodal?.name) {
-                payload.name = profile.multimodal.name;
-                payload.size = profile.multimodal.size ?? 0;
-                if (profile.multimodal.sha256) payload.sha256 = profile.multimodal.sha256;
-            }
-            if (profile.text?.name) {
-                payload.textName = profile.text.name;
-                payload.textSize = profile.text.size ?? 0;
-            }
-            if (profile.vision?.name) {
-                payload.visionName = profile.vision.name;
-                payload.visionSize = profile.vision.size ?? 0;
-            }
-            if (profile.support?.name) payload.supportName = profile.support.name;
-            return { profile: payload, config, tier: device.tier };
+            return { profile: localProfileSummary(profile), config, tier: device.tier };
         },
 
         // ------------------------------------------------------ extract
@@ -506,17 +515,17 @@ export function importAgentWizard() {
             let localProfile = null;
             let localConfig = null;
             let chunkLimits = LIMITS;
-            if (isLocal) {
-                // The local engine runs the model in this browser, so the
-                // models and the runtime settings travel with the job.
-                const local = await this.localSetup();
-                localProfile = local.profile;
-                localConfig = local.config;
-                // The chunks are shaped so they fit the model's context.
-                const { localLimits } = await import('./local/runner.js');
-                chunkLimits = localLimits(local.config);
-            }
             try {
+                if (isLocal) {
+                    // The local engine runs the model in this browser, so the
+                    // models and the runtime settings travel with the job.
+                    const local = await this.localSetup();
+                    localProfile = local.profile;
+                    localConfig = local.config;
+                    // The chunks are shaped so they fit the model's context.
+                    const { localLimits } = await import('./local/runner.js');
+                    chunkLimits = localLimits(local.config);
+                }
                 const sourcesMeta = this.usableFiles.map((file) => ({ name: file.name }));
                 if (this.pastedText.trim()) sourcesMeta.push({ name: 'Typed text' });
                 if (sourcesMeta.length === 0) throw new api.ImportApiError('BAD_REQUEST');
@@ -659,7 +668,7 @@ export function importAgentWizard() {
             this.localAbort = controller;
             try {
                 const { runLocalImport } = await import('./local/runner.js');
-                await runLocalImport({
+                const localResult = await runLocalImport({
                     api,
                     jobId: this.job.id,
                     hints: this.hints?.trim() ?? '',
@@ -673,6 +682,9 @@ export function importAgentWizard() {
                         if (event?.progress) this.progress = { ...this.progress, ...event.progress };
                     },
                 });
+                // A drift found after the chunk ran is returned rather than
+                // thrown (the other parallel chunks have to settle first).
+                if (localResult?.error) throw localResult.error;
                 this.localPhase = '';
                 const overview = await this.loadJobOverview();
                 this.jobStatus = overview?.status ?? this.jobStatus;

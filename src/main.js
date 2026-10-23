@@ -19,19 +19,23 @@ import { initSupabase, supabase, getCurrentUser, signInWithIdentifier, signOut }
 import { loadImportEnabled, clearImportFlagCache } from './services/import-flag.js';
 import { loadAiSettings as loadAiSettingsApi, saveAiSettings as saveAiSettingsApi, testAiProvider as testAiProviderApi, loadImportLimits as loadImportLimitsApi, saveImportLimits as saveImportLimitsApi, resetCloudConsent as resetCloudConsentApi } from './services/ai-settings.js';
 import {
+    browseLocalModel,
     createLocalState,
     emptySlot,
     localProfilePayload,
-    pickAndVerify,
     pickSupportFiles,
     readDevice,
     resolveConfig,
     restoreLocalState,
     persistLocalState,
+    validateLocalConfig,
+    verifyLocalModelSlot,
 } from './services/ai-local.js';
+import { deviceSignals } from './features/import-agent/local/manifest.js';
 import { initCloudinary, getImageUrl, isImageAttachment } from './services/cloudinary.js';
 import { getDashboardStats, getRecentPatients } from './services/dashboard.js';
-import { getPatients, deletePatient, togglePatientStatus, GOVERNORATES, governorateLabel } from './services/patients.js';
+import { getPatients, getPatientsPage, deletePatient, togglePatientStatus, GOVERNORATES, governorateLabel } from './services/patients.js';
+import { buildPatientPayload } from './services/patient-payload.js';
 import { emptyPatientFilters, activeFilterKeys } from './services/patient-filters.js';
 import { patientMatchesQuery } from './services/fuzzy.js';
 import { getPriceStats } from './services/prices.js';
@@ -42,6 +46,39 @@ import { importAgentWizard, importAgentEnter } from './features/import-agent/ui.
 // The local runtime fields that hold text rather than a number. Reading a
 // text field as a number turns it into NaN, which the server stores as null.
 const LOCAL_TEXT_CONFIG = new Set(['text.chatTemplate', 'text.kvCacheType']);
+const LOCAL_TEXT_FIELDS = Object.freeze([
+    { group: 'text', key: 'contextTokens', type: 'number', min: 1024, max: 131072, step: 1024, labelKey: 'aiSettings.local.context', hintKey: 'aiSettings.local.contextHint' },
+    { group: 'text', key: 'kvCacheType', type: 'select', options: ['f16', 'q8_0', 'q4_0', 'q4_1', 'q5_0', 'q5_1'], labelKey: 'aiSettings.local.kvCache', hintKey: 'aiSettings.local.kvCacheHint' },
+    { group: 'text', key: 'gpuLayers', type: 'number', min: -1, max: 999, labelKey: 'aiSettings.local.gpuLayers', hintKey: 'aiSettings.local.gpuLayersHint' },
+    { group: 'text', key: 'threads', type: 'number', min: 1, max: 16, labelKey: 'aiSettings.local.threads', hintKey: 'aiSettings.local.threadsHint' },
+    { group: 'text', key: 'batchSize', type: 'number', min: 32, max: 2048, labelKey: 'aiSettings.local.batch', hintKey: 'aiSettings.local.batchHint' },
+    { group: 'text', key: 'ubatchSize', type: 'number', min: 32, max: 2048, labelKey: 'aiSettings.local.ubatch', hintKey: 'aiSettings.local.ubatchHint' },
+    { group: 'text', key: 'maxOutputTokens', type: 'number', min: 256, max: 32768, labelKey: 'aiSettings.local.maxOutput', hintKey: 'aiSettings.local.maxOutputHint' },
+    { group: 'text', key: 'temperature', type: 'number', min: 0, max: 2, step: 0.1, labelKey: 'aiSettings.local.temperature' },
+    { group: 'text', key: 'topK', type: 'number', min: 1, max: 200, labelKey: 'aiSettings.local.topK' },
+    { group: 'text', key: 'topP', type: 'number', min: 0, max: 1, step: 0.05, labelKey: 'aiSettings.local.topP' },
+    { group: 'text', key: 'repeatPenalty', type: 'number', min: 0.5, max: 2, step: 0.05, labelKey: 'aiSettings.local.repeatPenalty' },
+    { group: 'text', key: 'flashAttention', type: 'switch', labelKey: 'aiSettings.local.flashAttention' },
+    { group: 'text', key: 'mmap', type: 'switch', labelKey: 'aiSettings.local.mmap' },
+    { group: 'text', key: 'enableThinking', type: 'switch', labelKey: 'aiSettings.local.allowThinking' },
+    { group: 'text', key: 'repairPass', type: 'switch', labelKey: 'aiSettings.local.repairPass' },
+    { group: 'text', key: 'chatTemplate', type: 'text', width: 'col-12', labelKey: 'aiSettings.local.chatTemplate', hintKey: 'aiSettings.local.chatTemplateAuto' },
+]);
+const LOCAL_OCR_FIELDS = Object.freeze([
+    { group: 'ocr', key: 'executionProvider', type: 'select', options: ['webgpu', 'wasm'], labelKey: 'aiSettings.local.executionProvider' },
+    { group: 'ocr', key: 'stripWidth', type: 'number', min: 320, max: 2048, labelKey: 'aiSettings.local.stripWidth' },
+    { group: 'ocr', key: 'stripHeight', type: 'number', min: 64, max: 1024, labelKey: 'aiSettings.local.stripHeight' },
+    { group: 'ocr', key: 'overlap', type: 'number', min: 0, max: 256, labelKey: 'aiSettings.local.overlap', hintKey: 'aiSettings.local.stripHint' },
+    { group: 'ocr', key: 'imageLongSide', type: 'number', min: 512, max: 4096, labelKey: 'aiSettings.local.imageLongSide' },
+    { group: 'ocr', key: 'maxNewTokens', type: 'number', min: 32, max: 2048, labelKey: 'aiSettings.local.maxNewTokens' },
+    { group: 'ocr', key: 'graphOptimizationLevel', type: 'select', options: ['disabled', 'basic', 'extended', 'all'], labelKey: 'aiSettings.local.graphOptimization' },
+]);
+const LOCAL_RUNTIME_FIELDS = Object.freeze([
+    { group: 'runtime', key: 'leaseSeconds', type: 'number', min: 60, max: 3600, labelKey: 'aiSettings.local.lease' },
+    { group: 'runtime', key: 'heartbeatSeconds', type: 'number', min: 10, max: 1800, labelKey: 'aiSettings.local.heartbeat' },
+    { group: 'runtime', key: 'maxAttempts', type: 'number', min: 1, max: 10, labelKey: 'aiSettings.local.attempts' },
+    { group: 'runtime', key: 'parallel', type: 'number', min: 1, max: 4, labelKey: 'aiSettings.local.parallel', hintKey: 'aiSettings.local.parallelHint' },
+]);
 
 // A tab left open across a deploy still points at the previous build's
 // hashed chunks, so the next dynamic import 404s ("error loading dynamically
@@ -61,11 +98,6 @@ window.t = t;
 
 function translate(key, params = {}) {
     return t(key, params);
-}
-
-// Empty form inputs must be sent as null, not '' — Postgres rejects '' for numeric/int columns.
-function toNullableNumber(value) {
-    return value === '' || value === null || value === undefined ? null : Number(value);
 }
 
 // Whole years between a date of birth (YYYY-MM-DD) and today.
@@ -128,6 +160,10 @@ function app() {
         profile: null,
         isSuperAdmin: false,
         currentPage: 'login',
+        // Bumped whenever the session ends. An async loader captures it before
+        // its request and drops the response if it no longer matches, so a
+        // request from the previous user can never repopulate the next shell.
+        sessionEpoch: 0,
         localeLabel: 'العربية',
         // `?mock=review` preview route: renders the import review screen with
         // mock data, without a session. Never touches real data.
@@ -146,6 +182,10 @@ function app() {
         // Patients
         patients: [],
         patientsLoading: false,
+        // The directory is server-side paginated: only one page is in memory.
+        patientPage: 1,
+        patientPageSize: 25,
+        patientTotal: 0,
         patientFilters: emptyPatientFilters(),
         // The sort of the patients table: the key is the column that was
         // pressed, the direction is 'asc' or 'desc'. The newest row first is
@@ -255,7 +295,17 @@ function app() {
         aiLocal: createLocalState(),
         aiLocalDevice: null,
         aiLocalVerifying: null,
+        // Browsing is separate from verifying: picking a 700 MB file and
+        // loading it are two deliberate actions, and each has its own spinner.
+        aiLocalBrowsing: null,
         aiLocalMessage: null,
+        aiLocalConfigErrors: {},
+        // The field descriptors the card renders. Exposed to Alpine so the
+        // template and the label lookup use the same list.
+        aiLocalTextFields: LOCAL_TEXT_FIELDS.map((field) => ({ ...field, idPrefix: 'ai-local-text' })),
+        aiLocalSingleTextFields: LOCAL_TEXT_FIELDS.map((field) => ({ ...field, idPrefix: 'ai-local-single' })),
+        aiLocalOcrFields: LOCAL_OCR_FIELDS,
+        aiLocalRuntimeFields: LOCAL_RUNTIME_FIELDS,
         // The import limits (imports per day, rows per file, ...). They live
         // in `import_settings`, which only the ai-settings function may write,
         // so an admin raises the daily quota here instead of in the SQL
@@ -354,7 +404,9 @@ function app() {
                 this.financialCardOpen = cards.financial;
 
                 // Visual preview of the import review screen: `?mock=review`.
-                if (new URLSearchParams(window.location.search).get('mock') === 'review') {
+                // UI-development tool only; a production build must never
+                // fabricate a super-admin shell from a query param.
+                if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('mock') === 'review') {
                     this.enterMockPreview();
                 }
 
@@ -389,9 +441,83 @@ function app() {
                 this.refreshOptions();
                 this.refreshImportState();
             } else {
-                this.importEnabled = true;
-                this.importResumable = null;
+                // A signed-out shell has one page and no data. This is also
+                // the SIGNED_OUT path (expired refresh token, sign-out in
+                // another tab), so it must not depend on logout() running.
+                this.profile = null;
+                this.isSuperAdmin = false;
+                this.resetSessionState();
             }
+        },
+
+        /**
+         * Drop every piece of data a previous session fetched. The clinic PCs
+         * are shared, so signing out must leave nothing for the next user's
+         * dashboard, search suggestions or admin screens to render.
+         */
+        resetSessionState() {
+            // Invalidate in-flight loaders before clearing their results.
+            this.sessionEpoch += 1;
+
+            // Stop the timers first: they can write to the state below.
+            clearTimeout(this.globalSearchDebounce);
+            this.globalSearchDebounce = null;
+            clearTimeout(this.alertTimer);
+            this.alertTimer = null;
+
+            this.currentPage = 'login';
+
+            // Dashboard
+            this.stats = { total: 0, completed: 0, pending: 0, sections: {}, sources: {} };
+            this.recentPatients = [];
+            this.priceStats = null;
+            this.priceStatsError = null;
+
+            // Patients table, filters and navbar search
+            this.patients = [];
+            this.patientsLoading = false;
+            this.patientPage = 1;
+            this.patientTotal = 0;
+            this.patientFilters = emptyPatientFilters();
+            this.filterDraft = emptyPatientFilters();
+            this.patientSort = { key: 'created_at', dir: 'desc' };
+            this.showFilters = false;
+            this.globalSearch = '';
+            this.closeGlobalSearch({ keepQuery: false, clearFocus: true });
+            this.globalSearchLoading = false;
+
+            // Admin user list
+            this.users = [];
+            this.usersLoading = false;
+            this.usersError = null;
+
+            // Clinic options (labels, not patient data, but still last
+            // session's server state)
+            this.options = { follower: [], section: [], source: [] };
+            this.settingsOptions = { follower: [], section: [], source: [] };
+
+            // Open patient / form state
+            this.selectedPatient = null;
+            this.editingPatient = null;
+            this.patientNotes = [''];
+            this.patientAttachments = [];
+            this.patientForm = this.newPatientForm();
+            this.editingUser = null;
+            this.userForm = { name: '', email: '', password: '', is_admin: false, section: '' };
+
+            // Import resume entries
+            this.importEnabled = true;
+            this.importResumable = null;
+            this.importOpenJobs = [];
+            this.importJobsExpanded = false;
+
+            // Transient UI state
+            this.exporting = false;
+            this.alertMessage = null;
+            this.alertType = 'success';
+            this.loginForm = { identifier: '', password: '' };
+            this.loginError = null;
+            this.loginLoading = false;
         },
 
         /**
@@ -400,6 +526,9 @@ function app() {
          * real extraction. It never reads or writes real data.
          */
         enterMockPreview() {
+            // Development-only: the production build must not expose the
+            // fake admin shell even if this method is called directly.
+            if (!import.meta.env.DEV) return;
             this.mockPreview = true;
             this.isLoggedIn = true;
             this.isSuperAdmin = true;
@@ -415,7 +544,9 @@ function app() {
                 this.importResumable = null;
                 return;
             }
+            const epoch = this.sessionEpoch;
             const enabled = await loadImportEnabled();
+            if (epoch !== this.sessionEpoch || !this.isLoggedIn) return;
             this.importEnabled = enabled !== false;
             if (!this.importEnabled) this.importResumable = null;
         },
@@ -427,11 +558,15 @@ function app() {
                 this.importOpenJobs = [];
                 return;
             }
+            const epoch = this.sessionEpoch;
             try {
                 const { listOpenJobs } = await import('./features/import-agent/api.js');
-                this.importOpenJobs = await listOpenJobs();
+                const jobs = await listOpenJobs();
+                if (epoch !== this.sessionEpoch) return;
+                this.importOpenJobs = jobs;
                 this.importResumable = this.importOpenJobs[0] ?? null;
             } catch {
+                if (epoch !== this.sessionEpoch) return;
                 this.importResumable = null;
                 this.importOpenJobs = [];
             }
@@ -564,14 +699,18 @@ function app() {
         },
         
         async logout() {
-            await signOut();
-            this.currentPage = 'login';
-            this.isLoggedIn = false;
+            // Clear the shell first: the network call may be slow or fail, but
+            // the previous user's data must leave the screen immediately.
             this.user = null;
             this.profile = null;
+            this.isLoggedIn = false;
             this.isSuperAdmin = false;
-            this.importEnabled = true;
-            this.importResumable = null;
+            this.resetSessionState();
+            try {
+                await signOut();
+            } catch (error) {
+                console.error('Sign out failed:', error);
+            }
         },
         
         // Mobile menu: close the collapsed panel after a navigation click so
@@ -583,6 +722,13 @@ function app() {
         },
 
         async navigate(page) {
+            // Signed out, the shell has exactly one page. A click from a stale
+            // view (or the login logo) must not hide that page behind a gated
+            // container and leave the screen blank.
+            if (!this.isLoggedIn) {
+                this.currentPage = 'login';
+                return;
+            }
             // Settings is super-admin-only: no nav entry is rendered for other
             // roles and this guard keeps a stale page value from reaching it.
             if (page === 'settings' && !this.isSuperAdmin) return;
@@ -728,6 +874,7 @@ function app() {
         
         async showDashboard() {
             if (!this.isLoggedIn) return;
+            const epoch = this.sessionEpoch;
             const section = this.profile?.section || null;
             // One navigation pass: stats, recent patients and the financial
             // summary load in parallel (#15), so the dashboard never makes a
@@ -739,6 +886,9 @@ function app() {
                 getDashboardStats(this.isSuperAdmin, section),
                 getRecentPatients(this.isSuperAdmin, section),
             ]);
+            // The session ended while the dashboard was loading: these rows
+            // belong to the previous user and must not reach the new shell.
+            if (epoch !== this.sessionEpoch) return;
             if (stats.status === 'fulfilled') this.stats = stats.value;
             if (recent.status === 'fulfilled') this.recentPatients = recent.value;
             if (stats.status === 'rejected') throw stats.reason;
@@ -751,10 +901,14 @@ function app() {
         // sees them (a section account only sees its own section).
         async loadPriceStats() {
             if (!this.isLoggedIn) return;
+            const epoch = this.sessionEpoch;
             try {
-                this.priceStats = await getPriceStats(this.isSuperAdmin, this.profile?.section);
+                const priceStats = await getPriceStats(this.isSuperAdmin, this.profile?.section);
+                if (epoch !== this.sessionEpoch) return;
+                this.priceStats = priceStats;
                 this.priceStatsError = null;
             } catch (error) {
+                if (epoch !== this.sessionEpoch) return;
                 console.error('Financial summary load failed:', error);
                 this.priceStatsError = true;
             }
@@ -783,8 +937,11 @@ function app() {
         // ---- Editable options (issue #1) ------------------------------------
         
         async refreshOptions() {
+            if (!this.isLoggedIn) return;
+            const epoch = this.sessionEpoch;
             try {
                 await fetchOptions();
+                if (epoch !== this.sessionEpoch) return;
                 this.options = {
                     follower: allOptions('follower'),
                     section: allOptions('section'),
@@ -902,11 +1059,14 @@ function app() {
             this.aiSettingsLoadError = null;
             try {
                 const data = await loadAiSettingsApi();
-                this.applyAiSettings(data);
-                // A model the clinic picked but has not saved yet is still in
-                // this browser, so the panel shows it.
-                await restoreLocalState(this.aiLocal);
+                // The device tier decides the defaults the server config is
+                // resolved against, so probe before the card is built. The
+                // browser-side handles are restored first too, so a slot the
+                // clinic picked earlier keeps its handle when the server names
+                // the same file.
                 await this.loadAiLocalDevice();
+                await restoreLocalState(this.aiLocal);
+                this.applyAiSettings(data);
             } catch (error) {
                 console.error('AI settings load failed:', error);
                 const view = this.aiErrorView(error, 'aiSettings.loadFailed');
@@ -1035,41 +1195,70 @@ function app() {
             const profile = data.local_profile ?? {};
             const config = data.local_config ?? {};
             state.mode = profile.mode === 'split' ? 'split' : 'single';
-            // A model the admin checked keeps its badge: the check did not
-            // become invalid because the card was reloaded.
-            const keepStatus = (slot, name) => {
+            // The server response has the names but never the handles. Keep
+            // the handle, file and badge of a slot that still names the same
+            // file, so a save made after a reload does not wipe the browser
+            // side of the profile.
+            const keepSlot = (slot, name) => {
                 const current = this.aiLocal?.[slot];
-                return current && current.name === name ? current.status : 'warn';
+                if (!current || !name || current.name !== name) {
+                    return { status: name ? 'warn' : 'none' };
+                }
+                return {
+                    handle: current.handle ?? null,
+                    file: current.file ?? null,
+                    status: current.status,
+                    message: current.message ?? '',
+                    params: current.params ?? {},
+                    code: current.code ?? null,
+                };
             };
             state.multimodal = {
                 ...emptySlot(),
+                ...keepSlot('multimodal', profile.name),
                 name: profile.name ?? '',
                 size: profile.size ?? 0,
                 sha256: profile.sha256 ?? '',
                 kind: 'gguf',
-                status: profile.name ? keepStatus('multimodal', profile.name) : 'none',
             };
             state.text = {
                 ...emptySlot(),
+                ...keepSlot('text', profile.textName),
                 name: profile.textName ?? '',
                 size: profile.textSize ?? 0,
+                sha256: profile.textSha256 ?? '',
                 kind: 'gguf',
-                status: profile.textName ? keepStatus('text', profile.textName) : 'none',
             };
             state.vision = {
                 ...emptySlot(),
+                ...keepSlot('vision', profile.visionName),
                 name: profile.visionName ?? '',
                 size: profile.visionSize ?? 0,
+                sha256: profile.visionSha256 ?? '',
                 kind: 'onnx',
-                status: profile.visionName ? keepStatus('vision', profile.visionName) : 'none',
             };
+            // The support files are local too. Keep them (and the folder
+            // handle) when the server still names the same folder.
+            const currentSupport = this.aiLocal?.support;
+            const sameSupport = Boolean(
+                profile.supportName && currentSupport?.name === profile.supportName,
+            );
             state.support = {
                 ...state.support,
                 name: profile.supportName ?? '',
-                status: profile.supportName ? 'warn' : 'none',
+                status: profile.supportName ? (sameSupport ? currentSupport.status : 'warn') : 'none',
+                message: sameSupport ? currentSupport.message ?? '' : '',
+                missing: sameSupport ? currentSupport.missing ?? state.support.missing : state.support.missing,
+                handle: sameSupport ? currentSupport.handle ?? null : null,
+                files: sameSupport ? currentSupport.files ?? {} : {},
             };
+            state.device = this.aiLocalDevice;
             if (config && typeof config === 'object') {
-                const resolved = resolveConfig({ ...state, config });
+                // The service resolves the draft's own `config`; the server
+                // payload has to be placed there first, or a saved config
+                // would silently fall back to the defaults.
+                state.config = config;
+                const resolved = resolveConfig(state);
                 state.config = resolved.config;
             }
             return state;
@@ -1134,25 +1323,59 @@ function app() {
             }
         },
 
-        /** Pick a model file and check it. */
+        /** Step one: pick a model file. Nothing is loaded or hashed yet. */
         async aiLocalBrowse(slot) {
             this.aiLocalMessage = null;
-            this.aiLocalVerifying = slot;
+            this.aiLocalBrowsing = slot;
             this.aiSettingsDirty = true;
             try {
-                const picked = await pickAndVerify(this.aiLocal, slot);
+                const picked = await browseLocalModel(this.aiLocal, slot);
                 if (!picked) return;
-                if (!picked.result.ok) {
-                    this.aiLocalMessage = { type: 'danger', key: 'aiSettings.local.modelRejected', params: { detail: picked.result.message } };
-                    return;
-                }
-                this.aiLocalMessage = { type: 'success', key: 'aiSettings.local.modelAccepted' };
+                this.aiLocalMessage = { type: 'info', key: 'aiSettings.local.modelPicked' };
             } catch (error) {
                 console.error('Local model pick failed:', error);
                 this.aiLocalMessage = { type: 'danger', key: 'aiSettings.local.pickFailed' };
             } finally {
+                this.aiLocalBrowsing = null;
+            }
+        },
+
+        /**
+         * Step two: verify the picked file. The SHA-256 and the header probe
+         * run here, so the slow work is a separate, deliberate click.
+         */
+        async aiLocalVerify(slot) {
+            this.aiLocalMessage = null;
+            this.aiLocalVerifying = slot;
+            try {
+                const result = await verifyLocalModelSlot(this.aiLocal, slot);
+                if (!result.ok) {
+                    this.aiLocalMessage = {
+                        type: 'danger',
+                        key: 'aiSettings.local.modelRejected',
+                        params: { detail: this.aiLocalErrorDetail(result) },
+                    };
+                    return;
+                }
+                this.aiLocalMessage = { type: 'success', key: 'aiSettings.local.modelAccepted' };
+            } catch (error) {
+                console.error('Local model verification failed:', error);
+                this.aiLocalMessage = {
+                    type: 'danger',
+                    key: 'aiSettings.local.modelRejected',
+                    params: { detail: error?.message || this.t('aiSettings.local.pickFailed') },
+                };
+            } finally {
                 this.aiLocalVerifying = null;
             }
+        },
+
+        /** The error code and the detail, when the probe supplied both. */
+        aiLocalErrorDetail(result) {
+            const code = String(result?.code ?? '');
+            const message = String(result?.message ?? '');
+            if (code && message) return `${code}: ${message}`;
+            return code || message || this.t('aiSettings.local.pickFailed');
         },
 
         /** Pick the folder with the tokenizer and the config files. */
@@ -1161,10 +1384,9 @@ function app() {
             this.aiSettingsDirty = true;
             try {
                 const picked = await pickSupportFiles(this.aiLocal);
-                if (!picked) {
-                    this.aiLocalMessage = { type: 'warning', key: 'aiSettings.local.folderUnsupported' };
-                    return;
-                }
+                // A plain cancel is not a failure. The input fallback only
+                // returns false when the clinic closed the picker too.
+                if (!picked) return;
                 if (this.aiLocal.support.missing.length > 0) {
                     this.aiLocalMessage = { type: 'warning', key: 'aiSettings.local.supportMissing', params: { files: this.aiLocal.support.missing.join(', ') } };
                     return;
@@ -1190,31 +1412,119 @@ function app() {
         },
 
         /**
-         * Write one runtime value.
+         * Write one config value.
          *
          * The kind of the field decides how the value is read: a switch is a
          * boolean, a text field is text, everything else is a number. A
-         * number field that was cleared falls back to the default, not to
-         * NaN.
+         * number field that was cleared or contains garbage keeps its previous
+         * value rather than becoming NaN.
          */
         aiLocalSetConfig(group, key, value) {
             if (!this.aiLocal.config[group]) return;
             const current = this.aiLocal.config[group][key];
+            const path = `${group}.${key}`;
             let next;
-            if (LOCAL_TEXT_CONFIG.has(`${group}.${key}`)) {
+            if (LOCAL_TEXT_CONFIG.has(path)) {
                 const text = String(value ?? '').trim();
                 next = text === '' && key === 'chatTemplate' ? null : text;
             } else if (typeof current === 'boolean') {
                 next = Boolean(value);
             } else {
-                const number = Number(value);
-                next = Number.isFinite(number) ? number : current;
+                const text = String(value ?? '').trim();
+                if (text === '') {
+                    next = current;
+                } else {
+                    const number = Number(text);
+                    next = Number.isFinite(number) ? number : current;
+                }
             }
             this.aiLocal.config = {
                 ...this.aiLocal.config,
                 [group]: { ...this.aiLocal.config[group], [key]: next },
             };
+            this.aiLocalClearConfigError(path);
             this.aiSettingsDirty = true;
+        },
+
+        aiLocalClearConfigError(path) {
+            if (!this.aiLocalConfigErrors[path]) return;
+            const next = { ...this.aiLocalConfigErrors };
+            delete next[path];
+            this.aiLocalConfigErrors = next;
+        },
+
+        /** True when a field is outside the bounds the server enforces too. */
+        aiLocalConfigInvalid(path) {
+            return this.aiLocalConfigErrors[path] === true;
+        },
+
+        /**
+         * Validate on blur: the whole config is checked because a few bounds
+         * are relational (ubatch <= batch, heartbeat <= lease/2).
+         */
+        aiLocalValidateConfigField(group, key) {
+            const result = validateLocalConfig(this.aiLocal.config);
+            const errors = result.errors ?? [];
+            this.aiLocalConfigErrors = Object.fromEntries(errors.map((path) => [path, true]));
+            return !errors.includes(`${group}.${key}`);
+        },
+
+        aiLocalValidateConfig() {
+            const result = validateLocalConfig(this.aiLocal.config);
+            this.aiLocalConfigErrors = Object.fromEntries((result.errors ?? []).map((path) => [path, true]));
+            return result;
+        },
+
+        /** The human label of a dotted config path, for the error message. */
+        aiLocalConfigLabel(path) {
+            const fields = [...LOCAL_TEXT_FIELDS, ...LOCAL_OCR_FIELDS, ...LOCAL_RUNTIME_FIELDS];
+            const field = fields.find((entry) => `${entry.group}.${entry.key}` === path);
+            return field ? this.t(field.labelKey) : path;
+        },
+
+        /** The resolved config: device tier defaults plus the user's choices. */
+        aiLocalResolvedConfig() {
+            return resolveConfig(this.aiLocal).config;
+        },
+
+        aiLocalConfigWarnings() {
+            return resolveConfig(this.aiLocal).warnings ?? [];
+        },
+
+        /** The colour of one readiness chip. */
+        aiLocalSignals() {
+            return deviceSignals(this.aiLocalDevice ?? {});
+        },
+
+        aiLocalSignal(name) {
+            return this.aiLocalSignals()[name] ?? 'warn';
+        },
+
+        /** The suggested tier, in the words the card uses (medium, not mid). */
+        aiLocalTierLabel(tier = this.aiLocalDevice?.tier) {
+            const normalized = tier === 'low' || tier === 'high' ? tier : 'medium';
+            return this.t(`aiSettings.local.tier.${normalized}`);
+        },
+
+        aiLocalThreadsLabel() {
+            const count = Number(this.aiLocalDevice?.threads) || 0;
+            return count > 0
+                ? this.t('aiSettings.local.chip.threads', { count })
+                : this.t('aiSettings.local.chip.unknown');
+        },
+
+        aiLocalMemoryLabel() {
+            const count = Number(this.aiLocalDevice?.memory) || 0;
+            return count > 0
+                ? this.t('aiSettings.local.chip.memory', { count })
+                : this.t('aiSettings.local.chip.memoryUnknown');
+        },
+
+        aiLocalStorageLabel() {
+            const free = Number(this.aiLocalDevice?.storageFree) || 0;
+            return free > 0
+                ? this.t('aiSettings.local.chip.storage', { size: this.aiLocalFormatBytes(free) })
+                : this.t('aiSettings.local.chip.unknown');
         },
 
         /** The badge class of a model slot. */
@@ -1231,6 +1541,22 @@ function app() {
             if (status === 'warn') return 'aiSettings.local.statusNotVerified';
             if (status === 'error') return 'aiSettings.local.statusError';
             return 'aiSettings.local.statusNone';
+        },
+
+        /** The badge says why a slot failed, not just that it failed. */
+        aiLocalBadgeLabel(slot) {
+            const status = slot?.status;
+            if (status === 'error' && slot?.code) {
+                return this.t('aiSettings.local.statusErrorCode', { code: slot.code });
+            }
+            return this.t(this.aiLocalBadgeKey(status));
+        },
+
+        /** A slot message is either a translation key or a probe's own text. */
+        aiLocalSlotMessage(slot) {
+            const message = slot?.message ?? '';
+            if (!message) return '';
+            return this.t(message, slot?.params ?? {});
         },
 
         /** The size and the hash of a model file. */
@@ -1442,10 +1768,24 @@ function app() {
             });
 
             // The cloud engine needs a model chain. The local engine needs a
-            // model file, and nothing else.
+            // model file and a config inside the bounds the server enforces.
             if (this.aiEngine === 'local') {
                 if (!this.aiLocalModelReady()) {
                     this.aiNotify('warning', 'aiSettings.local.modelMissing');
+                    return false;
+                }
+                if (this.aiLocal.mode === 'split'
+                    && this.aiLocal.vision.name
+                    && (this.aiLocal.support.missing ?? []).length > 0) {
+                    this.aiNotify('warning', 'aiSettings.local.supportMissing', {
+                        files: this.aiLocal.support.missing.join(', '),
+                    });
+                    return false;
+                }
+                const validation = this.aiLocalValidateConfig();
+                if (!validation.valid) {
+                    const fields = validation.errors.map((path) => this.aiLocalConfigLabel(path)).join(', ');
+                    this.aiNotify('warning', 'aiSettings.local.configInvalid', { fields });
                     return false;
                 }
                 return true;
@@ -1498,7 +1838,10 @@ function app() {
         aiLocalModelReady() {
             const local = this.aiLocal;
             if (local.mode === 'single') return Boolean(local.multimodal.name);
-            return Boolean(local.text.name) && Boolean(local.vision.name);
+            // The text model is the one every split import needs. The vision
+            // model is only needed when the import contains images, so a
+            // missing or broken vision file must not block a text import.
+            return Boolean(local.text.name);
         },
 
         aiSavePayload() {
@@ -1516,9 +1859,11 @@ function app() {
                 cloud_consent: this.aiCloudConsent === true,
                 chain,
                 // The local profile holds the names, the sizes and the hashes
-                // only. The files and their handles stay in the browser.
+                // only. The files and their handles stay in the browser. The
+                // config is resolved against the device tier, so the server
+                // stores exactly what the import will run.
                 local_profile: localProfilePayload(this.aiLocal),
-                local_config: this.aiLocal.config,
+                local_config: this.aiLocalResolvedConfig(),
                 credentials: {
                     openrouter: {
                         apiKey: credentials.openrouter.apiKey.trim(),
@@ -1547,12 +1892,15 @@ function app() {
             if (!this.aiValidateSettings()) return;
             this.aiSettingsSaving = true;
             try {
-                const data = await saveAiSettingsApi(this.aiSavePayload());
                 // The models are remembered in the browser, so the clinic
-                // picks them once and not on every visit.
-                if (this.aiEngine === 'local') {
-                    await persistLocalState(this.aiLocal);
-                }
+                // picks them once and not on every visit. Write them BEFORE
+                // the server call: a rejected server save (for example when
+                // the deployment has turned the local engine off) must not
+                // throw away a file the clinic already picked.
+                const hasLocalFiles = ['multimodal', 'text', 'vision']
+                    .some((slot) => Boolean(this.aiLocal?.[slot]?.name));
+                if (hasLocalFiles) await persistLocalState(this.aiLocal);
+                const data = await saveAiSettingsApi(this.aiSavePayload());
                 this.applyAiSettings(data);
                 clearImportFlagCache();
                 this.importEnabled = data.enabled === true;
@@ -1663,12 +2011,19 @@ function app() {
             this.aiNotify('warning', 'aiSettings.keyRemovedOnSave');
         },
 
-        aiDiscardChanges() {
+        async aiDiscardChanges() {
             if (!this.aiSettings) {
                 this.loadAiSettings();
                 return;
             }
+            // Restore the browser-side handles first: the server never has
+            // them, and applyAiSettings keeps one only when the server still
+            // names the same file. Without this step a discard after browsing
+            // another model loses the saved model's handle.
+            await restoreLocalState(this.aiLocal);
             this.applyAiSettings(this.aiSettings);
+            this.aiLocalMessage = null;
+            this.aiLocalConfigErrors = {};
             this.aiNotify('info', 'aiSettings.discarded');
         },
 
@@ -1801,22 +2156,32 @@ function app() {
             // The Users tab only exists inside Settings, which no non-admin
             // can open; this also keeps stale state from loading the list.
             if (!this.isSuperAdmin) return;
+            const epoch = this.sessionEpoch;
             this.usersError = null;
             this.usersLoading = true;
             try {
                 const { getUsers } = await import('./services/users.js');
-                this.users = await getUsers();
+                const users = await getUsers();
+                if (epoch !== this.sessionEpoch) return;
+                this.users = users;
             } catch (error) {
+                if (epoch !== this.sessionEpoch) return;
                 console.error('User list load failed:', error);
                 // The message lands in the tab with a retry action instead of
                 // leaving a blank table.
                 this.usersError = error.message || this.t('Could not load the user list.');
             } finally {
-                this.usersLoading = false;
+                if (epoch === this.sessionEpoch) this.usersLoading = false;
             }
         },
         
-        async loadPatients() {
+        // Load one page of the directory. Every caller that changes a filter
+        // or the sort calls this without an argument and therefore starts at
+        // page 1; only goToPatientPage asks for another page.
+        async loadPatients({ page = 1 } = {}) {
+            if (!this.isLoggedIn) return;
+            const epoch = this.sessionEpoch;
+            this.patientPage = Math.max(1, Math.trunc(Number(page) || 1));
             this.patientsLoading = true;
             try {
                 const noEmpty = {};
@@ -1824,14 +2189,40 @@ function app() {
                     if (v !== '' && v !== null && v !== undefined) noEmpty[k] = v;
                 });
                 if (noEmpty.search) noEmpty.search_terms = this.searchTerms(noEmpty.search);
-                this.patients = await getPatients({
+                const result = await getPatientsPage({
                     ...noEmpty,
                     sort: this.patientSort.key,
                     dir: this.patientSort.dir,
-                }, this.isSuperAdmin, this.profile?.section);
+                }, this.isSuperAdmin, this.profile?.section, {
+                    page: this.patientPage,
+                    pageSize: this.patientPageSize,
+                });
+                // The signed-out shell was reset while this request was in
+                // flight; discard the previous user's rows.
+                if (epoch !== this.sessionEpoch) return;
+                const lastPage = Math.max(1, Math.ceil(result.total / this.patientPageSize));
+                if (this.patientPage > lastPage) {
+                    // A delete or a filter change can empty the page that was
+                    // open; show the last page that still has rows.
+                    this.patientPage = lastPage;
+                    await this.loadPatients({ page: lastPage });
+                    return;
+                }
+                this.patients = result.rows;
+                this.patientTotal = result.total;
             } finally {
-                this.patientsLoading = false;
+                if (epoch === this.sessionEpoch) this.patientsLoading = false;
             }
+        },
+
+        patientPageCount() {
+            return Math.max(1, Math.ceil(this.patientTotal / this.patientPageSize));
+        },
+
+        async goToPatientPage(page) {
+            const target = Math.max(1, Math.min(this.patientPageCount(), Math.trunc(Number(page) || 1)));
+            if (target === this.patientPage || this.patientsLoading) return;
+            await this.loadPatients({ page: target });
         },
         
         // ---- The sort of the patients table ---------------------------------
@@ -1995,12 +2386,6 @@ function app() {
             }
         },
         
-        async handleFilter() {
-            // Stays for the panel form's submit path; same behavior as the old
-            // inline form's submit.
-            await this.loadPatients();
-        },
-        
         // The terms a search runs with: the word that was typed and every word
         // that means the same thing - the Arabic name of a governorate and
         // the English name that is stored, and so on.
@@ -2028,12 +2413,13 @@ function app() {
                 try {
                     const results = await getPatients(
                         { search: query, filter_by: 'all', search_terms: this.searchTerms(query) },
-                        this.isSuperAdmin, this.profile?.section
+                        this.isSuperAdmin, this.profile?.section,
+                        { limit: 5 },
                     );
                     // Ignore stale responses: only the latest request may
                     // touch the dropdown.
                     if (requestId !== this.globalSearchRequestId) return;
-                    this.globalSearchResults = results.slice(0, 5);
+                    this.globalSearchResults = results;
                     this.globalSearchSelectedIndex = -1;
                 } catch (error) {
                     if (requestId !== this.globalSearchRequestId) return;
@@ -2138,7 +2524,9 @@ function app() {
             if (!confirm(this.t('Are you sure you want to delete this patient?'))) return;
             try {
                 await deletePatient(patient.id);
-                this.patients = this.patients.filter(p => p.id !== patient.id);
+                // Refetch the page so the total and the rows agree; loadPatients
+                // falls back one page if the last row of this page was deleted.
+                await this.loadPatients({ page: this.patientPage });
             } catch (error) {
                 console.error(error);
                 this.showAlert(this.t('Could not delete the patient. Please try again.'), 'danger');
@@ -2229,11 +2617,17 @@ function app() {
         // section; an empty-string section would satisfy neither and Postgres
         // answers with the opaque row-level-security message.
         validatePatientForm() {
+            // An expired session is not a missing clinic section. Check the
+            // session first so the form says what actually happened.
+            if (!this.isLoggedIn || !this.user) {
+                return this.t('Your session has expired. Please sign in again.');
+            }
             if (this.isSuperAdmin || this.profile?.section) return null;
             return this.t('Your account has no clinic section assigned. Ask a Super Admin to set your section or grant you administrator access.');
         },
         
         async openPatientForm() {
+            if (!this.isLoggedIn) { this.currentPage = 'login'; return; }
             this.editingPatient = null;
             this.patientForm = this.newPatientForm();
             this.refreshAge();
@@ -2243,6 +2637,7 @@ function app() {
         },
         
         async editPatient(patient) {
+            if (!this.isLoggedIn) { this.currentPage = 'login'; return; }
             this.editingPatient = patient;
             this.patientForm = {
                 name: patient.name || '',
@@ -2267,15 +2662,31 @@ function app() {
             this.patientAttachments = Array.isArray(patient.attachments)
                 ? patient.attachments.map((att) => ({ ...att, uploading: false, progress: 100, error: null }))
                 : [];
+            // Check PDF accessibility for authenticated attachments
+            this.checkPatientPdfs();
             this.currentPage = 'patient-form';
         },
         
         async showPatient(patient) {
+            if (!this.isLoggedIn) { this.currentPage = 'login'; return; }
             this.selectedPatient = {
                 ...patient,
                 user_name: patient.registered_by_name || patient.user_name || 'Unknown',
             };
             this.currentPage = 'patient-profile';
+            // Check PDF accessibility for authenticated attachments
+            this.checkPatientPdfs();
+        },
+
+        async checkPatientPdfs() {
+            if (!this.selectedPatient?.attachments?.length) return;
+            for (const att of this.selectedPatient.attachments) {
+                if (!this.attachmentIsImage(att) && att.authenticated) {
+                    const result = await this.checkPdfAccessible(att);
+                    att._pdfAccessible = result.accessible;
+                    att._pdfError = result.error;
+                }
+            }
         },
         
         addNote() {
@@ -2288,20 +2699,32 @@ function app() {
         
         // ---- Attachments (Cloudinary) --------------------------------------
         
-        // One folder per patient so assets stay grouped: the patient row id
-        // when editing an existing patient, otherwise the typed national id,
-        // with a fallback for files attached before the form is filled in.
+        // One folder per patient so assets stay grouped. An existing patient
+        // uses its row id; a new patient has no row yet, so its uploads go to
+        // the signed-in user's draft scope. That scope is what the signing
+        // function checks, so a typed national id can never target another
+        // section's patient folder.
         attachmentFolder() {
-            const key = this.editingPatient?.id || (this.patientForm?.national_id || '').trim() || 'unassigned';
-            return `clinic-ehr/patients/${key}`;
+            if (this.editingPatient?.id) {
+                return `clinic-ehr/patients/${this.editingPatient.id}`;
+            }
+            const owner = this.user?.id;
+            if (!owner) return '';
+            const key = (this.patientForm?.national_id || '').trim().replace(/[^A-Za-z0-9._-]+/g, '_') || 'unassigned';
+            return `clinic-ehr/drafts/${owner}/${key}`;
         },
         
         async onPatientAttach(event) {
+            const epoch = this.sessionEpoch;
             const { isSupportedAttachment, uploadAttachment } = await import('./services/cloudinary.js');
+            // The session ended while the module was loading: this upload
+            // belongs to the previous shell.
+            if (epoch !== this.sessionEpoch) return;
             const files = Array.from(event.target.files ?? []);
             event.target.value = '';
             
             for (const file of files) {
+                if (epoch !== this.sessionEpoch) return;
                 if (!isSupportedAttachment(file)) {
                     this.showAlert(this.t('Unsupported file type: :name', { name: file.name }), 'warning');
                     continue;
@@ -2325,15 +2748,30 @@ function app() {
                     const uploaded = await uploadAttachment(file, {
                         folder: this.attachmentFolder(),
                         onProgress: (percent) => {
-                            // Use array index to ensure Alpine reactivity fires
-                            this.patientAttachments[entryIndex].progress = percent;
+                            // Ignore progress from a previous session after
+                            // logout replaced the attachment array.
+                            if (epoch !== this.sessionEpoch) return;
+                            const current = this.patientAttachments[entryIndex];
+                            if (current) current.progress = percent;
                         },
                     });
                     // Merge upload result and mark complete
-                    Object.assign(this.patientAttachments[entryIndex], uploaded, { uploading: false, progress: 100 });
+                    const current = this.patientAttachments[entryIndex];
+                    if (epoch !== this.sessionEpoch || !current) return;
+                    Object.assign(current, uploaded, { uploading: false, progress: 100 });
+                    // Check PDF accessibility for newly uploaded authenticated PDFs
+                    if (!this.attachmentIsImage(current) && current.authenticated) {
+                        const result = await this.checkPdfAccessible(current);
+                        if (epoch !== this.sessionEpoch) return;
+                        current._pdfAccessible = result.accessible;
+                        current._pdfError = result.error;
+                    }
                 } catch (error) {
-                    this.patientAttachments[entryIndex].uploading = false;
-                    this.patientAttachments[entryIndex].error = error.message || this.t('Upload failed');
+                    if (epoch !== this.sessionEpoch) return;
+                    const current = this.patientAttachments[entryIndex];
+                    if (!current) return;
+                    current.uploading = false;
+                    current.error = error.message || this.t('Upload failed');
                 }
             }
         },
@@ -2363,6 +2801,46 @@ function app() {
             if (!this.attachmentIsImage(attachment) || !attachment.public_id) return attachment.url || '';
             return getImageUrl(attachment.public_id, { width: 1600, quality: 90 });
         },
+
+        /**
+         * Checks if a PDF attachment URL is accessible (not blocked by Cloudinary Free tier).
+         * Returns a promise that resolves to { accessible: boolean, error?: string }.
+         */
+        async checkPdfAccessible(attachment) {
+            if (!attachment || this.attachmentIsImage(attachment)) {
+                return { accessible: true };
+            }
+            const url = this.attachmentFullUrl(attachment);
+            if (!url) return { accessible: false, error: 'No URL' };
+            
+            try {
+                // Use HEAD request to check accessibility without downloading the file
+                const response = await fetch(url, { method: 'HEAD', mode: 'cors' });
+                if (response.ok) {
+                    return { accessible: true };
+                }
+                if (response.status === 401) {
+                    const text = await response.text().catch(() => '');
+                    if (text.includes('deny or ACL failure') || text.includes('blocked for delivery')) {
+                        return { 
+                            accessible: false, 
+                            error: this.t('pdf.blocked') 
+                        };
+                    }
+                }
+                return { accessible: false, error: `HTTP ${response.status}` };
+            } catch (e) {
+                // CORS or network error - assume accessible (browser will handle)
+                return { accessible: true };
+            }
+        },
+
+        /**
+         * Returns a user-friendly message for Cloudinary PDF block error.
+         */
+        getPdfBlockedMessage() {
+            return this.t('pdf.blocked');
+        },
         
         formatFileSize(bytes) {
             if (bytes === null || bytes === undefined) return '';
@@ -2385,29 +2863,14 @@ function app() {
             }
 
             const { createPatient, updatePatient } = await import('./services/patients.js');
-            // Enum columns have CHECK constraints listing their allowed
-            // values, so '' is rejected ("violates check constraint").
-            // Send a real NULL for "not chosen" instead.
-            const payload = {
-                ...this.patientForm,
-                section: this.patientForm.section || null,
-                source_of_money: this.patientForm.source_of_money || null,
-                marital_status: this.patientForm.marital_status || null,
-                age: toNullableNumber(this.patientForm.age),
-                price: toNullableNumber(this.patientForm.price),
-                // Postgres date columns reject '' outright ("invalid input
-                // syntax for type date"), so empty date fields go as null.
-                date_of_birth: this.patientForm.date_of_birth ? String(this.patientForm.date_of_birth).slice(0, 10) : null,
-                visit_date: this.patientForm.visit_date ? String(this.patientForm.visit_date).slice(0, 10) : null,
-                notes: this.patientNotes.map(n => n.trim()).filter(Boolean),
-                is_completed: this.editingPatient?.is_completed ?? false,
-                attachments: this.patientAttachments.map(({ public_id, url, name, size, mime, uploaded_at, authenticated, resource_type, format }) => ({
-                    public_id, url, name, size, mime, uploaded_at, authenticated, resource_type, format,
-                })),
-            };
-            if (!this.editingPatient) {
-                payload.user_id = this.user.id;
-            }
+            // The coercions live in a pure module so they can be tested
+            // without mounting the Alpine component.
+            const payload = buildPatientPayload(this.patientForm, {
+                notes: this.patientNotes,
+                attachments: this.patientAttachments,
+                editingPatient: this.editingPatient,
+                userId: this.user?.id,
+            });
 
             try {
                 if (this.editingPatient) {

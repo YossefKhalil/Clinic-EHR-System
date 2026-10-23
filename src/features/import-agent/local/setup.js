@@ -19,6 +19,9 @@ import { resolveLocalConfig } from './local-config.js';
 function error(code, message) {
     const err = new Error(message || code);
     err.code = code;
+    // The wizard translates the chunk errors; a raw setup message ("the file
+    // is not reachable") is not shown directly to the clinic.
+    err.messageKey = `importAgent.chunkError.${code}`;
     return err;
 }
 
@@ -68,13 +71,20 @@ export async function setupLocalModels(input) {
     if (!textFile) throw error('TEXT_MODEL_UNAVAILABLE', 'the text model file is not reachable');
     const textCapabilities = await probe(textFile);
 
-    const visionFile = await fileFromHandle(profile.vision?.handle);
-    if (!visionFile) throw error('VISION_MODEL_UNAVAILABLE', 'the vision model file is not reachable');
-    if (!String(visionFile.name).toLowerCase().endsWith('.onnx')) {
-        throw error('VISION_GGUF_UNSUPPORTED', 'the split layout needs an ONNX vision model');
-    }
-    if (!profile.support?.files) {
-        throw error('OCR_SUPPORT_FILES_MISSING', 'the tokenizer and config files are missing');
+    // Vision is optional in split mode - only needed for images.
+    let visionFile = null;
+    let visionReady = false;
+    if (profile.vision?.handle) {
+        visionFile = await fileFromHandle(profile.vision.handle);
+        if (visionFile) {
+            if (!String(visionFile.name).toLowerCase().endsWith('.onnx')) {
+                throw error('VISION_GGUF_UNSUPPORTED', 'the split layout needs an ONNX vision model');
+            }
+            if (!profile.support?.files) {
+                throw error('OCR_SUPPORT_FILES_MISSING', 'the tokenizer and config files are missing for the vision model');
+            }
+            await probe(visionFile);
+        }
     }
 
     await initWllama(
@@ -83,8 +93,10 @@ export async function setupLocalModels(input) {
     );
     const provider = createLocalProvider();
 
-    let visionReady = false;
     const ensureVision = async () => {
+        if (!visionFile) {
+            throw error('VISION_MODEL_MISSING', 'no vision model configured for this import');
+        }
         if (visionReady) return;
         await initFalcon(visionFile, profile.support, config, tier, (loaded, total) => {
             input.onProgress?.('vision', loaded, total);
