@@ -71,8 +71,25 @@ class ProtoReader {
             case WIRE_FIXED64: this.offset += 8; return;
             case WIRE_LENGTH: this.offset += this.varint(); return;
             case WIRE_FIXED32: this.offset += 4; return;
+            // Wire types 3 (start group) and 4 (end group) are deprecated in protobuf
+            // but ONNX files may still contain them. Skip them.
+            case 3: this.skipGroup(); return;
+            case 4: return; // end group - just return
             default:
                 throw new OnnxError('ONNX_WIRE_TYPE_UNKNOWN', `unknown protobuf wire type ${wireType}`);
+        }
+    }
+
+    // Skip a deprecated protobuf group (wire type 3)
+    skipGroup() {
+        let depth = 1;
+        while (depth > 0 && this.remaining > 0) {
+            const key = this.varint();
+            const _field = key >>> 3;
+            const wire = key & 0x7;
+            if (wire === 3) depth++;
+            else if (wire === 4) depth--;
+            else this.skip(wire);
         }
     }
 
@@ -188,6 +205,10 @@ export function parseOnnxGraph(bytes) {
         opTypes: [],
         opsets: [],
         irVersion: null,
+        // A graph whose weights live in separate files is refused: the local
+        // engine only loads a self-contained model, and a relative path in a
+        // model file must never be able to read another file from the PC.
+        usesExternalData: false,
         bytesConsumed: 0,
     };
     let graphBytes = null;
@@ -239,6 +260,27 @@ export function parseOnnxGraph(bytes) {
             });
             return true;
         }
+        if (field === 5 && wire === WIRE_LENGTH) {
+            // GraphProto.initializer -> TensorProto. We only look at the
+            // external-data marker; the weights themselves stay unread.
+            const tensorReader = new ProtoReader(r.bytesField());
+            walk(tensorReader, (tensorField, tensorWire, tr) => {
+                if (tensorField === 14 && tensorWire === WIRE_VARINT) {
+                    // TensorProto.data_location == EXTERNAL (1)
+                    if (tr.varint() === 1) out.usesExternalData = true;
+                    return true;
+                }
+                if (tensorField === 13 && tensorWire === WIRE_LENGTH) {
+                    // TensorProto.external_data is only present for a tensor
+                    // stored outside the model.
+                    tr.bytesField();
+                    out.usesExternalData = true;
+                    return true;
+                }
+                return false;
+            });
+            return true;
+        }
         if (field === 11 && wire === WIRE_LENGTH) {
             out.inputs.push(readValueInfo(new ProtoReader(r.bytesField())));
             return true;
@@ -254,6 +296,260 @@ export function parseOnnxGraph(bytes) {
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// Streaming reader
+// ---------------------------------------------------------------------------
+//
+// A single-file ONNX model carries its weights as GraphProto.initializer
+// entries, and the C++ protobuf writer emits the initializers before the
+// graph inputs and outputs. A probe that reads only the first few megabytes
+// therefore stops inside the weights and never sees the shape contract.
+//
+// The reader below walks the protobuf without buffering a length-delimited
+// field: `skip()` only moves the file offset. TensorProto.raw_data (field 9)
+// is the large field; the only fields the probe reads are the small metadata
+// messages and the external-data marker inside each initializer.
+
+const MAX_METADATA_MESSAGE = 4 * 1024 * 1024;
+const READ_CHUNK = 64 * 1024;
+
+class BlobProtoReader {
+    constructor(blob, start = 0, end = blob.size) {
+        this.blob = blob;
+        this.pos = start;
+        this.end = Math.min(end, blob.size);
+        this.cache = null;
+        this.cacheStart = 0;
+        if (this.pos < 0 || this.end < this.pos) {
+            throw new OnnxError('ONNX_TRUNCATED', 'the graph runs past the end of the file');
+        }
+    }
+
+    get remaining() {
+        return this.end - this.pos;
+    }
+
+    async fill() {
+        if (this.remaining <= 0) throw new OnnxError('ONNX_TRUNCATED', 'unexpected end of protobuf');
+        const length = Math.min(READ_CHUNK, this.remaining);
+        const buffer = await this.blob.slice(this.pos, this.pos + length).arrayBuffer();
+        if (buffer.byteLength !== length) {
+            throw new OnnxError('ONNX_TRUNCATED', 'the file ended while it was being read');
+        }
+        this.cache = new Uint8Array(buffer);
+        this.cacheStart = this.pos;
+    }
+
+    async byte() {
+        if (this.pos >= this.end) throw new OnnxError('ONNX_TRUNCATED', 'unexpected end of protobuf');
+        const offset = this.pos - this.cacheStart;
+        if (!this.cache || offset < 0 || offset >= this.cache.length) await this.fill();
+        return this.cache[this.pos++ - this.cacheStart];
+    }
+
+    async varint() {
+        let result = 0;
+        let shift = 0;
+        for (;;) {
+            const byte = await this.byte();
+            result += (byte & 0x7f) * 2 ** shift;
+            if ((byte & 0x80) === 0) return result;
+            shift += 7;
+            if (shift > 63) throw new OnnxError('ONNX_TRUNCATED', 'varint is too long');
+        }
+    }
+
+    async skip(length) {
+        if (length < 0 || length > this.remaining) {
+            throw new OnnxError('ONNX_TRUNCATED', 'field runs past the end of the file');
+        }
+        this.pos += length;
+    }
+
+    async bytes(length) {
+        if (length < 0 || length > this.remaining) {
+            throw new OnnxError('ONNX_TRUNCATED', 'field runs past the end of the file');
+        }
+        const buffer = await this.blob.slice(this.pos, this.pos + length).arrayBuffer();
+        if (buffer.byteLength !== length) {
+            throw new OnnxError('ONNX_TRUNCATED', 'the file ended while it was being read');
+        }
+        this.pos += length;
+        return new Uint8Array(buffer);
+    }
+
+    /** A bounded view over the next `length` bytes; the parent moves past it. */
+    async sub(length) {
+        if (length < 0 || length > this.remaining) {
+            throw new OnnxError('ONNX_TRUNCATED', 'field runs past the end of the file');
+        }
+        const child = new BlobProtoReader(this.blob, this.pos, this.pos + length);
+        this.pos += length;
+        return child;
+    }
+}
+
+async function skipBlobGroup(reader) {
+    let depth = 1;
+    while (depth > 0 && reader.remaining > 0) {
+        const key = await reader.varint();
+        const wire = key & 0x7;
+        if (wire === 3) depth += 1;
+        else if (wire === 4) depth -= 1;
+        else await skipBlobField(reader, wire);
+    }
+}
+
+async function skipBlobField(reader, wireType) {
+    switch (wireType) {
+        case WIRE_VARINT: await reader.varint(); return;
+        case WIRE_FIXED64: await reader.skip(8); return;
+        case WIRE_LENGTH: await reader.skip(await reader.varint()); return;
+        case WIRE_FIXED32: await reader.skip(4); return;
+        case 3: await skipBlobGroup(reader); return;
+        case 4: return;
+        default: throw new OnnxError('ONNX_WIRE_TYPE_UNKNOWN', `unknown protobuf wire type ${wireType}`);
+    }
+}
+
+async function readBlobMessage(reader, maxBytes = MAX_METADATA_MESSAGE) {
+    const length = await reader.varint();
+    if (length > reader.remaining) {
+        throw new OnnxError('ONNX_TRUNCATED', 'field runs past the end of the file');
+    }
+    if (length > maxBytes) {
+        await reader.skip(length);
+        return null;
+    }
+    return reader.bytes(length);
+}
+
+function readOpsetBytes(bytes) {
+    const entry = { domain: '', version: 0 };
+    walk(new ProtoReader(bytes), (field, wire, reader) => {
+        if (field === 1 && wire === WIRE_LENGTH) {
+            entry.domain = reader.stringField();
+            return true;
+        }
+        if (field === 2 && wire === WIRE_VARINT) {
+            entry.version = reader.varint();
+            return true;
+        }
+        return false;
+    });
+    return entry;
+}
+
+async function parseBlobTensor(reader, out) {
+    while (reader.remaining > 0) {
+        const key = await reader.varint();
+        const field = key >>> 3;
+        const wire = key & 0x7;
+        if (field === 14 && wire === WIRE_VARINT) {
+            if (await reader.varint() === 1) out.usesExternalData = true;
+            continue;
+        }
+        if (field === 13 && wire === WIRE_LENGTH) {
+            // external_data is only present when the bytes are elsewhere.
+            await reader.skip(await reader.varint());
+            out.usesExternalData = true;
+            continue;
+        }
+        await skipBlobField(reader, wire);
+    }
+}
+
+async function parseBlobGraph(reader, out) {
+    while (reader.remaining > 0) {
+        const key = await reader.varint();
+        const field = key >>> 3;
+        const wire = key & 0x7;
+        if (field === 1 && wire === WIRE_LENGTH) {
+            const bytes = await readBlobMessage(reader);
+            if (bytes) {
+                walk(new ProtoReader(bytes), (nodeField, nodeWire, nodeReader) => {
+                    if (nodeField === 4 && nodeWire === WIRE_LENGTH) {
+                        out.opTypes.push(nodeReader.stringField());
+                        return true;
+                    }
+                    return false;
+                });
+            }
+            continue;
+        }
+        if (field === 5 && wire === WIRE_LENGTH) {
+            const length = await reader.varint();
+            if (length > reader.remaining) throw new OnnxError('ONNX_TRUNCATED', 'initializer runs past the end of the file');
+            await parseBlobTensor(await reader.sub(length), out);
+            continue;
+        }
+        if ((field === 11 || field === 12) && wire === WIRE_LENGTH) {
+            const bytes = await readBlobMessage(reader);
+            if (bytes) {
+                const info = readValueInfo(new ProtoReader(bytes));
+                (field === 11 ? out.inputs : out.outputs).push(info);
+            }
+            continue;
+        }
+        await skipBlobField(reader, wire);
+    }
+}
+
+async function parseBlobModel(reader, out) {
+    let graphSeen = false;
+    while (reader.remaining > 0) {
+        const key = await reader.varint();
+        const field = key >>> 3;
+        const wire = key & 0x7;
+        if (field === 1 && wire === WIRE_VARINT) {
+            out.irVersion = await reader.varint();
+            continue;
+        }
+        if (field === 7 && wire === WIRE_LENGTH) {
+            const length = await reader.varint();
+            if (length > reader.remaining) throw new OnnxError('ONNX_TRUNCATED', 'graph runs past the end of the file');
+            graphSeen = true;
+            await parseBlobGraph(await reader.sub(length), out);
+            continue;
+        }
+        if (field === 8 && wire === WIRE_LENGTH) {
+            const bytes = await readBlobMessage(reader);
+            if (bytes) out.opsets.push(readOpsetBytes(bytes));
+            continue;
+        }
+        await skipBlobField(reader, wire);
+    }
+    if (!graphSeen) throw new OnnxError('ONNX_GRAPH_MISSING', 'the file has no graph');
+    out.bytesConsumed = reader.pos;
+    return out;
+}
+
+/**
+ * Read a graph without loading the weights.
+ *
+ * This is the probe used for a real file. The in-memory `parseOnnxGraph()`
+ * remains the entry point for tests and for a caller that already has the
+ * bytes; both return the same shape.
+ *
+ * @param {Blob|File|{ slice: Function, size: number }} blob
+ * @returns {Promise<object>}
+ */
+export async function parseOnnxGraphFromBlob(blob) {
+    if (!blob || typeof blob.slice !== 'function' || typeof blob.size !== 'number') {
+        throw new OnnxError('ONNX_MAGIC_INVALID', 'the source is not a readable ONNX file');
+    }
+    const reader = new BlobProtoReader(blob, 0, blob.size);
+    return parseBlobModel(reader, {
+        inputs: [],
+        outputs: [],
+        opTypes: [],
+        opsets: [],
+        irVersion: null,
+        usesExternalData: false,
+        bytesConsumed: 0,
+    });
+}
+
 /** The Falcon-OCR graph shape this build knows how to drive. */
 export const FALCON_OCR_SIGNATURE = Object.freeze({
     inputs: ['tokens', 'image_patches', 'pos_t', 'pos_hw', 'attention_mask', 'past_key_values'],
@@ -261,15 +557,90 @@ export const FALCON_OCR_SIGNATURE = Object.freeze({
 });
 
 /**
+ * What each Falcon-OCR tensor must look like.
+ *
+ * Names are not enough: a graph can have an input called `tokens` of the
+ * wrong rank, or a `present_key_values` with the wrong layer count, and
+ * fail deep inside the runtime after a long load. The fixed dimensions are
+ * the ones the exported graph hard-codes; a symbolic dimension is allowed
+ * (the exporter names the batch/sequence axes) and reported as a warning.
+ */
+export const FALCON_OCR_RULES = Object.freeze({
+    inputs: {
+        tokens: { dtype: 'int64', rank: 2 },
+        image_patches: { dtype: 'float32', rank: 3, fixed: { 2: 768 } },
+        pos_t: { dtype: 'int64', rank: 2 },
+        pos_hw: { dtype: 'float32', rank: 3, fixed: { 2: 2 } },
+        attention_mask: { dtype: 'bool', rank: 3 },
+        past_key_values: { dtype: 'float32', rank: 6, fixed: { 0: 22, 1: 2, 3: 16, 5: 64 } },
+    },
+    outputs: {
+        next_token: { dtype: 'int64', rank: 1 },
+        present_key_values: { dtype: 'float32', rank: 6, fixed: { 0: 22, 1: 2, 3: 16, 5: 64 } },
+    },
+});
+
+function checkTensor(name, actual, rule, direction, mismatches, warnings) {
+    if (!actual) {
+        mismatches.push(`${direction} "${name}" is missing`);
+        return;
+    }
+    if (rule.dtype && actual.dtype !== rule.dtype) {
+        mismatches.push(`${direction} "${name}" is ${actual.dtype}, expected ${rule.dtype}`);
+    }
+    if (rule.rank && actual.dims.length !== rule.rank) {
+        mismatches.push(`${direction} "${name}" has rank ${actual.dims.length}, expected ${rule.rank}`);
+        return;
+    }
+    for (const [indexText, expected] of Object.entries(rule.fixed ?? {})) {
+        const index = Number(indexText);
+        const value = actual.dims[index];
+        if (value === undefined) {
+            mismatches.push(`${direction} "${name}" has no dimension ${index}`);
+        } else if (typeof value === 'string') {
+            warnings.push(`${direction} "${name}" dimension ${index} is symbolic ("${value}"); the graph will be checked at load time`);
+        } else if (Number(value) !== expected) {
+            mismatches.push(`${direction} "${name}" dimension ${index} is ${value}, expected ${expected}`);
+        }
+    }
+}
+
+/**
+ * Validate the graph against the Falcon-OCR contract.
+ *
+ * Returns `{ ok, mismatches, warnings }`. `matchesFalconOcrShape` remains the
+ * boolean form for callers that only need a yes/no answer.
+ */
+export function validateFalconOcrShape(graph, rules = FALCON_OCR_RULES) {
+    const mismatches = [];
+    const warnings = [];
+    const inputs = new Map(graph.inputs.map((input) => [input.name, input]));
+    const outputs = new Map(graph.outputs.map((output) => [output.name, output]));
+
+    const expectedInputs = Object.keys(rules.inputs);
+    const expectedOutputs = Object.keys(rules.outputs);
+    if (inputs.size !== expectedInputs.length) {
+        mismatches.push(`graph has ${inputs.size} inputs, expected ${expectedInputs.length}`);
+    }
+    if (outputs.size !== expectedOutputs.length) {
+        mismatches.push(`graph has ${outputs.size} outputs, expected ${expectedOutputs.length}`);
+    }
+    for (const name of expectedInputs) checkTensor(name, inputs.get(name), rules.inputs[name], 'input', mismatches, warnings);
+    for (const name of expectedOutputs) checkTensor(name, outputs.get(name), rules.outputs[name], 'output', mismatches, warnings);
+
+    return { ok: mismatches.length === 0, mismatches, warnings };
+}
+
+/**
  * True when the graph's inputs and outputs match the Falcon-OCR adapter.
  * Names are compared as a set: ONNX does not promise an order.
  */
-export function matchesFalconOcrShape(graph, signature = FALCON_OCR_SIGNATURE) {
-    const inputs = new Set(graph.inputs.map((input) => input.name));
-    const outputs = new Set(graph.outputs.map((output) => output.name));
-    const inputsMatch = signature.inputs.every((name) => inputs.has(name))
-        && inputs.size === signature.inputs.length;
-    const outputsMatch = signature.outputs.every((name) => outputs.has(name))
-        && outputs.size === signature.outputs.length;
-    return inputsMatch && outputsMatch;
+export function matchesFalconOcrShape(graph, rules = FALCON_OCR_RULES) {
+    // The boolean form keeps the old compatibility surface, but also checks
+    // the shapes and dtypes: a name-only match is not enough to load safely.
+    if (graph.inputs.length !== Object.keys(rules.inputs).length
+        || graph.outputs.length !== Object.keys(rules.outputs).length) {
+        return false;
+    }
+    return validateFalconOcrShape(graph, rules).ok;
 }

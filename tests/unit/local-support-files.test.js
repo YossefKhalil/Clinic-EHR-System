@@ -1,8 +1,8 @@
 // The support files of a vision model.
 //
 // The tokenizer and the config files are small, so they are kept in the
-// browser next to the model. Without them the OCR model cannot load, and the
-// two-model layout is not usable at all.
+// browser next to the model. They are only required when a vision model
+// is configured in the split layout.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -19,18 +19,24 @@ function fakeFile(name) {
 }
 
 describe('the support files', () => {
-    it('are needed by the two-model layout', () => {
+    it('are needed by the two-model layout only when vision is present', () => {
         const profile = emptyProfile();
         profile.mode = 'split';
         profile.text = { name: 'text.gguf' };
-        profile.vision = { name: 'vision.onnx' };
-        expect(profileComplete(profile)).toBe(false);
-
-        profile.support = { name: 'falcon-ocr', files: { 'tokenizer.json': fakeFile('tokenizer.json') } };
-        expect(profileComplete(profile)).toBe(false);
-
-        profile.support.files = Object.fromEntries(OCR_SUPPORT_FILES.map((name) => [name, fakeFile(name)]));
+        // Without vision, support files not needed
         expect(profileComplete(profile)).toBe(true);
+
+        profile.vision = { name: 'vision.onnx' };
+        expect(profileComplete(profile)).toBe(true);
+
+        // Support files only needed when vision is present
+        profile.support = { files: { 'tokenizer.json': fakeFile('tokenizer.json') } };
+        expect(profileComplete(profile)).toBe(true);
+        expect(missingSupportFiles(profile.support)).toContain('config.json');
+
+        for (const name of OCR_SUPPORT_FILES) profile.support.files[name] = fakeFile(name);
+        expect(profileComplete(profile)).toBe(true);
+        expect(missingSupportFiles(profile.support)).toEqual([]);
     });
 
     it('are read from a file list', () => {

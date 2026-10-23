@@ -387,7 +387,7 @@ async function actionConsentReset(service: Service, userId: string) {
         console.error('ai settings consent reset failed', error.message);
         return fail('SAVE_FAILED', 500);
     }
-    await audit(service, userId, 'ai_settings.cloud_consent_reset', 'singleton', {});
+    await audit(service, userId, 'ai_settings.cloud_consent_reset', {});
     return json(await publicSettings(await loadRow(service)));
 }
 

@@ -15,7 +15,7 @@ import { issue } from './issues.js';
 import { LIMITS } from './limits.js';
 import {
     ageFromDob, decodeNationalId, hasPartialNameHint,
-    normalizeField, normalizeMobile, toIso,
+    normalizeField, normalizeMobile,
 } from './normalizers.js';
 
 // ---------------------------------------------------------------------------

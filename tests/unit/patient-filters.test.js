@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
     emptyPatientFilters,
     activeFilterKeys,
-    activePatientFiltersCount,
     filterValueIsSet,
     PATIENT_FILTER_KEYS,
     SCOPE_FILTER_KEYS,
@@ -15,7 +14,7 @@ describe('emptyPatientFilters', () => {
         for (const key of PATIENT_FILTER_KEYS) {
             expect(keys).toContain(key);
         }
-        expect(activePatientFiltersCount(emptyPatientFilters())).toBe(0);
+        expect(activeFilterKeys(emptyPatientFilters())).toHaveLength(0);
     });
 
     it('keeps the same keys on every call', () => {
@@ -47,7 +46,7 @@ describe('activeFilterKeys', () => {
 
     it('counts "Pending" (is_completed = "false") as an active filter', () => {
         const filters = { ...emptyPatientFilters(), is_completed: 'false' };
-        expect(activePatientFiltersCount(filters)).toBe(1);
+        expect(activeFilterKeys(filters)).toHaveLength(1);
     });
 
     it('hides the admin-scope keys for section users', () => {
@@ -65,12 +64,12 @@ describe('activeFilterKeys', () => {
 
     it('ignores filters that are null or whitespace only', () => {
         const filters = { ...emptyPatientFilters(), search: '  ', date_from: null };
-        expect(activePatientFiltersCount(filters)).toBe(0);
+        expect(activeFilterKeys(filters)).toHaveLength(0);
     });
 
     it('never reports keys that are not part of the known set', () => {
         const filters = { ...emptyPatientFilters(), rogueField: 'x' };
-        expect(activePatientFiltersCount(filters)).toBe(0);
+        expect(activeFilterKeys(filters)).toHaveLength(0);
     });
 
     it('covers every panel field in SCOPE_FILTER_KEYS', () => {

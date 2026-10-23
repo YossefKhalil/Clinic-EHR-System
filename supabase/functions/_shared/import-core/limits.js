@@ -130,9 +130,9 @@ export const LOCAL_RUNTIME_BOUNDS = Object.freeze({
     overlap: { min: 0, max: 256 },
     imageLongSide: { min: 512, max: 4096 },
     ocrMaxNewTokens: { min: 32, max: 2048 },
-    leaseSeconds: { min: 60, max: 86400 },
+    leaseSeconds: { min: 60, max: 3600 },
     heartbeatSeconds: { min: 10, max: 1800 },
-    maxAttempts: { min: 1, max: 20 },
+    maxAttempts: { min: 1, max: 10 },
     parallel: { min: 1, max: 4 },
 });
 

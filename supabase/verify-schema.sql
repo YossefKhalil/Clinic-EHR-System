@@ -52,6 +52,19 @@ BEGIN
         RAISE EXCEPTION 'ai_settings is missing columns: %', missing;
     END IF;
 
+    -- 2b. The local model audit on every chunk: the name and the SHA-256 of
+    --     the file that produced its rows.
+    SELECT string_agg(expected.column_name, ', ') INTO missing
+    FROM (VALUES ('model'), ('model_sha256')) AS expected(column_name)
+    WHERE NOT EXISTS (
+        SELECT 1 FROM information_schema.columns c
+        WHERE c.table_schema = 'public' AND c.table_name = 'import_chunks'
+          AND c.column_name = expected.column_name
+    );
+    IF missing IS NOT NULL THEN
+        RAISE EXCEPTION 'import_chunks is missing columns: %', missing;
+    END IF;
+
     -- 3. The review-edit guard: without it the browser could rewrite the
     --    extracted data of a row.
     IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'guard_import_row_update_trigger') THEN

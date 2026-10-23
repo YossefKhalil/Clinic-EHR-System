@@ -1,7 +1,9 @@
 import { supabase } from './supabase.js';
 
 export async function getDashboardStats(isSuperAdmin, userSection = null) {
-    let query = supabase().from('patients').select('*');
+    // Only the columns the cards aggregate. Notes, attachments and the other
+    // free-text fields would otherwise be downloaded on every dashboard visit.
+    let query = supabase().from('patients').select('is_completed, section, source_of_money');
     
     if (!isSuperAdmin && userSection) {
         query = query.eq('section', userSection);

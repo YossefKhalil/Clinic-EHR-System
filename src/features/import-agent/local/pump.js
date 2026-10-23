@@ -8,27 +8,32 @@
 // model context and the device memory (local-config.js).
 
 import { resolveLocalConfig, extractionBudgets } from './local-config.js';
+import { isDeterministicLocalError } from '@import-core/local-runtime.js';
 
-/** Failures that will fail again the same way, so they are not retried. */
-const DETERMINISTIC_CODES = [
-    'MODEL_NOT_MULTIMODAL',
-    'MODEL_INCOMPATIBLE',
+/**
+ * A failure of one of these means no later chunk can succeed either: the
+ * model or the job setup itself is unusable. A deterministic error about a
+ * single chunk (a model that cannot read this photo, for example) fails that
+ * chunk and lets the run continue.
+ */
+const FATAL_CODES = new Set([
     'MODEL_FILE_UNAVAILABLE',
     'MODEL_FILE_MISSING',
-    'OCR_SUPPORT_FILES_MISSING',
-    'OCR_RUNTIME_UNAVAILABLE',
-    'VISION_GGUF_UNSUPPORTED',
     'TEXT_MODEL_UNAVAILABLE',
-    'VISION_MODEL_UNAVAILABLE',
     'NO_MODEL_PROFILE',
-];
+    'LOCAL_MODEL_NOT_CONFIGURED',
+    'LOCAL_MODE_DISABLED',
+    'LOCAL_MODE_REQUIRED',
+    'ENGINE_MISMATCH',
+    'CONFIG_DRIFT',
+]);
 
 /**
  * Run the local loop for one job.
  *
  * @param {{ api: object, jobId: string, provider: object, runChunk: Function,
  *           mode: string, ocr: Function|null, config?: object, tier?: string,
- *           onProgress?: Function, signal?: AbortSignal }} input
+ *           model?: object, onProgress?: Function, signal?: AbortSignal }} input
  */
 export async function localPump(input) {
     const { api, jobId, provider, runChunk, mode, ocr, onProgress, signal } = input;
@@ -39,8 +44,16 @@ export async function localPump(input) {
     const lease = config.runtime.leaseSeconds;
     const heartbeat = config.runtime.heartbeatSeconds;
     const parallel = Math.max(1, Math.min(4, Number(config.runtime.parallel) || 1));
+    // The identity the job was started with. Every claim and submit carries
+    // it back, and the server refuses the work when it no longer matches.
+    const model = input.model ?? null;
 
     let running = true;
+    // A drift discovered after a chunk was extracted is not thrown from
+    // inside the parallel batch (that would unload the models while the other
+    // chunks are still writing). It is returned so the UI can show it after
+    // the batch has settled.
+    let stopError = null;
     const abort = () => { running = false; };
     signal?.addEventListener('abort', abort, { once: true });
 
@@ -49,16 +62,29 @@ export async function localPump(input) {
         // The server returns the chunk row; the extractor works on the
         // payload (the lines, the header and the images).
         const payload = chunk.payload ?? {};
+        // The lease is the claim's ownership token. It changes on every
+        // heartbeat, so the newest value is sent with the submit: a chunk
+        // another window has taken over since then is not ours to finish.
+        let leaseExpiresAt = chunk.lease_until ?? null;
         const heartbeatTimer = setInterval(() => {
-            api.callJob('local_heartbeat', { job_id: jobId, chunk_id: chunk.id, lease_seconds: lease }).catch(() => {});
+            api.callJob('local_heartbeat', {
+                job_id: jobId,
+                chunk_id: chunk.id,
+                lease_seconds: lease,
+                lease_expires_at: leaseExpiresAt,
+            }).then((beat) => {
+                if (beat?.lease_expires_at) leaseExpiresAt = beat.lease_expires_at;
+            }).catch(() => {});
         }, heartbeat * 1000);
 
         let result;
+        let ocrRan = false;
         try {
             let workChunk = payload;
             if (!isSingle && ocr && Array.isArray(payload.images) && payload.images.length > 0 && payload.kind !== 'text') {
                 onProgress?.({ phase: 'ocr', chunk: chunk.id });
                 const lines = await ocr(payload, onProgress);
+                ocrRan = true;
                 workChunk = {
                     ...payload,
                     kind: 'text',
@@ -72,17 +98,23 @@ export async function localPump(input) {
         } catch (error) {
             clearInterval(heartbeatTimer);
             const code = error?.code || 'LOCAL_ERROR';
-            const retryable = !DETERMINISTIC_CODES.includes(code);
+            const retryable = !isDeterministicLocalError(code);
             // A cancelled run hands the chunk back without burning an attempt.
             if (code === 'CANCELLED') {
-                await api.callJob('local_release', { job_id: jobId, chunk_id: chunk.id }).catch(() => {});
+                await api.callJob('local_release', {
+                    job_id: jobId, chunk_id: chunk.id, lease_expires_at: leaseExpiresAt,
+                }).catch(() => {});
                 onProgress?.({ phase: 'chunk_released', chunk: chunk.id });
                 return;
             }
+            // The server classifies the code; the browser only says what
+            // happened. It does not get to decide that a broken model is
+            // retryable.
             await api.callJob('local_fail', {
-                job_id: jobId, chunk_id: chunk.id, error_code: code, retryable,
+                job_id: jobId, chunk_id: chunk.id, error_code: code, lease_expires_at: leaseExpiresAt,
             }).catch(() => {});
             onProgress?.({ phase: 'chunk_failed', chunk: chunk.id, error, retryable });
+            if (FATAL_CODES.has(code)) running = false;
             return;
         }
         clearInterval(heartbeatTimer);
@@ -91,24 +123,54 @@ export async function localPump(input) {
         // queue without being counted as a failed attempt. Storing it as a
         // finished chunk would lose the patients it held.
         if (result?.status === 'cancelled') {
-            await api.callJob('local_release', { job_id: jobId, chunk_id: chunk.id }).catch(() => {});
+            await api.callJob('local_release', {
+                job_id: jobId, chunk_id: chunk.id, lease_expires_at: leaseExpiresAt,
+            }).catch(() => {});
             onProgress?.({ phase: 'chunk_released', chunk: chunk.id });
             return;
         }
 
         try {
             // The kind of the chunk decides how the records are checked: a
-            // sheet is checked against its rows, a photo is not checked
-            // against a source text at all.
-            const pipelineKind = payload.kind === 'sheet' || payload.kind === 'image' ? payload.kind : 'text';
+            // sheet is checked against its rows, a photo the multimodal model
+            // read directly is not checked against a source text at all, and
+            // OCR output is text and can be grounded against its lines.
+            const pipelineKind = payload.kind === 'sheet'
+                ? 'sheet'
+                : (payload.kind === 'image' && !ocrRan ? 'image' : 'text');
             await api.callJob('local_submit', {
-                job_id: jobId, chunk_id: chunk.id, result, pipeline_kind: pipelineKind,
+                job_id: jobId,
+                chunk_id: chunk.id,
+                result,
+                pipeline_kind: pipelineKind,
+                model,
+                config,
+                lease_expires_at: leaseExpiresAt,
             });
         } catch (error) {
+            const code = error?.code || 'PERSIST_FAILED';
+            // The lease expired or another window took the chunk over: its
+            // result is not ours to store, and its new owner is working.
+            if (code === 'CHUNK_NOT_CLAIMED' || code === 'LEASE_EXPIRED') {
+                onProgress?.({ phase: 'chunk_not_claimed', chunk: chunk.id });
+                return;
+            }
+            // The model or the settings changed while this chunk was being
+            // extracted. Failing it would burn another attempt, so hand it
+            // back and stop: every later chunk would be refused the same way.
+            if (code === 'CONFIG_DRIFT') {
+                await api.callJob('local_release', {
+                    job_id: jobId, chunk_id: chunk.id, lease_expires_at: leaseExpiresAt,
+                }).catch(() => {});
+                running = false;
+                stopError = error;
+                onProgress?.({ phase: 'config_drift', chunk: chunk.id, error });
+                return;
+            }
             await api.callJob('local_fail', {
-                job_id: jobId, chunk_id: chunk.id, error_code: 'PERSIST_FAILED', retryable: false,
+                job_id: jobId, chunk_id: chunk.id, error_code: code, lease_expires_at: leaseExpiresAt,
             }).catch(() => {});
-            onProgress?.({ phase: 'submit_failed', chunk: chunk.id, error });
+            onProgress?.({ phase: 'submit_failed', chunk: chunk.id, error, retryable: !isDeterministicLocalError(code) });
             return;
         }
         onProgress?.({ phase: 'chunk_done', chunk: chunk.id });
@@ -124,10 +186,18 @@ export async function localPump(input) {
                 lease_seconds: lease,
                 max_attempts: config.runtime.maxAttempts,
                 parallel,
+                // The job compares these with the setup it was started with
+                // and refuses the claim if the model or the text/OCR config
+                // has changed since then.
+                model,
+                config,
             });
         } catch (error) {
+            // A refused claim (config drift, a revoked engine) must reach the
+            // wizard's error banner; swallowing it would stop the run with no
+            // explanation.
             onProgress?.({ phase: 'error', error });
-            break;
+            throw error;
         }
 
         if (!claim || claim.done) {
@@ -150,5 +220,5 @@ export async function localPump(input) {
         await Promise.all(chunks.map((chunk) => processChunk(chunk)));
     }
 
-    return { stopped: !running };
+    return { stopped: !running, error: stopError };
 }

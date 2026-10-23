@@ -20,8 +20,13 @@ export const OCR_SUPPORT_FILES = Object.freeze([
  * "8 GB or more" and nothing finer. The WebGPU adapter limits are the more
  * useful signal: they say how much a single buffer may be, which is what
  * decides whether a model fits.
+ *
+ * The internally used middle tier is named `mid` (the existing config and
+ * pump code use that name); `detectTier` accepts and returns the same shape.
+ * Callers that speak in `low`/`medium`/`high` may keep using `medium`, which
+ * `resolveLocalConfig` treats as `mid`.
  */
-export function deviceTier(info = {}) {
+export function detectTier(info = {}) {
     const cores = Number(info.threads ?? (typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 0)) || 0;
     const memory = Number(info.memory ?? (typeof navigator !== 'undefined' ? navigator.deviceMemory : 0)) || 0;
     const webgpu = info.webgpu === true;
@@ -30,6 +35,31 @@ export function deviceTier(info = {}) {
     if (!webgpu || cores < 4) return 'low';
     if (cores >= 8 && memory >= 8 && maxBuffer >= 256 * 1024 * 1024) return 'high';
     return 'mid';
+}
+
+/** The name the rest of the engine already uses. */
+export const deviceTier = detectTier;
+
+/**
+ * How each readiness chip should look, from the same signals the tier uses.
+ *
+ * A chip never invents a value: when the browser does not expose a signal the
+ * chip says so (`warn`) instead of claiming the device is ready.
+ */
+export function deviceSignals(info = {}) {
+    const threads = Number(info.threads ?? 0) || 0;
+    const memory = Number(info.memory ?? 0) || 0;
+    const storage = Number(info.storageFree ?? 0) || 0;
+    const GB = 1024 * 1024 * 1024;
+
+    return {
+        webgpu: info.webgpu === true ? 'ok' : 'bad',
+        threads: threads >= 8 ? 'ok' : threads >= 4 ? 'warn' : 'bad',
+        // 0 means the browser does not report it (Firefox and Safari), not
+        // that the machine has no memory.
+        memory: memory <= 0 ? 'warn' : memory >= 8 ? 'ok' : 'warn',
+        storage: storage <= 0 ? 'warn' : storage >= 8 * GB ? 'ok' : storage >= 2 * GB ? 'warn' : 'bad',
+    };
 }
 
 /**

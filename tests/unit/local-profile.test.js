@@ -34,15 +34,30 @@ describe('profileComplete', () => {
         expect(profileComplete(profile)).toBe(true);
     });
 
-    it('needs both models and the support files for the split layout', () => {
+    it('needs text model for the split layout, vision and support files are optional', () => {
         const profile = emptyProfile();
         profile.mode = 'split';
         profile.text = { name: 'text.gguf' };
         profile.vision = { name: 'vision.onnx' };
+        expect(profileComplete(profile)).toBe(true);
+
+        // Vision is optional
+        profile.vision = null;
+        expect(profileComplete(profile)).toBe(true);
+
+        // Support files are optional
+        profile.vision = { name: 'vision.onnx' };
+        profile.support = { files: { 'tokenizer.json': {} } };
+        expect(profileComplete(profile)).toBe(true);
+    });
+
+    it('requires text model for split layout', () => {
+        const profile = emptyProfile();
+        profile.mode = 'split';
+        profile.vision = { name: 'vision.onnx' };
         expect(profileComplete(profile)).toBe(false);
-        profile.support = { files: { 'tokenizer.json': {}, 'config.json': {} } };
-        expect(profileComplete(profile)).toBe(false);
-        for (const name of OCR_SUPPORT_FILES) profile.support.files[name] = {};
+
+        profile.text = { name: 'text.gguf' };
         expect(profileComplete(profile)).toBe(true);
     });
 });

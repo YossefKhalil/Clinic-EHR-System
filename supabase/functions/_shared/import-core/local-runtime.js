@@ -64,6 +64,7 @@ export function clampLocalConfig(config) {
 
 const PROFILE_TEXT_KEYS = ['name', 'textName', 'visionName', 'supportName'];
 const PROFILE_SIZE_KEYS = ['size', 'textSize', 'visionSize'];
+const PROFILE_HASH_KEYS = ['sha256', 'textSha256', 'visionSha256'];
 
 function shortString(value, max = 200) {
     return typeof value === 'string' ? value.slice(0, max) : '';
@@ -98,7 +99,187 @@ export function normalizeLocalProfile(profile) {
         const value = safeSize(profile?.[key]);
         if (value) out[key] = value;
     }
-    const hash = safeHash(profile?.sha256);
-    if (hash) out.sha256 = hash;
+    for (const key of PROFILE_HASH_KEYS) {
+        const hash = safeHash(profile?.[key]);
+        if (hash) out[key] = hash;
+    }
     return out;
+}
+
+/**
+ * The profile as the server may store it: names, sizes and hashes only.
+ *
+ * The picked profile (IndexedDB) keeps each model under a slot with a file
+ * handle; this flattens it to the shape in `normalizeLocalProfile` and drops
+ * everything that must never leave the browser.
+ */
+export function localProfileSummary(profile) {
+    const out = {};
+    const mode = profile?.mode;
+    if (mode === 'single' || mode === 'split') out.mode = mode;
+    const slots = [
+        ['multimodal', { name: 'name', size: 'size', sha256: 'sha256' }],
+        ['text', { name: 'textName', size: 'textSize', sha256: 'textSha256' }],
+        ['vision', { name: 'visionName', size: 'visionSize', sha256: 'visionSha256' }],
+    ];
+    for (const [slot, keys] of slots) {
+        const entry = profile?.[slot];
+        if (!entry) continue;
+        const name = shortString(entry.name);
+        if (name) out[keys.name] = name;
+        const size = safeSize(entry.size);
+        if (size) out[keys.size] = size;
+        const hash = safeHash(entry.sha256);
+        if (hash) out[keys.sha256] = hash;
+    }
+    const supportName = shortString(profile?.support?.name);
+    if (supportName) out.supportName = supportName;
+    return out;
+}
+
+/**
+ * The identity of the model a job actually runs.
+ *
+ * The split layout extracts with its text model; the multimodal model is the
+ * only model in the single layout. The vision model is part of a split job's
+ * identity because changing it changes how a photo is read.
+ *
+ * Accepts both the picked profile (nested slots) and the flattened profile
+ * the server stores, so the browser and the Edge Function build the same
+ * identity from the same data.
+ *
+ * @returns {{ mode: 'single'|'split', name?: string, sha256?: string,
+ *             vision?: { name?: string, sha256?: string } }}
+ */
+export function normalizeLocalIdentity(value) {
+    const mode = value?.mode === 'split' ? 'split' : 'single';
+    const entry = mode === 'split' ? value?.text : value?.multimodal;
+    const name = shortString(entry?.name ?? value?.name ?? value?.textName);
+    const sha256 = safeHash(entry?.sha256 ?? value?.sha256 ?? value?.textSha256);
+    const identity = { mode };
+    if (name) identity.name = name;
+    if (sha256) identity.sha256 = sha256;
+    if (mode === 'split') {
+        const vision = value?.vision ?? null;
+        const visionName = shortString(vision?.name ?? value?.visionName);
+        const visionSha256 = safeHash(vision?.sha256 ?? value?.visionSha256);
+        if (visionName || visionSha256) {
+            identity.vision = {};
+            if (visionName) identity.vision.name = visionName;
+            if (visionSha256) identity.vision.sha256 = visionSha256;
+        }
+    }
+    return identity;
+}
+
+/**
+ * The identity of the model a picked or stored profile names.
+ *
+ * @returns {{ mode: 'single'|'split', name?: string, sha256?: string,
+ *             vision?: { name?: string, sha256?: string } }}
+ */
+export function localModelIdentity(profile) {
+    return normalizeLocalIdentity(profile);
+}
+
+/**
+ * True when two identities name the same model in the same layout.
+ *
+ * A missing hash is not proof of a different file: a file the clinic picked
+ * without verifying has no hash yet. When both sides carry one, it must
+ * match.
+ */
+export function sameLocalModel(a, b) {
+    const left = normalizeLocalIdentity(a);
+    const right = normalizeLocalIdentity(b);
+    if (left.mode !== right.mode) return false;
+    if (left.name && right.name && left.name.toLowerCase() !== right.name.toLowerCase()) return false;
+    if (left.sha256 && right.sha256 && left.sha256 !== right.sha256) return false;
+    if (Boolean(left.vision) !== Boolean(right.vision)) return false;
+    if (left.vision && right.vision) {
+        if (left.vision.name && right.vision.name
+            && left.vision.name.toLowerCase() !== right.vision.name.toLowerCase()) return false;
+        if (left.vision.sha256 && right.vision.sha256
+            && left.vision.sha256 !== right.vision.sha256) return false;
+    }
+    return true;
+}
+
+/** A stable value comparison for the parts of the config that travel as JSON. */
+function sameValue(a, b) {
+    if (a === b) return true;
+    if (Array.isArray(a) || Array.isArray(b)) {
+        if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+        return a.every((value, index) => sameValue(value, b[index]));
+    }
+    if (a && b && typeof a === 'object' && typeof b === 'object') {
+        const aKeys = Object.keys(a);
+        const bKeys = Object.keys(b);
+        if (aKeys.length !== bKeys.length) return false;
+        return aKeys.every((key) => Object.prototype.hasOwnProperty.call(b, key)
+            && sameValue(a[key], b[key]));
+    }
+    return false;
+}
+
+/** Whether a config carries a real baseline (not the empty object). */
+function hasConfig(config) {
+    return Boolean(config)
+        && typeof config === 'object'
+        && (Object.keys(config.text ?? {}).length > 0 || Object.keys(config.ocr ?? {}).length > 0);
+}
+
+/**
+ * True when the current config would run the job differently than the one
+ * frozen into it.
+ *
+ * The runtime knobs (lease, heartbeat, attempts, parallel) deliberately do
+ * not count: changing how fast a job is claimed does not change what the
+ * model reads or writes. The text and OCR settings do.
+ *
+ * A job created before the resolved config was stored has no baseline; it is
+ * not drift, because refusing it would strand a resumable job.
+ */
+export function localConfigDrift(stored, current) {
+    if (!hasConfig(stored) || !hasConfig(current)) return false;
+    const before = clampLocalConfig(stored);
+    const after = clampLocalConfig(current);
+    return !sameValue(before.text, after.text) || !sameValue(before.ocr, after.ocr);
+}
+
+/**
+ * Errors that will fail the same way on every attempt.
+ *
+ * Shared so the browser can stop on a fatal one and the Edge Function can
+ * decide whether to requeue without trusting the client's own verdict.
+ */
+export const LOCAL_DETERMINISTIC_CODES = Object.freeze([
+    'MODEL_NOT_MULTIMODAL',
+    'MODEL_INCOMPATIBLE',
+    'MODEL_FILE_UNAVAILABLE',
+    'MODEL_FILE_MISSING',
+    'VISION_GGUF_UNSUPPORTED',
+    'TEXT_MODEL_UNAVAILABLE',
+    'VISION_MODEL_UNAVAILABLE',
+    'VISION_MODEL_MISSING',
+    'OCR_SUPPORT_FILES_MISSING',
+    'OCR_RUNTIME_UNAVAILABLE',
+    'NO_MODEL_PROFILE',
+    'LOCAL_MODEL_NOT_CONFIGURED',
+    'LOCAL_MODE_DISABLED',
+    'LOCAL_MODE_REQUIRED',
+    'ENGINE_MISMATCH',
+    'CONFIG_DRIFT',
+    // The rows were not stored. Repeating the same result cannot fix that.
+    'PERSIST_FAILED',
+    // A malformed submit or a chunk this client no longer owns.
+    'BAD_REQUEST',
+    'BAD_RESULT',
+]);
+
+const DETERMINISTIC_ERRORS = new Set(LOCAL_DETERMINISTIC_CODES);
+
+/** True when retrying the same payload cannot succeed. */
+export function isDeterministicLocalError(code) {
+    return DETERMINISTIC_ERRORS.has(String(code ?? ''));
 }

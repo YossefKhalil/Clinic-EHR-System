@@ -9,8 +9,10 @@
 // the Edge Function clamp to the same numbers.
 
 import { clampLocalConfig, clampNumber } from '@import-core/local-runtime.js';
+import { LOCAL_RUNTIME_BOUNDS } from '@import-core/limits.js';
+import { detectTier } from './manifest.js';
 
-export { clampLocalConfig, clampNumber };
+export { clampLocalConfig, clampNumber, detectTier };
 
 export const DEFAULT_LOCAL_CONFIG = {
     text: {
@@ -59,16 +61,27 @@ export const DEFAULT_LOCAL_CONFIG = {
     },
 };
 
+/** The tier names the rest of the engine uses. `medium` is an alias. */
+export const TIERS = Object.freeze(['low', 'mid', 'high']);
+
+/** Normalize the public `medium` spelling onto the internal `mid`. */
+export function normalizeTier(tier) {
+    if (tier === 'medium' || tier === 'middle') return 'mid';
+    if (tier === 'low' || tier === 'high') return tier;
+    return 'mid';
+}
+
 /** The per-tier defaults. Applied only where the user has not chosen a value. */
 export function deviceDefaults(tier) {
-    if (tier === 'low') {
+    const normalized = normalizeTier(tier);
+    if (normalized === 'low') {
         return {
             text: { contextTokens: 4096, threads: 2, batchSize: 256, ubatchSize: 256, maxOutputTokens: 2048, sheetRowsPerChunk: 4, textCharsPerChunk: 1000 },
             ocr: { stripWidth: 640, stripHeight: 256, overlap: 48, imageLongSide: 896, maxNewTokens: 256 },
             runtime: { leaseSeconds: 1800 },
         };
     }
-    if (tier === 'high') {
+    if (normalized === 'high') {
         return {
             text: { contextTokens: 16384, threads: 6, batchSize: 512, ubatchSize: 512, maxOutputTokens: 8192, sheetRowsPerChunk: 6, textCharsPerChunk: 1500 },
             ocr: { stripWidth: 1024, stripHeight: 384, overlap: 80, imageLongSide: 1536, maxNewTokens: 768 },
@@ -122,6 +135,132 @@ export function resolveLocalConfig(tier, overrides = {}) {
     }
     return { config, warnings };
 }
+
+/**
+ * Resolve the config with the public argument order:
+ * `resolveConfig(userConfig, tier)`. The older `resolveLocalConfig(tier,
+ * overrides)` stays for the existing callers and returns the warnings too.
+ */
+export function resolveConfig(userConfig = {}, tier = 'mid') {
+    return resolveLocalConfig(tier, userConfig).config;
+}
+
+/** The defaults for each tier, fully resolved. */
+export const DEFAULTS = Object.freeze({
+    low: Object.freeze(resolveLocalConfig('low').config),
+    medium: Object.freeze(resolveLocalConfig('mid').config),
+    mid: Object.freeze(resolveLocalConfig('mid').config),
+    high: Object.freeze(resolveLocalConfig('high').config),
+});
+
+// The numeric bounds the form checks, and the same bounds the Edge Function
+// clamps to. Keeping the two tables together is what stops the browser from
+// accepting a value the server will silently change.
+const NUMERIC_BOUNDS = Object.freeze({
+    'text.contextTokens': LOCAL_RUNTIME_BOUNDS.contextTokens,
+    'text.batchSize': LOCAL_RUNTIME_BOUNDS.batchSize,
+    'text.ubatchSize': LOCAL_RUNTIME_BOUNDS.batchSize,
+    'text.threads': LOCAL_RUNTIME_BOUNDS.threads,
+    'text.gpuLayers': LOCAL_RUNTIME_BOUNDS.gpuLayers,
+    'text.maxOutputTokens': LOCAL_RUNTIME_BOUNDS.maxOutputTokens,
+    'text.temperature': { min: 0, max: 2 },
+    'text.topK': { min: 1, max: 200 },
+    'text.topP': { min: 0, max: 1 },
+    'text.repeatPenalty': { min: 0.5, max: 2 },
+    'text.sheetRowsPerChunk': LOCAL_RUNTIME_BOUNDS.sheetRowsPerChunk,
+    'text.textCharsPerChunk': LOCAL_RUNTIME_BOUNDS.textCharsPerChunk,
+    'ocr.stripWidth': LOCAL_RUNTIME_BOUNDS.stripWidth,
+    'ocr.stripHeight': LOCAL_RUNTIME_BOUNDS.stripHeight,
+    'ocr.overlap': LOCAL_RUNTIME_BOUNDS.overlap,
+    'ocr.imageLongSide': LOCAL_RUNTIME_BOUNDS.imageLongSide,
+    'ocr.maxNewTokens': LOCAL_RUNTIME_BOUNDS.ocrMaxNewTokens,
+    'runtime.leaseSeconds': LOCAL_RUNTIME_BOUNDS.leaseSeconds,
+    'runtime.heartbeatSeconds': LOCAL_RUNTIME_BOUNDS.heartbeatSeconds,
+    'runtime.maxAttempts': LOCAL_RUNTIME_BOUNDS.maxAttempts,
+    'runtime.parallel': LOCAL_RUNTIME_BOUNDS.parallel,
+});
+
+const BOOLEAN_FIELDS = Object.freeze([
+    'text.flashAttention',
+    'text.mmap',
+    'text.enableThinking',
+    'text.repairPass',
+]);
+
+const KV_CACHE_TYPES = Object.freeze(['f16', 'q8_0', 'q4_0', 'q4_1', 'q5_0', 'q5_1']);
+const EXECUTION_PROVIDERS = Object.freeze(['webgpu', 'wasm']);
+const GRAPH_OPTIMIZATION_LEVELS = Object.freeze(['disabled', 'basic', 'extended', 'all']);
+
+function valueAt(config, path) {
+    const [group, key] = path.split('.');
+    return config?.[group]?.[key];
+}
+
+function hasValue(value) {
+    return value !== undefined && value !== null && value !== '';
+}
+
+/**
+ * Validate the user's config before it is saved.
+ *
+ * The result is a list of stable dotted paths (`text.contextTokens`), not
+ * sentences: the card translates them with the label of the field. Missing
+ * keys are valid; the defaults fill them. The Edge Function clamps the same
+ * bounds again, so a client that skips this check cannot widen them.
+ *
+ * @param {object} config
+ * @returns {{ valid: boolean, errors: string[] }}
+ */
+export function validateLocalConfig(config = {}) {
+    const errors = [];
+
+    for (const [path, bounds] of Object.entries(NUMERIC_BOUNDS)) {
+        const value = valueAt(config, path);
+        if (!hasValue(value)) continue;
+        const number = Number(value);
+        if (!Number.isFinite(number)) {
+            errors.push(path);
+            continue;
+        }
+        if (number < bounds.min || number > bounds.max) errors.push(path);
+    }
+
+    for (const path of BOOLEAN_FIELDS) {
+        const value = valueAt(config, path);
+        if (value !== undefined && typeof value !== 'boolean') errors.push(path);
+    }
+
+    const kvCache = valueAt(config, 'text.kvCacheType');
+    if (hasValue(kvCache) && !KV_CACHE_TYPES.includes(kvCache)) errors.push('text.kvCacheType');
+
+    const provider = valueAt(config, 'ocr.executionProvider');
+    if (hasValue(provider) && !EXECUTION_PROVIDERS.includes(provider)) errors.push('ocr.executionProvider');
+
+    const graph = valueAt(config, 'ocr.graphOptimizationLevel');
+    if (hasValue(graph) && !GRAPH_OPTIMIZATION_LEVELS.includes(graph)) errors.push('ocr.graphOptimizationLevel');
+
+    const template = valueAt(config, 'text.chatTemplate');
+    if (template !== undefined && template !== null && typeof template !== 'string') errors.push('text.chatTemplate');
+
+    const stops = valueAt(config, 'text.stopSequences');
+    if (stops !== undefined && !Array.isArray(stops)) errors.push('text.stopSequences');
+
+    // The relations the two runtimes rely on. They are checked on the values
+    // the user chose, with the defaults filling the rest.
+    const merged = deepMerge(deepMerge(DEFAULT_LOCAL_CONFIG, deviceDefaults('mid')), config ?? {});
+    if (merged.text.batchSize < merged.text.ubatchSize) errors.push('text.ubatchSize');
+    if (merged.runtime.heartbeatSeconds * 2 > merged.runtime.leaseSeconds) {
+        errors.push('runtime.heartbeatSeconds');
+    }
+
+    return { valid: errors.length === 0, errors };
+}
+
+/** The name the task/spec uses. */
+export const validateConfig = validateLocalConfig;
+
+/** Merge a partial config over another, without dropping nested keys. */
+export const mergeConfig = deepMerge;
 
 /**
  * Derive the extraction limits from the configured context, not from a fixed

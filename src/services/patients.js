@@ -19,25 +19,23 @@ const SORTABLE_COLUMNS = {
     created_at: 'created_at',
 };
 
-export function sortableColumns() {
-    return Object.keys(SORTABLE_COLUMNS);
-}
-
 // The filter of PostgREST is a list, so a comma, a bracket or a quote
 // inside the term would cut the list in two. They are spaces in a search.
 function escapeSearchTerm(term) {
     return String(term).replace(/[,()*"]/g, ' ').trim();
 }
 
-export async function getPatients(filters = {}, isSuperAdmin = false, userSection = null) {
-    let query = supabase()
-        .from('patients')
-        .select('*');
-    
+// One query builder for both the full export and the paginated table, so the
+// filters and sort can never drift between them.
+function patientsQuery(filters = {}, isSuperAdmin = false, userSection = null, options = {}) {
+    let query = options.count
+        ? supabase().from('patients').select('*', { count: 'exact' })
+        : supabase().from('patients').select('*');
+
     if (!isSuperAdmin && userSection) {
         query = query.eq('section', userSection);
     }
-    
+
     if (filters.search) {
         const field = filters.filter_by || 'all';
         if (field === 'all') {
@@ -63,22 +61,22 @@ export async function getPatients(filters = {}, isSuperAdmin = false, userSectio
             query = query.ilike(field, `%${filters.search}%`);
         }
     }
-    
+
     if (filters.section) query = query.eq('section', filters.section);
     if (filters.source_of_money) query = query.eq('source_of_money', filters.source_of_money);
     if (filters.follower) query = query.eq('follower', filters.follower);
     if (filters.record_type) query = query.eq('record_type', filters.record_type);
-    
+
     if (filters.is_completed !== '' && filters.is_completed !== undefined && filters.is_completed !== null) {
         query = query.eq('is_completed', filters.is_completed);
     }
-    
+
     // Date inputs are calendar days in the viewer's timezone; convert the
     // local day boundaries to UTC instants before comparing with timestamptz,
     // otherwise the filter is off by the timezone offset at the edges.
     if (filters.date_from) query = query.gte('created_at', new Date(`${filters.date_from}T00:00:00`).toISOString());
     if (filters.date_to) query = query.lte('created_at', new Date(`${filters.date_to}T23:59:59.999`).toISOString());
-    
+
     // The sort: the newest row first is the start, a column that was pressed
     // takes over. A second key keeps rows with the same value in the same
     // order, so the table never shuffles itself.
@@ -88,9 +86,40 @@ export async function getPatients(filters = {}, isSuperAdmin = false, userSectio
     if (sortColumn === 'created_at') query = query.order('id', { ascending: true });
     else query = query.order('created_at', { ascending: false });
 
+    return query;
+}
+
+// The unpaginated list. Export and global search pass a limit when they do
+// not need every row; the patients directory uses getPatientsPage below.
+export async function getPatients(filters = {}, isSuperAdmin = false, userSection = null, options = {}) {
+    let query = patientsQuery(filters, isSuperAdmin, userSection);
+    if (Number.isInteger(options.limit) && options.limit > 0) {
+        query = query.limit(options.limit);
+    }
+
     const { data, error } = await query;
     if (error) throw error;
     return data;
+}
+
+// One server-side page for the patients directory. The count is requested
+// with the page so the pager knows the size of the filtered result without a
+// second round trip.
+export async function getPatientsPage(filters = {}, isSuperAdmin = false, userSection = null, options = {}) {
+    const pageSize = Math.min(100, Math.max(1, Number(options.pageSize) || 25));
+    const page = Math.max(1, Math.trunc(Number(options.page) || 1));
+    const from = (page - 1) * pageSize;
+
+    const { data, error, count } = await patientsQuery(filters, isSuperAdmin, userSection, { count: true })
+        .range(from, from + pageSize - 1);
+    if (error) throw error;
+
+    return {
+        rows: data ?? [],
+        total: count ?? 0,
+        page,
+        pageSize,
+    };
 }
 
 export async function getPatient(id) {
@@ -99,7 +128,7 @@ export async function getPatient(id) {
         .select('*')
         .eq('id', id)
         .single();
-    
+
     if (error) throw error;
     return data;
 }
@@ -110,7 +139,7 @@ export async function createPatient(patientData) {
         .insert(patientData)
         .select()
         .single();
-    
+
     if (error) throw error;
     return data;
 }
@@ -122,7 +151,7 @@ export async function updatePatient(id, patientData) {
         .eq('id', id)
         .select()
         .single();
-    
+
     if (error) throw error;
     return data;
 }
@@ -132,7 +161,7 @@ export async function deletePatient(id) {
         .from('patients')
         .delete()
         .eq('id', id);
-    
+
     if (error) throw error;
 }
 
@@ -143,26 +172,13 @@ export async function togglePatientStatus(id, isCompleted) {
         .eq('id', id)
         .select()
         .single();
-    
+
     if (error) throw error;
     return data;
 }
 
-export const RECORD_TYPES = ['patient', 'food', 'classroom', 'well'];
-
-export const RECORD_TYPE_LABELS = {
-    patient: { en: 'Patient', ar: 'مريض' },
-    food: { en: 'Food distribution (إطعام)', ar: 'إطعام' },
-    classroom: { en: 'Classroom preparation', ar: 'تجهيز فصل دراسي' },
-    well: { en: 'Well drilling', ar: 'حفر بئر' },
-};
-
-export const GOVERNORATES = [
-    'Cairo', 'Giza', 'Alexandria', 'Dakahlia', 'Red Sea', 'Beheira', 'Faiyum',
-    'Gharbia', 'Ismailia', 'Monufia', 'Minya', 'Qalyubia', 'New Valley', 'Suez',
-    'Aswan', 'Asyut', 'Beni Suef', 'Port Said', 'Damietta', 'South Sinai',
-    'North Sinai', 'Sharqia', 'Kafr El Sheikh', 'Qena', 'Luxor', 'Sohag', 'Matrouh'
-];
+// The patient form reads the same governorate table the import agent uses.
+export const GOVERNORATES = GOVERNORATE_ENTRIES.map((entry) => entry.value);
 
 const GOVERNORATE_AR = new Map(
     GOVERNORATE_ENTRIES.map((entry) => [entry.value.toLowerCase(), entry.ar]),
@@ -181,13 +197,3 @@ export function governorateLabel(value) {
     if (getLocale() !== 'ar') return name;
     return GOVERNORATE_AR.get(name.toLowerCase()) || name;
 }
-
-export const FOLLOWERS_AR = {
-    'حسن حمام': 'hassan_hamam',
-    'عبد الرحمن أحمد': 'abdel_rahman_ahmed',
-    'احمد سعد': 'ahmed_saad',
-    'محمد علي': 'mohamed_ali',
-    'محمد أحمد': 'mohamed_ahmed',
-    'حازم': 'hazem',
-    'محمد ربيع': 'mohamed_rabie',
-};

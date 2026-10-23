@@ -25,10 +25,6 @@ export function isCloudinaryConfigured() {
     return Boolean(cloudName && (uploadPreset || authenticated));
 }
 
-export function isAuthenticatedDelivery() {
-    return authenticated;
-}
-
 export function isSupportedAttachment(file) {
     const mime = file?.type || '';
     if (mime === 'application/pdf' || mime.startsWith('image/')) return true;
@@ -42,6 +38,47 @@ export function isImageAttachment(attachment) {
 
 function isPdf(file) {
     return file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+}
+
+/**
+ * Checks if an error is the Cloudinary "PDF delivery blocked on Free tier" error.
+ * This happens when the Cloudinary Free tier blocks PDF/ZIP delivery by default.
+ */
+export function isCloudinaryPdfBlockedError(error) {
+    const message = String(error?.message || '');
+    return (
+        message.includes('deny or ACL failure') ||
+        message.includes('PDF files can\'t be shared externally') ||
+        message.includes('blocked for delivery') ||
+        (message.includes('401') && message.includes('pdf'))
+    );
+}
+
+/**
+ * Returns a user-friendly error message with instructions to fix Cloudinary PDF delivery.
+ */
+export function getCloudinaryPdfBlockedMessage() {
+    return (
+        'PDF delivery is blocked by Cloudinary Free tier. ' +
+        'To fix this, enable "Allow delivery of PDF and ZIP files" in Cloudinary Console: ' +
+        'Settings (gear icon) → Security → "Allow delivery of PDF and ZIP files" → Save. ' +
+        'Note: Cloudinary caches the denied response, so wait a minute or use a different filename after enabling.'
+    );
+}
+
+/**
+ * Wraps an error to include PDF block detection and user-friendly message.
+ */
+function enhancePdfError(error, context = 'upload') {
+    if (isCloudinaryPdfBlockedError(error)) {
+        const userMessage = getCloudinaryPdfBlockedMessage();
+        const enhancedError = new Error(userMessage);
+        enhancedError.originalError = error;
+        enhancedError.isCloudinaryPdfBlocked = true;
+        enhancedError.context = context;
+        return enhancedError;
+    }
+    return error;
 }
 
 // Uploads straight to Cloudinary. XHR is used because it can report upload
@@ -59,10 +96,14 @@ export async function uploadAttachment(file, { folder = '', onProgress = null } 
     // storing the original file.
     const resourceType = isPdf(file) ? 'raw' : 'image';
 
-    if (authenticated) {
-        return uploadAuthenticated(file, { folder, onProgress, resourceType });
+    try {
+        if (authenticated) {
+            return await uploadAuthenticated(file, { folder, onProgress, resourceType });
+        }
+        return await uploadUnsigned(file, { folder, onProgress, resourceType });
+    } catch (error) {
+        throw enhancePdfError(error, 'upload');
     }
-    return uploadUnsigned(file, { folder, onProgress, resourceType });
 }
 
 // Classic public upload through the unsigned preset.

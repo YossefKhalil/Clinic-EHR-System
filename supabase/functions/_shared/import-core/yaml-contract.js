@@ -327,7 +327,6 @@ export function parseContract(text, { yaml, finishReason = 'stop', maxBytes = LI
     for (const raw of parts) {
         const docRaw = raw.trim();
         if (docRaw === '') continue;
-        const index = pieces.length + 1;
         if (UNSAFE_TOKEN.test(docRaw)) {
             pieces.push({ kind: 'bad', raw: docRaw, error: 'unsafe YAML token (anchor, alias or tag)' });
             continue;

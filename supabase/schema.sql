@@ -545,11 +545,15 @@ CREATE TABLE IF NOT EXISTS public.import_chunks (
     truncated BOOLEAN NOT NULL DEFAULT FALSE,
     prompt_id TEXT,
     model TEXT,
+    model_sha256 TEXT,                             -- local mode: hash of the model file
     tokens_in INTEGER,
     tokens_out INTEGER,
     raw_response_path TEXT,
     UNIQUE (job_id, idx)
 );
+
+-- Idempotent migration for jobs created before the model hash was audited.
+ALTER TABLE public.import_chunks ADD COLUMN IF NOT EXISTS model_sha256 TEXT;
 
 CREATE TABLE IF NOT EXISTS public.import_rows (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

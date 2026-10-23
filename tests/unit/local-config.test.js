@@ -7,11 +7,17 @@
 import { describe, it, expect } from 'vitest';
 import {
     DEFAULT_LOCAL_CONFIG,
+    DEFAULTS,
     deviceDefaults,
     deepMerge,
+    detectTier,
+    normalizeTier,
+    resolveConfig,
     resolveLocalConfig,
+    validateConfig,
     extractionBudgets,
 } from '../../src/features/import-agent/local/local-config.js';
+import { deviceSignals } from '../../src/features/import-agent/local/manifest.js';
 import { clampLocalConfig, normalizeLocalProfile } from '../../supabase/functions/_shared/import-core/local-runtime.js';
 
 describe('deviceDefaults', () => {
@@ -87,6 +93,84 @@ describe('clampLocalConfig', () => {
     it('leaves the values the user chose alone', () => {
         const clamped = clampLocalConfig({ text: { contextTokens: 4096 } });
         expect(clamped.text.contextTokens).toBe(4096);
+    });
+});
+
+describe('tier detection and defaults', () => {
+    it('suggests low without WebGPU, high only with every signal', () => {
+        expect(detectTier({ webgpu: false, threads: 16, memory: 16 })).toBe('low');
+        expect(detectTier({ webgpu: true, threads: 8, memory: 8, maxBufferSize: 512 * 1024 * 1024 })).toBe('high');
+        expect(detectTier({ webgpu: true, threads: 8, memory: 8, maxBufferSize: 64 * 1024 * 1024 })).toBe('mid');
+    });
+
+    it('accepts the public medium spelling for the internal mid tier', () => {
+        expect(normalizeTier('medium')).toBe('mid');
+        expect(normalizeTier('middle')).toBe('mid');
+        expect(normalizeTier('nonsense')).toBe('mid');
+        expect(deviceDefaults('medium')).toEqual({});
+    });
+
+    it('exposes resolved defaults for every public tier', () => {
+        expect(DEFAULTS.low.text.contextTokens).toBe(4096);
+        expect(DEFAULTS.medium.text.contextTokens).toBe(8192);
+        expect(DEFAULTS.high.text.contextTokens).toBe(16384);
+        expect(DEFAULTS.low.runtime.leaseSeconds).toBe(1800);
+    });
+
+    it('classifies missing device signals as unknown, not ready', () => {
+        expect(deviceSignals({ webgpu: true, threads: 8, memory: 0, storageFree: 0 })).toMatchObject({
+            webgpu: 'ok',
+            threads: 'ok',
+            memory: 'warn',
+            storage: 'warn',
+        });
+    });
+});
+
+describe('resolveConfig', () => {
+    it('uses the task argument order: user config first, tier second', () => {
+        const config = resolveConfig({ text: { contextTokens: 12288 } }, 'low');
+        expect(config.text.contextTokens).toBe(12288);
+        expect(config.text.threads).toBe(2);
+        expect(config.runtime.leaseSeconds).toBe(1800);
+    });
+
+    it('treats medium as an alias for mid', () => {
+        expect(resolveConfig({}, 'medium').text.contextTokens).toBe(8192);
+    });
+});
+
+describe('validateConfig', () => {
+    it('accepts a complete resolved config', () => {
+        expect(validateConfig(DEFAULTS.medium)).toEqual({ valid: true, errors: [] });
+    });
+
+    it('rejects values outside the shared bounds', () => {
+        const { valid, errors } = validateConfig({
+            text: { contextTokens: 10_000_000, threads: 99, kvCacheType: 'f32' },
+            runtime: { parallel: 99 },
+        });
+        expect(valid).toBe(false);
+        expect(errors).toEqual(expect.arrayContaining([
+            'text.contextTokens',
+            'text.threads',
+            'text.kvCacheType',
+            'runtime.parallel',
+        ]));
+    });
+
+    it('checks the relational bounds the runtimes rely on', () => {
+        const { valid, errors } = validateConfig({
+            text: { batchSize: 128, ubatchSize: 512 },
+            runtime: { leaseSeconds: 120, heartbeatSeconds: 90 },
+        });
+        expect(valid).toBe(false);
+        expect(errors).toContain('text.ubatchSize');
+        expect(errors).toContain('runtime.heartbeatSeconds');
+    });
+
+    it('ignores missing keys so the defaults can fill them', () => {
+        expect(validateConfig({}).valid).toBe(true);
     });
 });
 

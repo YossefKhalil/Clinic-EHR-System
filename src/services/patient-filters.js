@@ -49,7 +49,3 @@ export function activeFilterKeys(filters, { admin = true } = {}) {
         return filterValueIsSet(map[key]);
     });
 }
-
-export function activePatientFiltersCount(filters, options) {
-    return activeFilterKeys(filters, options).length;
-}

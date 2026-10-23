@@ -157,9 +157,14 @@ function usageFrom(response, fallbackText) {
  * silently produce garbage, so the setup panel refuses it first
  * (GGUF_TEMPLATE_MISSING).
  */
-export function createLocalProvider() {
+export function createLocalProvider(overrideConfig = null) {
     if (!loaded) throw new Error('wllama not loaded');
-    const config = activeConfig;
+    // A caller (the adapter registry) may supply a per-call config. A flat
+    // text config is accepted too; the load-time config remains the default
+    // so the existing setup path is unchanged.
+    const config = overrideConfig
+        ? (overrideConfig.text ? overrideConfig : { ...activeConfig, text: overrideConfig })
+        : activeConfig;
 
     return {
         get model() {
