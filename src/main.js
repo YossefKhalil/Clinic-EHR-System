@@ -2795,6 +2795,7 @@ function app() {
                     if (!target) return;
                     target.uploading = false;
                     target.error = error.message || this.t('Upload failed');
+                }
             }
         },
         
