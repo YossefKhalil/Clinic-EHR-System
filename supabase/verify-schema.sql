@@ -52,6 +52,36 @@ BEGIN
         RAISE EXCEPTION 'ai_settings is missing columns: %', missing;
     END IF;
 
+    -- 2a. The per-section access model: the Super Admin flag and the two
+    --     section grant arrays the RLS helpers read.
+    SELECT string_agg(expected.column_name, ', ') INTO missing
+    FROM (VALUES
+        ('is_super_admin'), ('read_sections'), ('write_sections')
+    ) AS expected(column_name)
+    WHERE NOT EXISTS (
+        SELECT 1 FROM information_schema.columns c
+        WHERE c.table_schema = 'public' AND c.table_name = 'users'
+          AND c.column_name = expected.column_name
+    );
+    IF missing IS NOT NULL THEN
+        RAISE EXCEPTION 'users is missing columns: %', missing;
+    END IF;
+
+    -- 2a-bis. The access-control helpers the RLS policies call.
+    SELECT string_agg(expected.proname, ', ') INTO missing
+    FROM (VALUES
+        ('is_super_admin'), ('can_manage_users'),
+        ('can_read_section'), ('can_write_section')
+    ) AS expected(proname)
+    WHERE NOT EXISTS (
+        SELECT 1 FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public' AND p.proname = expected.proname
+    );
+    IF missing IS NOT NULL THEN
+        RAISE EXCEPTION 'missing access helpers: %', missing;
+    END IF;
+
     -- 2b. The local model audit on every chunk: the name and the SHA-256 of
     --     the file that produced its rows.
     SELECT string_agg(expected.column_name, ', ') INTO missing

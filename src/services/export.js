@@ -41,8 +41,8 @@ function displayDate(value) {
         { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-export async function exportPatientsToExcel(filters, isSuperAdmin, userSection) {
-    const rows = await getPatients(filters ?? {}, isSuperAdmin, userSection);
+export async function exportPatientsToExcel(filters) {
+    const rows = await getPatients(filters ?? {});
     if (!rows.length) throw new Error(t('No patients recorded yet.'));
 
     const headers = [

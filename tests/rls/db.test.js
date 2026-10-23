@@ -49,4 +49,8 @@ describe('RLS / DB', () => {
     it('04-commit: the reviewed rows become patients, once', async () => {
         await runRlsScript(db, '04-commit.sql');
     }, 60000);
+
+    it('05-permissions: super admins, per-section grants and write-implies-read', async () => {
+        await runRlsScript(db, '05-permissions.sql');
+    }, 60000);
 });

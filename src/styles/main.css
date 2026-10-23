@@ -959,6 +959,28 @@ i.bi {
     min-height: 2.75rem;
 }
 
+/* The per-section permission matrix in the user modal: a compact grid with a
+   comfortable hit area on every checkbox. */
+.permission-matrix td,
+.permission-matrix th {
+    vertical-align: middle;
+}
+
+.permission-matrix .form-check-input {
+    width: 1.25rem;
+    height: 1.25rem;
+    margin: 0;
+    cursor: pointer;
+}
+
+.permission-matrix .form-check-input:disabled {
+    cursor: default;
+}
+
+.role-card {
+    transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+}
+
 /*
  * The local AI engine panel: the readiness chips, the model cards and the
  * model file fields.

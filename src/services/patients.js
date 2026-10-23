@@ -27,14 +27,14 @@ function escapeSearchTerm(term) {
 
 // One query builder for both the full export and the paginated table, so the
 // filters and sort can never drift between them.
-function patientsQuery(filters = {}, isSuperAdmin = false, userSection = null, options = {}) {
+function patientsQuery(filters = {}, options = {}) {
     let query = options.count
         ? supabase().from('patients').select('*', { count: 'exact' })
         : supabase().from('patients').select('*');
 
-    if (!isSuperAdmin && userSection) {
-        query = query.eq('section', userSection);
-    }
+    // Section scope is enforced by RLS (can_read_section/can_write_section).
+    // Filtering again by a single section here would hide the other sections
+    // a user has been granted, so it is deliberately omitted.
 
     if (filters.search) {
         const field = filters.filter_by || 'all';
@@ -91,8 +91,8 @@ function patientsQuery(filters = {}, isSuperAdmin = false, userSection = null, o
 
 // The unpaginated list. Export and global search pass a limit when they do
 // not need every row; the patients directory uses getPatientsPage below.
-export async function getPatients(filters = {}, isSuperAdmin = false, userSection = null, options = {}) {
-    let query = patientsQuery(filters, isSuperAdmin, userSection);
+export async function getPatients(filters = {}, options = {}) {
+    let query = patientsQuery(filters);
     if (Number.isInteger(options.limit) && options.limit > 0) {
         query = query.limit(options.limit);
     }
@@ -105,12 +105,12 @@ export async function getPatients(filters = {}, isSuperAdmin = false, userSectio
 // One server-side page for the patients directory. The count is requested
 // with the page so the pager knows the size of the filtered result without a
 // second round trip.
-export async function getPatientsPage(filters = {}, isSuperAdmin = false, userSection = null, options = {}) {
+export async function getPatientsPage(filters = {}, options = {}) {
     const pageSize = Math.min(100, Math.max(1, Number(options.pageSize) || 25));
     const page = Math.max(1, Math.trunc(Number(options.page) || 1));
     const from = (page - 1) * pageSize;
 
-    const { data, error, count } = await patientsQuery(filters, isSuperAdmin, userSection, { count: true })
+    const { data, error, count } = await patientsQuery(filters, { count: true })
         .range(from, from + pageSize - 1);
     if (error) throw error;
 

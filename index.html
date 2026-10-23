@@ -96,7 +96,7 @@
                                     <span class="dropdown-item-text text-muted small" x-text="user?.email"></span>
                                 </li>
                                 <li><hr class="dropdown-divider"></li>
-                                <li x-show="canManageUsers || isSuperAdmin">
+                                <li x-show="isSuperAdmin">
                                     <button type="button" class="dropdown-item" :class="{ active: currentPage === 'settings' }" @click="navigate('settings')">
                                         <i class="bi bi-gear me-2"></i><span x-text="t('Settings')"></span>
                                     </button>
@@ -226,7 +226,7 @@
 
                         <!-- The sections come first: they are the breakdown of
                              the total above them. -->
-                        <div x-show="isSuperAdmin || profile?.section" class="mb-3">
+                        <div x-show="readableSectionKeys().length" class="mb-3">
                             <div class="text-muted small fw-semibold text-uppercase mb-2" x-text="t('By Section')"></div>
                             <div class="stat-entries">
                                 <template x-for="entry in sectionStatEntries()" :key="'sec-' + entry.key">
@@ -271,7 +271,7 @@
                     <div class="card-header bg-white border-bottom py-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
                         <h5 class="mb-0 fw-semibold"><i class="bi bi-currency-dollar me-2 text-primary"></i><span x-text="t('Financial Summary')"></span></h5>
                         <div class="d-flex align-items-center gap-2">
-                            <span class="text-muted small" x-text="isSuperAdmin ? t('Financial summary across all patients') : t('Financial summary in your section')"></span>
+                            <span class="text-muted small" x-text="isSuperAdmin ? t('Financial summary across all patients') : t('Financial summary in your sections')"></span>
                             <button type="button" class="btn btn-sm btn-link text-secondary p-1"
                                 @click="toggleFinancialCard()"
                                 :aria-expanded="financialCardOpen ? 'true' : 'false'"
@@ -2126,9 +2126,9 @@
                     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
                         <div>
                             <h2 class="text-secondary fw-bold mb-0"><i class="bi bi-people-fill me-2 text-primary"></i><span x-text="t('Users Management')"></span></h2>
-                            <p class="text-muted small mb-0" x-text="t('Create staff and administrator accounts and assign their section access.')"></p>
+                            <p class="text-muted small mb-0" x-text="t('Super admins manage accounts and grant each staff member read and write access per section.')"></p>
                         </div>
-                        <button type="button" class="btn btn-success" @click="openUserForm()">
+                        <button type="button" class="btn btn-success" @click="openUserForm()" x-show="isSuperAdmin">
                             <i class="bi bi-person-plus-fill me-1"></i> <span x-text="t('Create New User')"></span>
                         </button>
                     </div>
@@ -2159,34 +2159,57 @@
                                             <th class="ps-4" x-text="t('Name')"></th>
                                             <th x-text="t('Email')"></th>
                                             <th x-text="t('Role')"></th>
-                                            <th x-text="t('Section')"></th>
+                                            <th x-text="t('Read Access')"></th>
+                                            <th x-text="t('Write Access')"></th>
                                             <th class="text-end pe-4" x-text="t('Actions')"></th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         <template x-for="u in users" :key="u.id">
                                             <tr>
-                                                <td class="ps-4 fw-semibold" x-text="u.name"></td>
-                                                <td x-text="u.email"></td>
+                                                <td class="ps-4 fw-semibold">
+                                                    <span x-text="u.name"></span>
+                                                    <span class="badge bg-light text-secondary border ms-1" x-show="u.id === user?.id" x-text="t('You')"></span>
+                                                </td>
+                                                <td class="text-muted" x-text="u.email"></td>
                                                 <td>
-                                                    <span class="badge rounded-pill px-2" :class="u.is_admin ? 'bg-danger' : 'bg-secondary'">
-                                                        <span x-text="u.is_admin ? t('Admin') : t('Staff')"></span>
+                                                    <span class="badge rounded-pill px-2" :class="u.is_super_admin ? 'bg-danger' : 'bg-secondary'">
+                                                        <i class="bi me-1" :class="u.is_super_admin ? 'bi-shield-lock-fill' : 'bi-person-fill'" aria-hidden="true"></i>
+                                                        <span x-text="u.is_super_admin ? t('Super Admin') : t('Staff')"></span>
                                                     </span>
                                                 </td>
                                                 <td>
-                                                    <template x-if="u.section">
-                                                        <span x-text="optionLabel('section', u.section)"></span>
+                                                    <template x-if="u.is_super_admin">
+                                                        <span class="text-muted small"><i class="bi bi-infinity me-1" aria-hidden="true"></i><span x-text="t('All sections')"></span></span>
                                                     </template>
-                                                    <template x-if="!u.section">
-                                                        <span></span>
+                                                    <template x-if="!u.is_super_admin">
+                                                        <div class="d-flex flex-wrap gap-1">
+                                                            <template x-for="key in (u.read_sections || [])" :key="'ur-' + u.id + '-' + key">
+                                                                <span class="badge bg-light text-secondary border" x-text="optionLabel('section', key)"></span>
+                                                            </template>
+                                                            <span class="text-muted small" x-show="!(u.read_sections || []).length" x-text="t('None')"></span>
+                                                        </div>
+                                                    </template>
+                                                </td>
+                                                <td>
+                                                    <template x-if="u.is_super_admin">
+                                                        <span class="text-muted small"><i class="bi bi-infinity me-1" aria-hidden="true"></i><span x-text="t('All sections')"></span></span>
+                                                    </template>
+                                                    <template x-if="!u.is_super_admin">
+                                                        <div class="d-flex flex-wrap gap-1">
+                                                            <template x-for="key in (u.write_sections || [])" :key="'uw-' + u.id + '-' + key">
+                                                                <span class="badge bg-success-subtle text-success-emphasis border border-success-subtle" x-text="optionLabel('section', key)"></span>
+                                                            </template>
+                                                            <span class="text-muted small" x-show="!(u.write_sections || []).length" x-text="t('None')"></span>
+                                                        </div>
                                                     </template>
                                                 </td>
                                                 <td class="text-end pe-4">
                                                     <div class="btn-group" role="group">
-                                                        <button class="btn btn-sm btn-outline-primary" @click="editUser(u)">
+                                                        <button type="button" class="btn btn-sm btn-outline-primary" @click="editUser(u)" :aria-label="t('Edit User')" :title="t('Edit User')">
                                                             <i class="bi bi-pencil-square"></i>
                                                         </button>
-                                                        <button class="btn btn-sm btn-outline-danger" @click="removeUser(u)">
+                                                        <button type="button" class="btn btn-sm btn-outline-danger" x-show="u.id !== user?.id" @click="removeUser(u)" :aria-label="t('Delete User')" :title="t('Delete User')">
                                                             <i class="bi bi-trash"></i>
                                                         </button>
                                                     </div>
@@ -2194,7 +2217,7 @@
                                             </tr>
                                         </template>
                                         <tr x-show="users.length === 0">
-                                            <td colspan="5" class="text-center py-4 text-muted" x-text="t('No users found.')"></td>
+                                            <td colspan="6" class="text-center py-4 text-muted" x-text="t('No users found.')"></td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -2766,7 +2789,7 @@
 
                 <!-- User create/edit modal (#16): replaces the standalone user-form page -->
                 <div class="modal fade" id="userFormModal" tabindex="-1" aria-labelledby="userFormModalTitle">
-                    <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-dialog modal-dialog-centered modal-lg">
                         <div class="modal-content">
                             <div class="modal-header py-3">
                                 <h5 class="modal-title fw-bold" id="userFormModalTitle">
@@ -2774,7 +2797,7 @@
                                         <span><i class="bi bi-person-gear me-2"></i><span x-text="t('Edit User')"></span>, <span x-text="editingUser.name"></span></span>
                                     </template>
                                     <template x-if="!editingUser">
-                                        <span><i class="bi bi-person-plus-fill me-2"></i><span x-text="t('Register New Staff/Admin')"></span></span>
+                                        <span><i class="bi bi-person-plus-fill me-2"></i><span x-text="t('Create New User')"></span></span>
                                     </template>
                                 </h5>
                                 <button type="button" class="btn-close" data-bs-dismiss="modal" :aria-label="t('Close')"></button>
@@ -2782,62 +2805,120 @@
 
                             <div class="modal-body p-4">
                                 <form @submit.prevent="submitUserForm()">
-                                    <div class="mb-3">
-                                        <label for="uf-name" class="form-label fw-semibold" x-text="t('Full Name')"></label>
-                                        <div class="input-group">
-                                            <span class="input-group-text bg-light"><i class="bi bi-person"></i></span>
-                                            <input type="text" id="uf-name" class="form-control" x-model="userForm.name" placeholder="e.g. Dr. John Doe" required>
+                                    <!-- Server and inline validation land here. -->
+                                    <div class="alert alert-danger d-flex align-items-start gap-2 py-2 px-3 small" x-show="userFormError" x-cloak role="alert">
+                                        <i class="bi bi-exclamation-triangle-fill mt-1" aria-hidden="true"></i>
+                                        <span x-text="userFormError"></span>
+                                    </div>
+
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label for="uf-name" class="form-label fw-semibold" x-text="t('Full Name')"></label>
+                                            <div class="input-group">
+                                                <span class="input-group-text bg-light"><i class="bi bi-person"></i></span>
+                                                <input type="text" id="uf-name" class="form-control" x-model="userForm.name" placeholder="e.g. Dr. John Doe" required autocomplete="off">
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label for="uf-email" class="form-label fw-semibold" x-text="t('Email Address')"></label>
+                                            <div class="input-group">
+                                                <span class="input-group-text bg-light"><i class="bi bi-envelope"></i></span>
+                                                <input type="email" id="uf-email" class="form-control" x-model="userForm.email" placeholder="name@clinic.com" required autocomplete="off">
+                                            </div>
+                                        </div>
+                                        <div class="col-12">
+                                            <label for="uf-password" class="form-label fw-semibold">
+                                                <span x-text="editingUser ? t('New Password') : t('Password')"></span>
+                                                <template x-if="editingUser">
+                                                    <span class="text-muted fw-normal" x-text="t('(leave blank to keep current)')"></span>
+                                                </template>
+                                            </label>
+                                            <div class="input-group">
+                                                <span class="input-group-text bg-light"><i class="bi bi-lock"></i></span>
+                                                <input type="password" id="uf-password" class="form-control" x-model="userForm.password" placeholder="••••••••" autocomplete="new-password" :required="!editingUser">
+                                            </div>
                                         </div>
                                     </div>
 
-                                    <div class="mb-3">
-                                        <label for="uf-email" class="form-label fw-semibold" x-text="t('Email Address')"></label>
-                                        <div class="input-group">
-                                            <span class="input-group-text bg-light"><i class="bi bi-envelope"></i></span>
-                                            <input type="email" id="uf-email" class="form-control" x-model="userForm.email" placeholder="name@clinic.com" :disabled="!!editingUser" required>
-                                        </div>
-                                    </div>
-
-                                    <div class="mb-3">
-                                        <label for="uf-password" class="form-label fw-semibold">
-                                            <span x-text="editingUser ? t('New Password') : t('Password')"></span>
-                                            <template x-if="editingUser">
-                                                <span class="text-muted fw-normal" x-text="t('(leave blank to keep current)')"></span>
-                                            </template>
-                                        </label>
-                                        <div class="input-group">
-                                            <span class="input-group-text bg-light"><i class="bi bi-lock"></i></span>
-                                            <input type="password" id="uf-password" class="form-control" x-model="userForm.password" placeholder="••••••••" :required="!editingUser">
-                                        </div>
-                                    </div>
-
-                                    <div class="mb-3 pt-2">
-                                        <div class="form-check form-switch">
-                                            <input class="form-check-input" type="checkbox" role="switch" id="is_super_admin" x-model="userForm.is_super_admin" :disabled="!(profile?.is_super_admin || isSuperUser)">
-                                            <label class="form-check-label fw-semibold ms-2" for="is_super_admin">
-                                                <span x-text="t('Super Admin (Full Access)')"></span>
+                                    <!-- Role -->
+                                    <div class="mt-4 p-3 border rounded role-card" :class="userForm.is_super_admin ? 'border-danger-subtle bg-danger-subtle' : 'bg-light'">
+                                        <div class="form-check form-switch d-flex align-items-start gap-2 mb-0">
+                                            <input class="form-check-input mt-1" type="checkbox" role="switch" id="uf-super-admin"
+                                                :checked="userForm.is_super_admin"
+                                                :disabled="isEditingSelf()"
+                                                @change="setUserSuperAdmin($event.target.checked)">
+                                            <label class="form-check-label" for="uf-super-admin">
+                                                <span class="fw-semibold d-block" x-text="t('Super Admin (Full Access)')"></span>
+                                                <span class="text-muted small" x-text="t('Super admins reach every section and are the only accounts that can create, edit or delete users.')"></span>
+                                                <span class="text-danger small d-block" x-show="isEditingSelf()" x-cloak x-text="t('You cannot remove your own Super Admin access.')"></span>
                                             </label>
                                         </div>
-                                        <div class="form-text ms-4 text-muted">
-                                            <span x-text="t('Super admins can do anything and manage users.')"></span>
+                                    </div>
+
+                                    <!-- Per-section permissions -->
+                                    <div class="mt-4" x-show="!userForm.is_super_admin" x-cloak>
+                                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+                                            <div>
+                                                <span class="form-label fw-semibold mb-0" x-text="t('Section Permissions')"></span>
+                                                <span class="text-muted small ms-2" x-text="t('Write includes read.')"></span>
+                                            </div>
+                                            <div class="btn-group btn-group-sm" role="group">
+                                                <button type="button" class="btn btn-outline-secondary" @click="grantAllUserRead()" x-text="t('Select all')"></button>
+                                                <button type="button" class="btn btn-outline-secondary" @click="clearUserPermissions()" x-text="t('Clear')"></button>
+                                            </div>
                                         </div>
+
+                                        <template x-if="userSectionOptions().length === 0">
+                                            <div class="alert alert-warning py-2 px-3 small mb-0" x-text="t('No clinic sections are configured yet. Add one on the Clinic Options tab first.')"></div>
+                                        </template>
+
+                                        <div class="table-responsive border rounded" x-show="userSectionOptions().length > 0">
+                                            <table class="table table-sm align-middle mb-0 permission-matrix">
+                                                <thead class="table-light">
+                                                    <tr>
+                                                        <th class="ps-3" x-text="t('Section')"></th>
+                                                        <th class="text-center" style="width: 6rem;">
+                                                            <i class="bi bi-eye me-1" aria-hidden="true"></i><span x-text="t('Read')"></span>
+                                                        </th>
+                                                        <th class="text-center pe-3" style="width: 6rem;">
+                                                            <i class="bi bi-pencil me-1" aria-hidden="true"></i><span x-text="t('Write')"></span>
+                                                        </th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <template x-for="opt in userSectionOptions()" :key="'uf-perm-' + opt.key">
+                                                        <tr>
+                                                            <td class="ps-3 fw-semibold">
+                                                                <i class="bi me-1 text-muted" :class="sectionIcon(opt.key)" aria-hidden="true"></i>
+                                                                <span x-text="optionLabel('section', opt.key)"></span>
+                                                            </td>
+                                                            <td class="text-center">
+                                                                <input class="form-check-input" type="checkbox"
+                                                                    :checked="userCanRead(opt.key)"
+                                                                    :disabled="userCanWrite(opt.key)"
+                                                                    :aria-label="t('Read') + ' ' + optionLabel('section', opt.key)"
+                                                                    @change="toggleUserRead(opt.key, $event.target.checked)">
+                                                            </td>
+                                                            <td class="text-center pe-3">
+                                                                <input class="form-check-input" type="checkbox"
+                                                                    :checked="userCanWrite(opt.key)"
+                                                                    :aria-label="t('Write') + ' ' + optionLabel('section', opt.key)"
+                                                                    @change="toggleUserWrite(opt.key, $event.target.checked)">
+                                                            </td>
+                                                        </tr>
+                                                    </template>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div class="form-text text-muted" x-text="t('Choose which clinic sections this user can see and which they can add, edit or delete.')"></div>
                                     </div>
 
-                                    <div class="mb-4">
-                                        <label for="uf-section" class="form-label fw-semibold" x-text="t('Section')"></label>
-                                        <select id="uf-section" class="form-select" x-model="userForm.section">
-                                            <option value="" x-text="t('- None (Super Admin) -')"></option>
-                                            <template x-if="userForm.section && !activeOptions('section').some(o => o.key === userForm.section)">
-                                                <option :value="userForm.section" x-text="optionLabel('section', userForm.section)"></option>
-                                            </template>
-                                            <template x-for="opt in activeOptions('section')" :key="'uf-sec-' + opt.key">
-                                                <option :value="opt.key" x-text="optionLabel('section', opt.key)"></option>
-                                            </template>
-                                        </select>
-                                        <div class="form-text text-muted" x-text="t('Leave empty if this user is a Super Admin.')"></div>
+                                    <div class="alert alert-danger d-flex align-items-start gap-2 py-2 px-3 small mt-4 mb-0" x-show="userForm.is_super_admin" x-cloak>
+                                        <i class="bi bi-shield-lock-fill mt-1" aria-hidden="true"></i>
+                                        <span x-text="t('This account will have full access to every section and to user management.')"></span>
                                     </div>
 
-                                    <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-3">
+                                    <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-4">
                                         <button type="button" class="btn btn-light me-md-2" data-bs-dismiss="modal"><span x-text="t('Cancel')"></span></button>
                                         <button type="submit" class="btn btn-primary px-4">
                                             <i class="bi bi-save me-1"></i> <span x-text="editingUser ? t('Update User') : t('Save User')"></span>
@@ -3205,16 +3286,18 @@
                                                 <label class="form-label fw-semibold">
                                                     <i class="bi bi-building me-1"></i><span x-text="t('Section')"></span> <span class="text-danger">*</span>
                                                 </label>
-                                                <template x-if="!isSuperAdmin && profile?.section">
-                                                    <input type="text" class="form-control bg-light" :value="optionLabel('section', profile.section)" dir="rtl" disabled required>
+                                                <!-- A single writable section is fixed; otherwise the user
+                                                     picks among the sections they may write to. -->
+                                                <template x-if="!isSuperAdmin && writableSectionKeys().length === 1">
+                                                    <input type="text" class="form-control bg-light" :value="optionLabel('section', patientForm.section)" dir="rtl" disabled required>
                                                 </template>
-                                                <template x-if="isSuperAdmin || !profile?.section">
+                                                <template x-if="isSuperAdmin || writableSectionKeys().length !== 1">
                                                     <select class="form-select" x-model="patientForm.section" dir="rtl" required>
                                                         <option value="" x-text="t('-- Select Section --')"></option>
-                                                        <template x-if="patientForm.section && !activeOptions('section').some(o => o.key === patientForm.section)">
+                                                        <template x-if="patientForm.section && !writableSectionOptions().some(o => o.key === patientForm.section)">
                                                             <option :value="patientForm.section" x-text="optionLabel('section', patientForm.section)"></option>
                                                         </template>
-                                                        <template x-for="opt in activeOptions('section')" :key="'pf-sec-' + opt.key">
+                                                        <template x-for="opt in writableSectionOptions()" :key="'pf-sec-' + opt.key">
                                                             <option :value="opt.key" x-text="optionLabel('section', opt.key)"></option>
                                                         </template>
                                                     </select>

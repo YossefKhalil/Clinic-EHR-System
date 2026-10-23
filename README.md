@@ -63,7 +63,7 @@ The application is deliberately serverless. The frontend is a static Vite build 
 - **Patient registry** with a 17-field intake form: identity, contact details, demographics, address, visit information, diagnosis and treatment plan, funding source, price, and section.
 - **Patient profiles** with editable records, internal notes, completion status, and attachments.
 - **Attachments** for medical and lab documents. Files upload directly from the browser to Cloudinary with progress and are served through its CDN.
-- **Section-aware access**: staff see and edit only patients in their assigned section; administrators see every section.
+- **Section-aware access**: staff are granted read and/or write access per section; a Super Admin reaches every section and manages accounts.
 
 ### Search and reporting
 
@@ -73,7 +73,7 @@ The application is deliberately serverless. The frontend is a static Vite build 
 
 ### Administration
 
-- **User management** inside Settings through the `manage-user` Edge Function: create, edit, and remove users, assign administrator rights, and set section access.
+- **User management** inside Settings through the `manage-user` Edge Function: only Super Admins create, edit, or delete accounts, set the Super Admin role, and grant read/write access per section (write implies read).
 - **Editable option lists** for followers, sections, and funding sources, with English and Arabic labels and an active/inactive state. Changes apply without a redeploy.
 - **AI import settings** for administrators: provider credentials, an ordered model fallback chain, the feature flag, and import quotas.
 
@@ -215,14 +215,14 @@ flowchart LR
 ### Authentication and authorization
 
 - Supabase Auth issues JWTs, and row-level security is enabled on every application table.
-- Section staff are scoped to their section by RLS policies; administrators bypass section scoping.
-- Policies use `SECURITY DEFINER` helpers (`is_admin`, `is_section_user`) with `EXECUTE` revoked from `PUBLIC`, avoiding recursive policy evaluation.
+- Section staff are scoped to the sections granted on their profile by RLS policies; a Super Admin bypasses section scoping.
+- Policies use `SECURITY DEFINER` helpers (`is_super_admin`, `can_read_section`, `can_write_section`) with `EXECUTE` revoked from `PUBLIC`, avoiding recursive policy evaluation. A write grant always implies read.
 - New accounts are created unprivileged. `handle_new_user()` ignores signup metadata for `is_admin` and `section`, preventing privilege escalation at registration.
 
 ### Privileged operations
 
 - Edge Functions verify the caller's JWT and role before using the service-role client.
-- `manage-user` and `ai-settings` are administrator-only; `import-job` scopes jobs to their owner.
+- `manage-user` and `ai-settings` are Super-Admin-only; `import-job` scopes jobs to their owner.
 - The service-role key is never included in the frontend bundle.
 
 ### Secrets and AI credentials
@@ -332,17 +332,17 @@ supabase secrets set LOCAL_INFERENCE_ENABLED=1 --project-ref <project-ref>
 See [docs/import-agent/local-ai-engine.md](docs/import-agent/local-ai-engine.md)
 for what the engine does and what it needs.
 
-### 5. Create the first administrator
+### 5. Create the first Super Admin
 
-New accounts have no administrator rights and no section. After signing up, promote the first administrator in the SQL Editor:
+New accounts have no privileges and no section. After signing up, promote the first account in the SQL Editor:
 
 ```sql
 update public.users
-set is_admin = true
+set is_super_admin = true, is_admin = true
 where email = 'you@example.com';
 ```
 
-Administrators can then assign roles and sections from Settings.
+A Super Admin can then create users and grant per-section read/write access from Settings.
 
 The sign-in form takes the account **email or its username** — the part before
 the `@`. A username is resolved to the account email inside the `login` Edge
@@ -415,7 +415,7 @@ npm run lint           # ESLint
 npm run check:registry # field registry and schema contract
 ```
 
-The suite currently contains **637 tests across 55 files**. RLS tests run against an in-process Postgres (PGlite) loaded with `supabase/schema.sql`, so policies are exercised against real SQL rather than mocks. Import fixtures cover XLSX, CSV, DOCX, and PDF readers, and property-based tests cover the normalizers. Local AI engine tests cover model profiles, adapters, verification, config resolution, and pump contracts.
+The suite currently contains **638 tests across 55 files**. RLS tests run against an in-process Postgres (PGlite) loaded with `supabase/schema.sql`, so policies are exercised against real SQL rather than mocks. Import fixtures cover XLSX, CSV, DOCX, and PDF readers, and property-based tests cover the normalizers. Local AI engine tests cover model profiles, adapters, verification, config resolution, and pump contracts.
 
 CI runs lint, the registry check, coverage, and the production build on every push and pull request.
 

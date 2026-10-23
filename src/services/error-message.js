@@ -15,9 +15,25 @@ const PG_ERROR_MESSAGES = {
     '42501': "You don't have permission to do this.", // insufficient_privilege (RLS)
 };
 
+// The manage-user Edge Function answers with short English messages. Translate
+// the ones a Super Admin can actually reach; the rest pass through untouched.
+const USER_SERVICE_MESSAGES = {
+    'Only a Super Admin can manage users': "You don't have permission to do this.",
+    'You cannot remove your own Super Admin access': 'You cannot remove your own Super Admin access.',
+    'You cannot delete your own account': 'You cannot delete your own account.',
+    'User not found': 'User not found.',
+    'Full name is required': 'Full name is required',
+    'A valid email address is required': 'A valid email address is required',
+    'Password is required': 'Password is required',
+    'Password must be at least 6 characters': 'Password must be at least 6 characters',
+    'A user with this email address has already been registered': 'A user with this email address already exists.',
+};
+
 export function dbErrorMessage(error, t = (key) => key) {
     const code = String(error?.code ?? '');
     const message = String(error?.message ?? '');
+
+    if (USER_SERVICE_MESSAGES[message]) return t(USER_SERVICE_MESSAGES[message]);
 
     // Session problems are not database problems: PGRST301 is PostgREST's
     // "JWT expired", 401/403 the auth/RLS wall. Say what the user can do

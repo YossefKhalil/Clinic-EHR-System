@@ -67,6 +67,12 @@ function fileOf(bytes, name = 'model.gguf', lastModified = 1) {
 function handleOf(file) {
     // A `File` is structured-cloneable, so it survives the IndexedDB round
     // trip in a test the way a real FileSystemFileHandle survives a reload.
+    //
+    // Note: a clone does not keep `File.name` on every runtime (Node 22's
+    // structuredClone returns a plain Blob), which is exactly why the store
+    // persists `name` on the record instead of reading it back from the
+    // handle. Tests therefore assert the record's `name` and the handle's
+    // bytes, never `handle.name`.
     return file;
 }
 
@@ -106,7 +112,7 @@ describe('per-slot storage', () => {
         const loaded = await loadProfile('text');
         expect(loaded.name).toBe('text.gguf');
         expect(loaded.mode).toBe('split');
-        expect(loaded.handle.name).toBe(file.name);
+        expect(loaded.handle).toBeTruthy();
         expect(await loaded.handle.arrayBuffer()).toEqual(await file.arrayBuffer());
     });
 
@@ -142,7 +148,8 @@ describe('the composite profile', () => {
         const loaded = await loadProfile();
         expect(loaded.mode).toBe('split');
         expect(loaded.text.name).toBe('text.gguf');
-        expect(loaded.text.handle.name).toBe(profile.text.name);
+        expect(new Uint8Array(await loaded.text.handle.arrayBuffer()))
+            .toEqual(new Uint8Array(await profile.text.handle.arrayBuffer()));
         expect(loaded.text.handle.size).toBe(profile.text.size);
     });
 
@@ -169,7 +176,7 @@ describe('the composite profile', () => {
 
         const loaded = await loadProfile();
         expect(loaded.text.handle).toBeTruthy();
-        expect(loaded.text.handle.name).toBe(file.name);
+        expect(loaded.text.name).toBe(file.name);
         expect(await loaded.text.handle.arrayBuffer()).toEqual(await file.arrayBuffer());
         expect((await loadProfile('text')).handle).toBeTruthy();
     });

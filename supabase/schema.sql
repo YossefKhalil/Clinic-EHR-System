@@ -6,7 +6,8 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Users table (extends Supabase auth.users)
+-- Users table (extends Supabase auth.users).
+-- The access model is documented at the helper functions below.
 CREATE TABLE IF NOT EXISTS public.users (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
@@ -80,7 +81,23 @@ CREATE OR REPLACE TRIGGER on_auth_user_created
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.patients ENABLE ROW LEVEL SECURITY;
 
--- SECURITY DEFINER helper to check admin/super admin status without RLS recursion
+-- ---------------------------------------------------------------------------
+-- Access model
+--
+-- Exactly two kinds of account:
+--   * a Super Admin (is_super_admin = TRUE) reaches every section, every
+--     action, and is the only role that may create, edit or delete users;
+--   * everyone else is granted specific sections through the JSONB arrays
+--     read_sections and write_sections.
+--
+-- A write grant always implies read, so a user can never edit a row they
+-- cannot see. `is_admin` and `section` are the legacy single-section shape:
+-- they are only consulted when both arrays are empty, which lets databases
+-- created before the per-section model keep working untouched.
+-- ---------------------------------------------------------------------------
+
+-- Full data access (not user management): a Super Admin, or a legacy admin
+-- row promoted before the Super Admin flag existed.
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -94,6 +111,7 @@ AS $$
     );
 $$;
 
+-- The single privileged role: everything plus user management.
 CREATE OR REPLACE FUNCTION public.is_super_admin()
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -107,6 +125,8 @@ AS $$
     );
 $$;
 
+-- Kept as a callable alias for older clients and tests; user management is
+-- Super-Admin-only now, so it is exactly the same question.
 CREATE OR REPLACE FUNCTION public.can_manage_users()
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -114,12 +134,11 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-    SELECT EXISTS (
-        SELECT 1 FROM public.users
-        WHERE id = auth.uid() AND (is_super_admin = TRUE OR can_manage_users = TRUE)
-    );
+    SELECT public.is_super_admin();
 $$;
 
+-- Read = Super Admin, legacy admin, an explicit read grant, a write grant
+-- (write implies read), or the legacy primary section when no arrays are set.
 CREATE OR REPLACE FUNCTION public.can_read_section(p_section TEXT)
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -133,12 +152,19 @@ AS $$
             is_super_admin = TRUE OR
             is_admin = TRUE OR
             (read_sections IS NOT NULL AND read_sections ? p_section) OR
-            (section = p_section AND is_admin = FALSE) OR
-            (section = p_section)
+            (write_sections IS NOT NULL AND write_sections ? p_section) OR
+            (
+                section = p_section
+                AND COALESCE(read_sections, '[]'::jsonb) = '[]'::jsonb
+                AND COALESCE(write_sections, '[]'::jsonb) = '[]'::jsonb
+            )
         )
     );
 $$;
 
+-- Write = Super Admin, legacy admin, or an explicit write grant. The legacy
+-- section fallback only applies while both arrays are empty, so a revoked
+-- write can never be resurrected by the old column.
 CREATE OR REPLACE FUNCTION public.can_write_section(p_section TEXT)
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -151,13 +177,18 @@ AS $$
         WHERE id = auth.uid() AND (
             is_super_admin = TRUE OR
             is_admin = TRUE OR
-            (write_sections IS NOT NULL AND write_sections ? p_section)
+            (write_sections IS NOT NULL AND write_sections ? p_section) OR
+            (
+                section = p_section
+                AND COALESCE(read_sections, '[]'::jsonb) = '[]'::jsonb
+                AND COALESCE(write_sections, '[]'::jsonb) = '[]'::jsonb
+            )
         )
     );
 $$;
 
--- Same idea for section members: answers "is the caller a non-admin user of
--- section p_section?" without a policy re-reading public.users.
+-- Legacy helper kept callable for older policies and tests. It now answers
+-- the same question as can_read_section.
 CREATE OR REPLACE FUNCTION public.is_section_user(p_section TEXT)
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -165,10 +196,7 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-    SELECT EXISTS (
-        SELECT 1 FROM public.users
-        WHERE id = auth.uid() AND is_admin = FALSE AND section = p_section
-    );
+    SELECT public.can_read_section(p_section);
 $$;
 
 -- Only signed-in callers should reach these helpers. They are deliberately
@@ -193,67 +221,69 @@ GRANT EXECUTE ON FUNCTION public.can_write_section(TEXT) TO authenticated;
 -- with `infinite recursion detected in policy for relation "users"`.
 -- All such checks go through the SECURITY DEFINER helpers above.
 
--- Users policies
+-- Users policies.
+--   * everyone may read their own profile (the shell loads it on sign-in);
+--   * only Super Admins read the user list, and only Super Admins may write
+--     it. The manage-user Edge Function uses the service role for the real
+--     work, so these policies are what stop a crafted browser call.
 DROP POLICY IF EXISTS "Users can view own profile" ON public.users;
 CREATE POLICY "Users can view own profile" ON public.users
     FOR SELECT USING (auth.uid() = id);
 
+-- Retire the names used by earlier schema revisions so re-running this file
+-- on an existing database leaves no stale write policy behind.
 DROP POLICY IF EXISTS "Admins can view all users" ON public.users;
-CREATE POLICY "Admins can view all users" ON public.users
-    FOR SELECT USING (public.is_admin() OR public.can_manage_users());
-
 DROP POLICY IF EXISTS "Users can view all users" ON public.users;
-CREATE POLICY "Users can view all users" ON public.users
-    FOR SELECT USING (public.is_super_admin() OR public.can_manage_users());
-
 DROP POLICY IF EXISTS "Admins can insert users" ON public.users;
-CREATE POLICY "Admins can insert users" ON public.users
-    FOR INSERT WITH CHECK (public.is_super_admin() OR public.can_manage_users());
-
 DROP POLICY IF EXISTS "Admins can update users" ON public.users;
-CREATE POLICY "Admins can update users" ON public.users
-    FOR UPDATE USING (public.is_super_admin() OR public.can_manage_users());
-
 DROP POLICY IF EXISTS "Admins can delete users" ON public.users;
-CREATE POLICY "Admins can delete users" ON public.users
-    FOR DELETE USING (public.is_super_admin() OR public.can_manage_users());
 
--- Patients policies
+DROP POLICY IF EXISTS "Super admins can view all users" ON public.users;
+CREATE POLICY "Super admins can view all users" ON public.users
+    FOR SELECT USING (public.is_super_admin());
+
+DROP POLICY IF EXISTS "Super admins can insert users" ON public.users;
+CREATE POLICY "Super admins can insert users" ON public.users
+    FOR INSERT WITH CHECK (public.is_super_admin());
+
+DROP POLICY IF EXISTS "Super admins can update users" ON public.users;
+CREATE POLICY "Super admins can update users" ON public.users
+    FOR UPDATE USING (public.is_super_admin()) WITH CHECK (public.is_super_admin());
+
+DROP POLICY IF EXISTS "Super admins can delete users" ON public.users;
+CREATE POLICY "Super admins can delete users" ON public.users
+    FOR DELETE USING (public.is_super_admin());
+
+-- Patients policies. The section helpers already treat Super Admins (and
+-- legacy admins) as holding every section, so read and write are decided in
+-- exactly one place.
+-- Retire the names used by earlier schema revisions (see the users policies).
 DROP POLICY IF EXISTS "Admins can do everything with patients" ON public.patients;
-CREATE POLICY "Admins can do everything with patients" ON public.patients
-    FOR ALL USING (public.is_admin());
-
 DROP POLICY IF EXISTS "Users can view patients in permitted sections" ON public.patients;
-CREATE POLICY "Users can view patients in permitted sections" ON public.patients
-    FOR SELECT USING (public.can_read_section(patients.section) OR public.is_admin());
-
 DROP POLICY IF EXISTS "Section users can view patients in their section" ON public.patients;
-CREATE POLICY "Section users can view patients in their section" ON public.patients
-    FOR SELECT USING (public.is_section_user(patients.section));
-
 DROP POLICY IF EXISTS "Users can insert patients in writable sections" ON public.patients;
-CREATE POLICY "Users can insert patients in writable sections" ON public.patients
-    FOR INSERT WITH CHECK (public.can_write_section(patients.section) OR public.is_admin());
-
 DROP POLICY IF EXISTS "Section users can insert patients in their section" ON public.patients;
-CREATE POLICY "Section users can insert patients in their section" ON public.patients
-    FOR INSERT WITH CHECK (public.is_section_user(patients.section));
-
 DROP POLICY IF EXISTS "Users can update patients in writable sections" ON public.patients;
-CREATE POLICY "Users can update patients in writable sections" ON public.patients
-    FOR UPDATE USING (public.can_write_section(patients.section) OR public.is_admin());
-
 DROP POLICY IF EXISTS "Section users can update patients in their section" ON public.patients;
-CREATE POLICY "Section users can update patients in their section" ON public.patients
-    FOR UPDATE USING (public.is_section_user(patients.section));
-
 DROP POLICY IF EXISTS "Users can delete patients in writable sections" ON public.patients;
-CREATE POLICY "Users can delete patients in writable sections" ON public.patients
-    FOR DELETE USING (public.can_write_section(patients.section) OR public.is_admin());
-
 DROP POLICY IF EXISTS "Section users can delete patients in their section" ON public.patients;
-CREATE POLICY "Section users can delete patients in their section" ON public.patients
-    FOR DELETE USING (public.is_section_user(patients.section));
+
+DROP POLICY IF EXISTS "Read permitted sections" ON public.patients;
+CREATE POLICY "Read permitted sections" ON public.patients
+    FOR SELECT USING (public.can_read_section(patients.section));
+
+DROP POLICY IF EXISTS "Write permitted sections on insert" ON public.patients;
+CREATE POLICY "Write permitted sections on insert" ON public.patients
+    FOR INSERT WITH CHECK (public.can_write_section(patients.section));
+
+DROP POLICY IF EXISTS "Write permitted sections on update" ON public.patients;
+CREATE POLICY "Write permitted sections on update" ON public.patients
+    FOR UPDATE USING (public.can_write_section(patients.section))
+    WITH CHECK (public.can_write_section(patients.section));
+
+DROP POLICY IF EXISTS "Write permitted sections on delete" ON public.patients;
+CREATE POLICY "Write permitted sections on delete" ON public.patients
+    FOR DELETE USING (public.can_write_section(patients.section));
 
 -- Any-value search support: a computed field that renders every patient
 -- column as one space-joined text blob. PostgREST exposes it automatically
@@ -399,9 +429,36 @@ CREATE OR REPLACE TRIGGER update_app_options_updated_at
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN DEFAULT FALSE;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS read_sections JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS write_sections JSONB DEFAULT '[]'::jsonb;
+-- Legacy column; no policy or Edge Function consults it any more.
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS can_manage_users BOOLEAN DEFAULT FALSE;
--- Migrate existing admins to super admins
-UPDATE public.users SET is_super_admin = TRUE, can_manage_users = TRUE WHERE is_admin = TRUE AND is_super_admin = FALSE;
+
+-- Normalise the per-section arrays so the JSONB containment checks (?) never
+-- have to reason about NULL.
+UPDATE public.users SET read_sections = '[]'::jsonb WHERE read_sections IS NULL;
+UPDATE public.users SET write_sections = '[]'::jsonb WHERE write_sections IS NULL;
+
+-- Promote every legacy admin to Super Admin exactly once. is_admin is kept in
+-- sync because older code and the import-agent functions still read it.
+UPDATE public.users
+SET is_super_admin = TRUE,
+    is_admin = TRUE
+WHERE is_admin = TRUE AND is_super_admin IS NOT TRUE;
+
+-- Move a legacy single-section grant into the arrays, so the browser (which
+-- reads the arrays) and RLS (which also honours the old column) agree. The
+-- section must still exist as an option; anything else stays readable through
+-- the helpers' legacy fallback.
+UPDATE public.users u
+SET read_sections = jsonb_build_array(u.section),
+    write_sections = jsonb_build_array(u.section)
+WHERE u.section IS NOT NULL
+  AND u.is_super_admin IS NOT TRUE
+  AND COALESCE(u.read_sections, '[]'::jsonb) = '[]'::jsonb
+  AND COALESCE(u.write_sections, '[]'::jsonb) = '[]'::jsonb
+  AND EXISTS (
+      SELECT 1 FROM public.app_options o
+      WHERE o.kind = 'section' AND o.key = u.section
+  );
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS age INTEGER;
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS mobile TEXT;
 ALTER TABLE public.patients ALTER COLUMN national_id DROP NOT NULL;
