@@ -38,6 +38,7 @@ import { getDashboardStats, getRecentPatients } from './services/dashboard.js';
 import { getPatients, getPatientsPage, deletePatient, togglePatientStatus, GOVERNORATES, governorateLabel } from './services/patients.js';
 import { buildPatientPayload } from './services/patient-payload.js';
 import { emptyPatientFilters, activeFilterKeys } from './services/patient-filters.js';
+import { EXPORT_FIELDS, EXPORT_FIELD_KEYS } from './services/export-fields.js';
 import { patientMatchesQuery } from './services/fuzzy.js';
 import { getPriceStats } from './services/prices.js';
 import { loadOptions as fetchOptions, allOptions, createOption, updateOption, countOptionUsage, deleteOption, optionLabel as lookupOptionLabel } from './services/options.js';
@@ -118,24 +119,19 @@ function calcAge(dateOfBirth) {
     return age >= 0 ? age : null;
 }
 
-// Options added on the Settings page (issue #1) have no bespoke colors/icons,
-// so they get a stable one derived from their key. The four historical keys
-// keep exactly the look they had before the lists became editable.
-const KNOWN_OPTION_COLORS = { agamy: 'success', dekhila: 'info', charity: 'warning', country: 'danger' };
-const KNOWN_OPTION_ICONS = { agamy: 'bi-pin-map-fill', dekhila: 'bi-geo-alt-fill', charity: 'bi-heart-fill', country: 'bi-flag-fill' };
+// Options (followers, sections, sources) live in the database, never in this
+// file: a colour and an icon are derived from the key itself, so adding an
+// option in Settings needs no code change (issue #38).
 const OPTION_PALETTE = ['primary', 'success', 'info', 'warning', 'danger', 'secondary'];
 
 function colorForOption(key) {
     const name = String(key || '');
-    if (KNOWN_OPTION_COLORS[name]) return KNOWN_OPTION_COLORS[name];
     let hash = 0;
     for (let i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) % 997;
     return OPTION_PALETTE[hash % OPTION_PALETTE.length];
 }
 
-function iconForOption(kind, key) {
-    const name = String(key || '');
-    if (KNOWN_OPTION_ICONS[name]) return KNOWN_OPTION_ICONS[name];
+function iconForOption(kind) {
     if (kind === 'follower') return 'bi-person-check-fill';
     return kind === 'source' ? 'bi-cash-coin' : 'bi-diagram-3-fill';
 }
@@ -205,6 +201,14 @@ function app() {
         // Navbar search
         globalSearch: '',
         exporting: false,
+        // Excel export: the button writes the table's dataset in Arabic with
+        // every column; the caret opens the language, the rows and the
+        // columns for a custom workbook.
+        exportPanelOpen: false,
+        exportOptions: { language: 'ar', rows: 'filtered', fields: [...EXPORT_FIELD_KEYS] },
+        exportFields: EXPORT_FIELDS,
+        // Rows ticked in the table ("export selected patients").
+        selectedPatientIds: [],
         
         globalSearchFocused: false,
         globalSearchLoading: false,
@@ -358,10 +362,12 @@ function app() {
         // Inline validation/error message shown inside the user modal.
         userFormError: null,
         
-        // Alerts
-        alertMessage: null,
-        alertType: 'success',
-        alertTimer: null,
+        // Toasts (issue #37): showAlert stacks them in the corner and each
+        // one removes itself after a few seconds. `toastTimers` holds their
+        // timers so a sign-out can stop them.
+        toasts: [],
+        toastSeq: 0,
+        toastTimers: {},
         
         async init() {
             try {
@@ -472,8 +478,8 @@ function app() {
             // Stop the timers first: they can write to the state below.
             clearTimeout(this.globalSearchDebounce);
             this.globalSearchDebounce = null;
-            clearTimeout(this.alertTimer);
-            this.alertTimer = null;
+            Object.values(this.toastTimers).forEach((timer) => clearTimeout(timer));
+            this.toastTimers = {};
 
             this.currentPage = 'login';
 
@@ -492,6 +498,9 @@ function app() {
             this.filterDraft = emptyPatientFilters();
             this.patientSort = { key: 'created_at', dir: 'desc' };
             this.showFilters = false;
+            this.selectedPatientIds = [];
+            this.exportPanelOpen = false;
+            this.exportOptions = { language: 'ar', rows: 'filtered', fields: [...EXPORT_FIELD_KEYS] };
             this.globalSearch = '';
             this.closeGlobalSearch({ keepQuery: false, clearFocus: true });
             this.globalSearchLoading = false;
@@ -523,8 +532,7 @@ function app() {
 
             // Transient UI state
             this.exporting = false;
-            this.alertMessage = null;
-            this.alertType = 'success';
+            this.toasts = [];
             this.loginForm = { identifier: '', password: '' };
             this.loginError = null;
             this.loginLoading = false;
@@ -1333,13 +1341,6 @@ function app() {
                 state.config = resolved.config;
             }
             return state;
-        },
-
-        /** The line under the card title. */
-        aiEngineSubtitle() {
-            if (this.aiEngine === 'local') return this.t('aiSettings.subtitleLocal');
-            if (this.aiEngine === 'cloud') return this.t('aiSettings.subtitle');
-            return this.t('aiSettings.subtitleOff');
         },
 
         /**
@@ -2627,24 +2628,108 @@ function app() {
             }
         },
         
-        // Export every row the current viewer is allowed to see (same RLS
-        // scope as the on-screen table; active filters are honored too).
-        async exportPatients() {
-            if (this.exporting) return;
+        // ---- Excel export -------------------------------------------------
+        // The button writes every row the current viewer is allowed to see
+        // (same RLS scope as the on-screen table, active filters honored) in
+        // Arabic with every column. The caret opens the same export with
+        // choices: language, rows (all / this page / ticked) and columns.
+
+        toggleExportPanel() {
+            this.exportPanelOpen = !this.exportPanelOpen;
+        },
+
+        closeExportPanel() {
+            this.exportPanelOpen = false;
+        },
+
+        exportSelectAllFields(selectAll) {
+            this.exportOptions.fields = selectAll ? [...EXPORT_FIELD_KEYS] : [];
+        },
+
+        isPatientSelected(id) {
+            return this.selectedPatientIds.includes(id);
+        },
+
+        togglePatientSelection(id, selected) {
+            if (!id) return;
+            if (selected && !this.selectedPatientIds.includes(id)) this.selectedPatientIds.push(id);
+            if (!selected) this.selectedPatientIds = this.selectedPatientIds.filter((value) => value !== id);
+        },
+
+        allPageSelected() {
+            return this.patients.length > 0
+                && this.patients.every((patient) => this.isPatientSelected(patient.id));
+        },
+
+        toggleSelectAllOnPage(selected) {
+            const ids = this.patients.map((patient) => patient.id);
+            if (selected) {
+                this.selectedPatientIds = [...new Set([...this.selectedPatientIds, ...ids])];
+                return;
+            }
+            this.selectedPatientIds = this.selectedPatientIds.filter((id) => !ids.includes(id));
+        },
+
+        // The filters of the table without the empty values, so the export
+        // and the listing can never disagree.
+        activePatientFilters() {
+            const filters = {};
+            Object.entries(this.patientFilters).forEach(([key, value]) => {
+                if (value !== '' && value !== null && value !== undefined) filters[key] = value;
+            });
+            if (filters.search) filters.search_terms = this.searchTerms(filters.search);
+            return filters;
+        },
+
+        // The rows the chosen scope means; null = every row the filters match.
+        exportRowIds(rows) {
+            if (rows === 'page') return this.patients.map((patient) => patient.id);
+            if (rows === 'selected') return [...this.selectedPatientIds];
+            return null;
+        },
+
+        async runExport({ rows = 'filtered', language = 'ar', fields = EXPORT_FIELD_KEYS } = {}) {
+            if (this.exporting) return false;
+            const ids = this.exportRowIds(rows);
+            if (ids && !ids.length) {
+                this.showAlert(this.t('No patients selected.'), 'warning');
+                return false;
+            }
+            if (!fields.length) {
+                this.showAlert(this.t('Choose at least one field.'), 'warning');
+                return false;
+            }
+
             this.exporting = true;
             try {
                 const { exportPatientsToExcel } = await import('./services/export.js');
-                const noEmpty = {};
-                Object.entries(this.patientFilters).forEach(([k, v]) => {
-                    if (v !== '' && v !== null && v !== undefined) noEmpty[k] = v;
+                const filename = await exportPatientsToExcel({
+                    filters: this.activePatientFilters(),
+                    ids,
+                    fields,
+                    language,
                 });
-                const filename = await exportPatientsToExcel(noEmpty);
                 this.showAlert(this.t('Export ready:') + ' ' + filename);
+                return true;
             } catch (error) {
                 this.showAlert(this.errorMessage(error), 'danger');
+                return false;
             } finally {
                 this.exporting = false;
             }
+        },
+
+        // The button: the default workbook (Arabic, filtered rows, every column).
+        async exportPatients() {
+            const done = await this.runExport();
+            if (done) this.closeExportPanel();
+        },
+
+        // The panel: the choices the caret collected.
+        async exportPatientsCustom() {
+            const { rows, language, fields } = this.exportOptions;
+            const done = await this.runExport({ rows, language, fields });
+            if (done) this.closeExportPanel();
         },
         
         formatMoney(value) {
@@ -2659,14 +2744,29 @@ function app() {
             return key ? lookupOptionLabel('follower', key) : this.t('None');
         },
         
+        // One notification. It stacks with the others instead of replacing
+        // them, and removes itself; the close button does the same at once.
         showAlert(message, type = 'success') {
-            this.alertMessage = message;
-            this.alertType = type;
-            // A newer alert must not be cleared early by the previous timer.
-            clearTimeout(this.alertTimer);
-            this.alertTimer = setTimeout(() => {
-                this.alertMessage = null;
-            }, 4000);
+            if (!message) return;
+            this.toastSeq += 1;
+            const id = this.toastSeq;
+            // Four is what fits on a phone screen without covering the page.
+            this.toasts = [...this.toasts, { id, message, type }].slice(-4);
+            clearTimeout(this.toastTimers[id]);
+            this.toastTimers[id] = setTimeout(() => this.dismissAlert(id), 4500);
+        },
+
+        dismissAlert(id) {
+            clearTimeout(this.toastTimers[id]);
+            delete this.toastTimers[id];
+            this.toasts = this.toasts.filter((toast) => toast.id !== id);
+        },
+
+        toastIcon(type) {
+            if (type === 'danger') return 'bi-exclamation-octagon-fill';
+            if (type === 'warning') return 'bi-exclamation-triangle-fill';
+            if (type === 'info') return 'bi-info-circle-fill';
+            return 'bi-check-circle-fill';
         },
         
         // Age is derived, never typed: with a date of birth present it is
