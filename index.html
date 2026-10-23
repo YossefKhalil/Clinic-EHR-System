@@ -6,7 +6,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
     <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
     <link rel="apple-touch-icon" href="/favicon.png">
-    <title>HealthCare Clinic</title>
+    <title>الملف الطبي</title>
 </head>
 <body class="bg-light" x-data="app()" x-init="init()">
 
@@ -2712,6 +2712,8 @@
                                     </div>
                                 </div>
 
+                                <!-- Import limits only matter while an engine is selected. -->
+                                <div x-show="aiEngine !== 'off'">
                                 <hr class="my-4">
 
                                 <div class="d-flex flex-wrap align-items-start gap-2">
@@ -2742,6 +2744,7 @@
                                         <span x-text="t('aiSettings.limits.save')"></span>
                                     </button>
                                     <span class="small text-muted" x-show="aiLimitsMessage" x-text="aiLimitsMessage"></span>
+                                </div>
                                 </div>
 
                                 <hr class="my-4">
@@ -2789,7 +2792,7 @@
 
                 <!-- User create/edit modal (#16): replaces the standalone user-form page -->
                 <div class="modal fade" id="userFormModal" tabindex="-1" aria-labelledby="userFormModalTitle">
-                    <div class="modal-dialog modal-dialog-centered modal-lg">
+                    <div class="modal-dialog modal-lg modal-dialog-scrollable">
                         <div class="modal-content">
                             <div class="modal-header py-3">
                                 <h5 class="modal-title fw-bold" id="userFormModalTitle">
@@ -2816,14 +2819,14 @@
                                             <label for="uf-name" class="form-label fw-semibold" x-text="t('Full Name')"></label>
                                             <div class="input-group">
                                                 <span class="input-group-text bg-light"><i class="bi bi-person"></i></span>
-                                                <input type="text" id="uf-name" class="form-control" x-model="userForm.name" placeholder="e.g. Dr. John Doe" required autocomplete="off">
+                                                <input type="text" id="uf-name" class="form-control" x-model="userForm.name" placeholder="Staff name" required autocomplete="off">
                                             </div>
                                         </div>
                                         <div class="col-md-6">
                                             <label for="uf-email" class="form-label fw-semibold" x-text="t('Email Address')"></label>
                                             <div class="input-group">
                                                 <span class="input-group-text bg-light"><i class="bi bi-envelope"></i></span>
-                                                <input type="email" id="uf-email" class="form-control" x-model="userForm.email" placeholder="name@clinic.com" required autocomplete="off">
+                                                <input type="email" id="uf-email" class="form-control" x-model="userForm.email" placeholder="name@example.com" required autocomplete="off">
                                             </div>
                                         </div>
                                         <div class="col-12">
