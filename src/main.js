@@ -17,6 +17,7 @@ import Alpine from 'alpinejs';
 import { initI18n, t, setLocale, getLocale } from './services/i18n.js';
 import { initSupabase, supabase, getCurrentUser, signInWithIdentifier, signOut } from './services/supabase.js';
 import { loadImportEnabled, clearImportFlagCache } from './services/import-flag.js';
+import { dbErrorMessage } from './services/error-message.js';
 import { loadAiSettings as loadAiSettingsApi, saveAiSettings as saveAiSettingsApi, testAiProvider as testAiProviderApi, loadImportLimits as loadImportLimitsApi, saveImportLimits as saveImportLimitsApi, resetCloudConsent as resetCloudConsentApi } from './services/ai-settings.js';
 import {
     browseLocalModel,
@@ -186,6 +187,7 @@ function app() {
         patientPage: 1,
         patientPageSize: 25,
         patientTotal: 0,
+        patientsError: false,
         patientFilters: emptyPatientFilters(),
         // The sort of the patients table: the key is the column that was
         // pressed, the direction is 'asc' or 'desc'. The newest row first is
@@ -345,6 +347,9 @@ function app() {
         // Cloudinary attachment entries: saved DB shape plus transient
         // uploading/progress/error state while a file is in flight.
         patientAttachments: [],
+        // Token for the next attachment entry: an in-flight upload finds
+        // its row by it even after the array shifts under it (issue #26).
+        attachmentSeq: 0,
         
         // User form
         editingUser: null,
@@ -2107,7 +2112,7 @@ function app() {
                 this.showAlert(this.t('Option added.'), 'success');
             } catch (error) {
                 console.error(error);
-                this.showAlert(this.t('Could not save the option.') + ' ' + (error.message || ''), 'danger');
+                this.showAlert(this.t('Could not save the option.') + ' ' + this.errorMessage(error), 'danger');
             }
         },
         
@@ -2124,7 +2129,7 @@ function app() {
                 this.showAlert(this.t('Option saved.'), 'success');
             } catch (error) {
                 console.error(error);
-                this.showAlert(this.t('Could not save the option.') + ' ' + (error.message || ''), 'danger');
+                this.showAlert(this.t('Could not save the option.') + ' ' + this.errorMessage(error), 'danger');
             } finally {
                 row._saving = false;
             }
@@ -2146,7 +2151,7 @@ function app() {
                 this.showAlert(this.t('Option removed.'), 'success');
             } catch (error) {
                 console.error(error);
-                this.showAlert(this.t('Could not remove the option.') + ' ' + (error.message || ''), 'danger');
+                this.showAlert(this.t('Could not remove the option.') + ' ' + this.errorMessage(error), 'danger');
             } finally {
                 row._removing = false;
             }
@@ -2169,20 +2174,25 @@ function app() {
                 console.error('User list load failed:', error);
                 // The message lands in the tab with a retry action instead of
                 // leaving a blank table.
-                this.usersError = error.message || this.t('Could not load the user list.');
+                this.usersError = this.errorMessage(error);
             } finally {
                 if (epoch === this.sessionEpoch) this.usersLoading = false;
             }
         },
+
+        // Database errors reach the UI translated and short (issue #34);
+        // English Postgres strings like "duplicate key value violates
+        // constraint" must never surface in an Arabic clinic system.
+        errorMessage(error) {
+            return dbErrorMessage(error, (key) => this.t(key));
+        },
         
-        // Load one page of the directory. Every caller that changes a filter
-        // or the sort calls this without an argument and therefore starts at
-        // page 1; only goToPatientPage asks for another page.
         async loadPatients({ page = 1 } = {}) {
             if (!this.isLoggedIn) return;
             const epoch = this.sessionEpoch;
             this.patientPage = Math.max(1, Math.trunc(Number(page) || 1));
             this.patientsLoading = true;
+            this.patientsError = false;
             try {
                 const noEmpty = {};
                 Object.entries(this.patientFilters).forEach(([k, v]) => {
@@ -2210,6 +2220,12 @@ function app() {
                 }
                 this.patients = result.rows;
                 this.patientTotal = result.total;
+            } catch (error) {
+                // Keep the rows already on screen: a failed refresh must
+                // neither empty the table nor leave it silently stale
+                // (issue #27). The banner offers a retry.
+                console.error('Patient list load failed:', error);
+                this.patientsError = true;
             } finally {
                 if (epoch === this.sessionEpoch) this.patientsLoading = false;
             }
@@ -2547,7 +2563,7 @@ function app() {
                 const filename = await exportPatientsToExcel(noEmpty, this.isSuperAdmin, this.profile?.section);
                 this.showAlert(this.t('Export ready:') + ' ' + filename);
             } catch (error) {
-                this.showAlert(error.message || 'Export failed', 'danger');
+                this.showAlert(this.errorMessage(error), 'danger');
             } finally {
                 this.exporting = false;
             }
@@ -2731,6 +2747,7 @@ function app() {
                 }
                 
                 const entry = {
+                    _token: ++this.attachmentSeq,
                     public_id: null,
                     url: null,
                     name: file.name,
@@ -2742,7 +2759,13 @@ function app() {
                     error: null,
                 };
                 this.patientAttachments.push(entry);
-                const entryIndex = this.patientAttachments.length - 1;
+                // Writes must go through the array so Alpine re-renders, and
+                // must find the entry again by its stable token: removing an
+                // earlier file while this one uploads shifts the indexes, and
+                // removing this file itself means its result must be dropped
+                // instead of written into another entry (issue #26).
+                const token = entry._token;
+                const liveEntry = () => this.patientAttachments.find((att) => att._token === token);
                 
                 try {
                     const uploaded = await uploadAttachment(file, {
@@ -2751,28 +2774,27 @@ function app() {
                             // Ignore progress from a previous session after
                             // logout replaced the attachment array.
                             if (epoch !== this.sessionEpoch) return;
-                            const current = this.patientAttachments[entryIndex];
-                            if (current) current.progress = percent;
+                            const target = liveEntry();
+                            if (target) target.progress = percent;
                         },
                     });
                     // Merge upload result and mark complete
-                    const current = this.patientAttachments[entryIndex];
-                    if (epoch !== this.sessionEpoch || !current) return;
-                    Object.assign(current, uploaded, { uploading: false, progress: 100 });
+                    const target = liveEntry();
+                    if (epoch !== this.sessionEpoch || !target) return;
+                    Object.assign(target, uploaded, { uploading: false, progress: 100 });
                     // Check PDF accessibility for newly uploaded authenticated PDFs
-                    if (!this.attachmentIsImage(current) && current.authenticated) {
-                        const result = await this.checkPdfAccessible(current);
+                    if (!this.attachmentIsImage(target) && target.authenticated) {
+                        const result = await this.checkPdfAccessible(target);
                         if (epoch !== this.sessionEpoch) return;
-                        current._pdfAccessible = result.accessible;
-                        current._pdfError = result.error;
+                        target._pdfAccessible = result.accessible;
+                        target._pdfError = result.error;
                     }
                 } catch (error) {
                     if (epoch !== this.sessionEpoch) return;
-                    const current = this.patientAttachments[entryIndex];
-                    if (!current) return;
-                    current.uploading = false;
-                    current.error = error.message || this.t('Upload failed');
-                }
+                    const target = liveEntry();
+                    if (!target) return;
+                    target.uploading = false;
+                    target.error = error.message || this.t('Upload failed');
             }
         },
         
@@ -2883,7 +2905,7 @@ function app() {
                 this.currentPage = 'patients';
                 await this.loadPatients();
             } catch (error) {
-                this.showAlert(error.message || 'Error saving patient', 'danger');
+                this.showAlert(this.errorMessage(error), 'danger');
             }
         },
         
@@ -2927,7 +2949,7 @@ function app() {
                 this.closeUserForm();
                 await this.loadUsers();
             } catch (error) {
-                this.showAlert(error.message || 'Error saving user', 'danger');
+                this.showAlert(this.errorMessage(error), 'danger');
             }
         },
         
@@ -2939,7 +2961,7 @@ function app() {
                 this.users = this.users.filter(x => x.id !== u.id);
                 this.showAlert(this.t('user deleted successfully'));
             } catch (error) {
-                this.showAlert(error.message || 'Error deleting user', 'danger');
+                this.showAlert(this.errorMessage(error), 'danger');
             }
         }
     };

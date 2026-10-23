@@ -838,5 +838,14 @@
   "Pagination": "ترقيم الصفحات",
   "Previous": "السابق",
   "Next": "التالي",
-  "Page :current of :total": "صفحة :current من :total"
+  "Page :current of :total": "صفحة :current من :total",
+  "A patient with this National ID already exists.": "يوجد مريض مسجَّل بهذا الرقم القومي بالفعل.",
+  "This record already exists.": "هذا السجل موجود بالفعل.",
+  "This record is still used by other data, so it cannot be removed.": "هذا السجل لا تزال بيانات أخرى تستخدمه، لذا لا يمكن حذفه.",
+  "One of the values you entered is not allowed.": "أحد القيم التي أدخلتها غير مسموح بها.",
+  "You don't have permission to do this.": "لا تملك صلاحية القيام بهذا الإجراء.",
+  "Some of the values you entered are not in the right format.": "بعض القيم التي أدخلتها ليست بالصيغة الصحيحة.",
+  "Your session has expired. Please sign in again.": "انتهت صلاحية جلستك. يرجى تسجيل الدخول مرة أخرى.",
+  "Something went wrong. Please try again.": "حدث خطأ ما. يرجى المحاولة مرة أخرى.",
+  "Could not load the patient list. Check your connection and try again.": "تعذّر تحميل قائمة المرضى. تحقّق من اتصالك وحاول مرة أخرى."
 }

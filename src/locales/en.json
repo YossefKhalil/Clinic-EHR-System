@@ -838,5 +838,14 @@
   "Pagination": "Pagination",
   "Previous": "Previous",
   "Next": "Next",
-  "Page :current of :total": "Page :current of :total"
+  "Page :current of :total": "Page :current of :total",
+  "A patient with this National ID already exists.": "A patient with this National ID already exists.",
+  "This record already exists.": "This record already exists.",
+  "This record is still used by other data, so it cannot be removed.": "This record is still used by other data, so it cannot be removed.",
+  "One of the values you entered is not allowed.": "One of the values you entered is not allowed.",
+  "You don't have permission to do this.": "You don't have permission to do this.",
+  "Some of the values you entered are not in the right format.": "Some of the values you entered are not in the right format.",
+  "Your session has expired. Please sign in again.": "Your session has expired. Please sign in again.",
+  "Something went wrong. Please try again.": "Something went wrong. Please try again.",
+  "Could not load the patient list. Check your connection and try again.": "Could not load the patient list. Check your connection and try again."
 }

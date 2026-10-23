@@ -659,6 +659,12 @@
                         </template>
                     </div>
 
+                <div x-show="patientsError" x-cloak class="alert alert-warning d-flex flex-wrap align-items-center gap-2 mb-3" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <span x-text="t('Could not load the patient list. Check your connection and try again.')"></span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" @click="loadPatients()" x-text="t('Retry')"></button>
+                </div>
+
                 <div class="card shadow-sm border-0 patients-table-card">
                     <div class="card-body p-0">
                         <div class="table-responsive">
@@ -3282,7 +3288,7 @@
                                                                 </div>
                                                             </div>
                                                             <span x-show="att.uploading" x-cloak class="spinner-border spinner-border-sm text-primary"></span>
-                                                            <button type="button" class="btn btn-sm btn-outline-danger" @click="removeAttachment(idx)" :title="t('Remove')">
+                                                            <button type="button" class="btn btn-sm btn-outline-danger" :disabled="att.uploading" @click="removeAttachment(idx)" :title="t('Remove')">
                                                                 <i class="bi bi-trash"></i>
                                                             </button>
                                                             <!-- PDF block warning badge for authenticated PDFs -->

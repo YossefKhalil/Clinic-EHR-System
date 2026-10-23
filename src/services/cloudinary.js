@@ -184,13 +184,30 @@ function postToCloudinary(resourceType, deliveryType, formData, onProgress, reso
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/${deliveryType}`);
 
+    // A stalled connection must not hang an upload - and with it the save
+    // form - forever (issue #26). xhr.timeout bounds only the total
+    // duration, which is too blunt for a slow 10 MB uplink: the failure
+    // worth catching is a connection that stops sending data. Watch for
+    // progress instead - a quiet minute aborts the request, firing
+    // onabort below.
+    const STALL_TIMEOUT_MS = 60000;
+    let stallTimer = null;
+    const clearStallTimer = () => { clearTimeout(stallTimer); stallTimer = null; };
+    const armStallTimer = () => {
+        clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => xhr.abort(), STALL_TIMEOUT_MS);
+    };
+    armStallTimer();
+
     xhr.upload.onprogress = (event) => {
+        armStallTimer();
         if (onProgress && event.lengthComputable) {
             onProgress(Math.round((event.loaded / event.total) * 100));
         }
     };
 
     xhr.onload = () => {
+        clearStallTimer();
         let payload = {};
         try { payload = JSON.parse(xhr.responseText); } catch {}
 
@@ -201,8 +218,8 @@ function postToCloudinary(resourceType, deliveryType, formData, onProgress, reso
         }
     };
 
-    xhr.onerror = () => reject(new Error('Upload failed, check your connection'));
-    xhr.ontimeout = () => reject(new Error('Upload timed out'));
+    xhr.onerror = () => { clearStallTimer(); reject(new Error('Upload failed, check your connection')); };
+    xhr.onabort = () => { clearStallTimer(); reject(new Error('Upload stalled and was cancelled, check your connection')); };
     xhr.send(formData);
 }
 
