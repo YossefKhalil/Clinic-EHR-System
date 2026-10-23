@@ -121,10 +121,16 @@
 
         <div class="container page-container">
 
-            <!-- Global alert bar (showAlert). Auto-hides after a few seconds. -->
-            <div class="alert alert-dismissible fade show" :class="'alert-' + alertType" x-show="alertMessage" x-cloak x-transition role="alert" aria-live="polite">
-                <span x-text="alertMessage"></span>
-                <button type="button" class="btn-close" @click="alertMessage = null" aria-label="Close"></button>
+            <!-- Global toasts (showAlert): stacked in the corner, each one
+                 auto-dismisses, nothing is pushed down the page. -->
+            <div class="toast-stack" aria-live="polite" aria-atomic="false">
+                <template x-for="toast in toasts" :key="toast.id">
+                    <div class="alert d-flex align-items-start gap-2 shadow-sm mb-0" :class="'alert-' + toast.type" role="alert">
+                        <i class="bi mt-1" :class="toastIcon(toast.type)" aria-hidden="true"></i>
+                        <span class="flex-grow-1" x-text="toast.message"></span>
+                        <button type="button" class="btn-close" @click="dismissAlert(toast.id)" :aria-label="t('Close')"></button>
+                    </div>
+                </template>
             </div>
 
             <!-- LOGIN PAGE -->
@@ -588,11 +594,92 @@
                         </form>
                     </div>
                 </div>
-                        <button class="btn btn-success shadow-sm" @click="exportPatients()" :disabled="exporting">
-                            <span x-show="exporting" class="spinner-border spinner-border-sm me-1" x-cloak></span>
-                            <i class="bi bi-file-earmark-spreadsheet me-1" x-show="!exporting"></i>
-                            <span x-text="exporting ? t('Preparing...') : t('Excel export')"></span>
-                        </button>
+                        <!-- Export: the button writes the current dataset in
+                             Arabic with every column; the caret opens the
+                             language, the rows and the columns. -->
+                        <div class="btn-group export-group shadow-sm" @click.outside="closeExportPanel()">
+                            <button type="button" class="btn btn-success" @click="exportPatients()" :disabled="exporting">
+                                <span x-show="exporting" class="spinner-border spinner-border-sm me-1" x-cloak></span>
+                                <i class="bi bi-file-earmark-spreadsheet me-1" x-show="!exporting"></i>
+                                <span x-text="exporting ? t('Preparing...') : t('Excel export')"></span>
+                            </button>
+                            <button type="button" class="btn btn-success dropdown-toggle dropdown-toggle-split export-toggle"
+                                :aria-expanded="exportPanelOpen ? 'true' : 'false'" aria-haspopup="dialog"
+                                @click="toggleExportPanel()" :aria-label="t('Export options')" :title="t('Export options')"></button>
+                            <div class="export-panel" x-show="exportPanelOpen" x-cloak role="dialog"
+                                :aria-label="t('Export options')" @keydown.escape.stop="closeExportPanel()">
+                                <form @submit.prevent="exportPatientsCustom()">
+                                    <div class="d-flex align-items-center justify-content-between mb-3">
+                                        <h6 class="mb-0 fw-semibold" x-text="t('Export options')"></h6>
+                                        <button type="button" class="btn-close" :aria-label="t('Close')" @click="closeExportPanel()"></button>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <div class="export-panel-heading" x-text="t('Language')"></div>
+                                        <div class="d-flex flex-wrap gap-3">
+                                            <label class="form-check mb-0">
+                                                <input class="form-check-input" type="radio" value="ar" x-model="exportOptions.language">
+                                                <span class="form-check-label" x-text="t('Arabic')"></span>
+                                            </label>
+                                            <label class="form-check mb-0">
+                                                <input class="form-check-input" type="radio" value="en" x-model="exportOptions.language">
+                                                <span class="form-check-label" x-text="t('English')"></span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <div class="export-panel-heading" x-text="t('Rows')"></div>
+                                        <label class="form-check d-flex align-items-start gap-2 mb-1">
+                                            <input class="form-check-input mt-1" type="radio" value="filtered" x-model="exportOptions.rows">
+                                            <span class="form-check-label">
+                                                <span x-text="t('All matching filters')"></span>
+                                                <span class="text-muted small" x-show="patientTotal" x-text="'(' + patientTotal + ')'"></span>
+                                            </span>
+                                        </label>
+                                        <label class="form-check d-flex align-items-start gap-2 mb-1" :class="{ 'opacity-50': !patients.length }">
+                                            <input class="form-check-input mt-1" type="radio" value="page" x-model="exportOptions.rows" :disabled="!patients.length">
+                                            <span class="form-check-label">
+                                                <span x-text="t('Current page')"></span>
+                                                <span class="text-muted small" x-text="'(' + patients.length + ')'"></span>
+                                            </span>
+                                        </label>
+                                        <label class="form-check d-flex align-items-start gap-2 mb-0" :class="{ 'opacity-50': !selectedPatientIds.length }">
+                                            <input class="form-check-input mt-1" type="radio" value="selected" x-model="exportOptions.rows" :disabled="!selectedPatientIds.length">
+                                            <span class="form-check-label">
+                                                <span x-text="t('Selected patients')"></span>
+                                                <span class="text-muted small" x-text="'(' + selectedPatientIds.length + ')'"></span>
+                                            </span>
+                                        </label>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <div class="d-flex align-items-center justify-content-between mb-1">
+                                            <div class="export-panel-heading mb-0" x-text="t('Fields')"></div>
+                                            <div class="d-flex align-items-center gap-1">
+                                                <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" @click="exportSelectAllFields(true)" x-text="t('All')"></button>
+                                                <span class="text-muted small" aria-hidden="true">·</span>
+                                                <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" @click="exportSelectAllFields(false)" x-text="t('None')"></button>
+                                            </div>
+                                        </div>
+                                        <div class="export-field-list">
+                                            <template x-for="field in exportFields" :key="field.key">
+                                                <label class="form-check mb-0">
+                                                    <input class="form-check-input" type="checkbox" :value="field.key" x-model="exportOptions.fields">
+                                                    <span class="form-check-label" x-text="t(field.label)"></span>
+                                                </label>
+                                            </template>
+                                        </div>
+                                    </div>
+
+                                    <button type="submit" class="btn btn-success w-100" :disabled="exporting || !exportOptions.fields.length">
+                                        <span x-show="exporting" class="spinner-border spinner-border-sm me-1" x-cloak></span>
+                                        <i class="bi bi-download me-1" x-show="!exporting"></i>
+                                        <span x-text="exporting ? t('Preparing...') : t('Export')"></span>
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
                         <!-- The split-button group classes are conditional
                              (issue #17): with the import caret hidden there is
                              only one member, so the control must keep a normal
@@ -672,7 +759,14 @@
                                 :style="'--patients-table-font: ' + patientTableFont">
                                 <thead class="table-light border-bottom text-muted">
                                     <tr>
-                                        <th class="py-3 sortable-head ps-4" :aria-sort="ariaSort('name')">
+                                        <th class="py-3 ps-4" style="width:2.5rem">
+                                            <input class="form-check-input" type="checkbox"
+                                                :checked="allPageSelected()"
+                                                @change="toggleSelectAllOnPage($event.target.checked)"
+                                                :disabled="patients.length === 0"
+                                                :aria-label="t('Select all')">
+                                        </th>
+                                        <th class="py-3 sortable-head ps-2" :aria-sort="ariaSort('name')">
                                             <button type="button" class="table-sort-btn" @click="sortPatientsBy('name')">
                                                 <span x-text="t('Patient Name')"></span>
                                                 <i class="bi sort-arrow" :class="sortIcon('name')"></i>
@@ -733,6 +827,12 @@
                                     <template x-for="patient in patients" :key="patient.id">
                                         <tr>
                                             <td class="ps-4">
+                                                <input class="form-check-input" type="checkbox"
+                                                    :checked="isPatientSelected(patient.id)"
+                                                    @change="togglePatientSelection(patient.id, $event.target.checked)"
+                                                    :aria-label="t('Select patient')">
+                                            </td>
+                                            <td class="ps-2">
                                                 <span class="fw-bold text-dark d-block" x-text="patient.name"></span>
                                             </td>
                                             <td><code x-text="patient.national_id"></code></td>
@@ -787,12 +887,12 @@
                                         </tr>
                                     </template>
                                     <tr x-show="patientsLoading">
-                                        <td colspan="10" class="text-center py-5">
+                                        <td colspan="11" class="text-center py-5">
                                             <div class="spinner-border text-primary"></div>
                                         </td>
                                     </tr>
                                     <tr x-show="!patientsLoading && patients.length === 0">
-                                        <td colspan="10" class="text-center py-5 text-muted">
+                                        <td colspan="11" class="text-center py-5 text-muted">
                                             <i class="bi bi-folder-x fs-1 text-secondary d-block mb-2"></i>
                                             <span class="fw-semibold" x-text="t('No patients recorded yet.')"></span>
                                         </td>
@@ -2042,7 +2142,6 @@
                 <div class="row mb-3">
                     <div class="col-12">
                         <h2 class="text-secondary fw-bold"><i class="bi bi-gear-fill me-2 text-primary"></i><span x-text="t('Settings')"></span></h2>
-                        <p class="text-muted mb-0" x-text="t('Manage clinic option lists, user accounts, and AI import settings.')"></p>
                     </div>
                 </div>
 
@@ -2061,8 +2160,6 @@
 
                 <!-- Clinic Options tab -->
                 <div id="settings-panel-options" role="tabpanel" aria-labelledby="settings-tab-options" x-show="settingsTab === 'options'" tabindex="0">
-                    <p class="text-muted small" x-text="t('These lists feed the patient form, filters, dashboard and Excel export. Deactivating an option hides it from new selections while existing patients keep their value.')"></p>
-
                     <!-- Editable option lists -->
                     <template x-for="kind in optionKinds" :key="kind">
                     <div class="card shadow-sm border-0 mb-4">
@@ -2126,7 +2223,6 @@
                     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
                         <div>
                             <h2 class="text-secondary fw-bold mb-0"><i class="bi bi-people-fill me-2 text-primary"></i><span x-text="t('Users Management')"></span></h2>
-                            <p class="text-muted small mb-0" x-text="t('Super admins manage accounts and grant each staff member read and write access per section.')"></p>
                         </div>
                         <button type="button" class="btn btn-success" @click="openUserForm()" x-show="isSuperAdmin">
                             <i class="bi bi-person-plus-fill me-1"></i> <span x-text="t('Create New User')"></span>
@@ -2232,10 +2328,7 @@
                     <div class="card shadow-sm border-0 mb-4" x-show="isSuperAdmin" x-cloak>
                     <div class="card-header bg-white py-3 d-flex flex-wrap align-items-center gap-2">
                         <i class="bi bi-stars text-primary fs-5"></i>
-                        <div class="me-auto">
-                            <h5 class="mb-0 fw-semibold" x-text="t('aiSettings.title')"></h5>
-                            <div class="small text-muted" x-text="aiEngineSubtitle()"></div>
-                        </div>
+                        <h5 class="mb-0 me-auto fw-semibold" x-text="t('aiSettings.title')"></h5>
                         <!-- Engine: one control sets the enabled flag and the mode -->
                         <div class="btn-group" role="group" :aria-label="t('aiSettings.engineLabel')">
                             <input type="radio" class="btn-check" name="ai-engine" id="ai-engine-off" value="off" x-model="aiEngine" @change="aiOnEngineChange('off')">
@@ -2707,20 +2800,14 @@
                                         </ul>
                                     </div>
 
-                                    <div class="small text-muted mt-3">
-                                        <i class="bi bi-info-circle me-1"></i><span x-text="t('aiSettings.local.limitsNote')"></span>
-                                    </div>
                                 </div>
 
                                 <!-- Import limits only matter while an engine is selected. -->
                                 <div x-show="aiEngine !== 'off'">
                                 <hr class="my-4">
 
-                                <div class="d-flex flex-wrap align-items-start gap-2">
-                                    <div>
-                                        <h5 class="mb-1" x-text="t('aiSettings.limits.title')"></h5>
-                                        <div class="small text-muted" x-text="t('aiSettings.limits.hint')"></div>
-                                    </div>
+                                <div class="d-flex flex-wrap align-items-center gap-2">
+                                    <h5 class="mb-1" x-text="t('aiSettings.limits.title')"></h5>
                                     <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" @click="loadImportLimits()"
                                         x-text="t('aiSettings.limits.reload')"></button>
                                 </div>
@@ -2852,7 +2939,6 @@
                                                 @change="setUserSuperAdmin($event.target.checked)">
                                             <label class="form-check-label" for="uf-super-admin">
                                                 <span class="fw-semibold d-block" x-text="t('Super Admin (Full Access)')"></span>
-                                                <span class="text-muted small" x-text="t('Super admins reach every section and are the only accounts that can create, edit or delete users.')"></span>
                                                 <span class="text-danger small d-block" x-show="isEditingSelf()" x-cloak x-text="t('You cannot remove your own Super Admin access.')"></span>
                                             </label>
                                         </div>
@@ -2913,12 +2999,6 @@
                                                 </tbody>
                                             </table>
                                         </div>
-                                        <div class="form-text text-muted" x-text="t('Choose which clinic sections this user can see and which they can add, edit or delete.')"></div>
-                                    </div>
-
-                                    <div class="alert alert-danger d-flex align-items-start gap-2 py-2 px-3 small mt-4 mb-0" x-show="userForm.is_super_admin" x-cloak>
-                                        <i class="bi bi-shield-lock-fill mt-1" aria-hidden="true"></i>
-                                        <span x-text="t('This account will have full access to every section and to user management.')"></span>
                                     </div>
 
                                     <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-4">
@@ -3349,7 +3429,7 @@
                                             <i class="bi bi-cloud-arrow-up me-1"></i> <span x-text="t('Attach files')"></span>
                                             <input type="file" class="d-none" multiple accept="image/*,application/pdf" @change="onPatientAttach($event)">
                                         </label>
-                                        <div class="form-text text-muted" x-text="t('Images and PDF files, up to 10 MB each. Files upload immediately and are saved with the patient.')"></div>
+                                        <div class="form-text text-muted" x-text="t('Images and PDF files, up to 10 MB each.')"></div>
 
                                         <template x-if="patientAttachments.length">
                                             <div class="row g-2 mt-1">

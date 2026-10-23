@@ -122,6 +122,23 @@ export async function getPatientsPage(filters = {}, options = {}) {
     };
 }
 
+// Explicit rows for the export when the user ticked them in the table. The
+// section scope is still applied by RLS, so an id outside the caller's
+// sections simply comes back empty.
+export async function getPatientsByIds(ids) {
+    const list = (Array.isArray(ids) ? ids : []).filter(Boolean);
+    if (!list.length) return [];
+
+    const { data, error } = await supabase()
+        .from('patients')
+        .select('*')
+        .in('id', list)
+        .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    return data ?? [];
+}
+
 export async function getPatient(id) {
     const { data, error } = await supabase()
         .from('patients')

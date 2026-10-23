@@ -232,6 +232,43 @@ button.stat-link {
 }
 
 /*
+ * Toasts (issue #37). The container floats above the page on the reading
+ * side, so a notification never pushes the content down and RTL needs no
+ * extra rule. It only receives clicks where a toast is, so the page below
+ * stays usable while one is on screen.
+ */
+.toast-stack {
+    position: fixed;
+    top: 1rem;
+    inset-inline-end: 1rem;
+    z-index: 1090;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: min(24rem, calc(100vw - 2rem));
+    pointer-events: none;
+}
+
+.toast-stack .alert {
+    pointer-events: auto;
+    margin: 0;
+    animation: toast-in 0.18s ease-out;
+}
+
+@keyframes toast-in {
+    from {
+        opacity: 0;
+        transform: translateY(-0.5rem);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .toast-stack .alert {
+        animation: none;
+    }
+}
+
+/*
  * Patients filters toolbar + panel (issue #13).
  *
  * ONE component for both shells: the panel is an anchored popover beside the
@@ -311,6 +348,63 @@ button.stat-link {
 .filter-panel-footer .filter-panel-reset,
 .filter-panel-footer .filter-panel-apply {
     min-width: 6.5rem;
+}
+
+/*
+ * Excel export control. The button writes the dataset in Arabic with every
+ * column; the caret opens the same export with choices (language, rows,
+ * columns). The panel sits under the button group from 576px up and becomes
+ * a sheet at the bottom of a phone screen below that; logical properties
+ * keep it on the reading side in RTL.
+ */
+.export-group {
+    position: relative;
+}
+
+.export-panel {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    inset-inline-end: 0;
+    z-index: 1045;
+    width: min(21rem, 92vw);
+    max-height: 70vh;
+    overflow-y: auto;
+    padding: 1rem 1.1rem;
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 0.75rem;
+    box-shadow: 0 0.85rem 2rem rgba(0, 0, 0, 0.18);
+    text-align: start;
+}
+
+.export-panel-heading {
+    margin-block-end: 0.35rem;
+    font-weight: 600;
+    font-size: 0.8rem;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #6c757d;
+}
+
+/* Eighteen columns: two per row, in a box that scrolls on its own. */
+.export-field-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.15rem 0.75rem;
+    max-height: 11rem;
+    overflow-y: auto;
+    padding-block: 0.15rem;
+}
+
+@media (max-width: 575.98px) {
+    .export-panel {
+        position: fixed;
+        inset-inline: 0.75rem;
+        top: auto;
+        bottom: 0.75rem;
+        width: auto;
+        max-height: 80vh;
+    }
 }
 
 /* The content uses more of a wide screen. The navbar's own container is

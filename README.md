@@ -69,7 +69,7 @@ The application is deliberately serverless. The frontend is a static Vite build 
 
 - **Global search** across every patient field, with Arabic-aware normalization and fuzzy matching. Results support full keyboard navigation.
 - **Dashboard** with total, completed, and pending counts, section and source breakdowns, a financial summary (grand total, by section, by funding source), and a recent-patients table.
-- **Excel export** of the current patient list. SheetJS is loaded only when an export is requested.
+- **Excel export** in Arabic by default, with a caret for the language, the rows (all filtered, this page, or the ticked patients) and the columns. SheetJS is loaded only when an export is requested.
 
 ### Administration
 
@@ -80,6 +80,7 @@ The application is deliberately serverless. The frontend is a static Vite build 
 ### Experience
 
 - **Bilingual by design**: instant English/Arabic switching, full RTL layout, localized ARIA labels, and a persisted language preference.
+- **Notifications** stack as toasts in the corner and dismiss themselves; nothing is pushed down the page.
 - **Single-page workflow**: views switch without reloads, and record edits update in place.
 - **Responsive layout** for desktop and mobile, including a mobile navigation bar.
 - **Lazy loading** for spreadsheet, document, and PDF libraries, so the initial bundle stays small.
@@ -415,7 +416,7 @@ npm run lint           # ESLint
 npm run check:registry # field registry and schema contract
 ```
 
-The suite currently contains **639 tests across 55 files**. RLS tests run against an in-process Postgres (PGlite) loaded with `supabase/schema.sql`, so policies are exercised against real SQL rather than mocks. Import fixtures cover XLSX, CSV, DOCX, and PDF readers, and property-based tests cover the normalizers. Local AI engine tests cover model profiles, adapters, verification, config resolution, and pump contracts.
+The suite currently contains **646 tests across 56 files**. RLS tests run against an in-process Postgres (PGlite) loaded with `supabase/schema.sql`, so policies are exercised against real SQL rather than mocks. Import fixtures cover XLSX, CSV, DOCX, and PDF readers, and property-based tests cover the normalizers. Local AI engine tests cover model profiles, adapters, verification, config resolution, and pump contracts.
 
 CI runs lint, the registry check, coverage, and the production build on every push and pull request.
 
