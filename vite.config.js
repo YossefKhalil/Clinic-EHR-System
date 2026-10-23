@@ -106,7 +106,13 @@ export default defineConfig({
       async transform(code, id) {
         if (!/\.(m?js)$/.test(id) || id.includes('/.vite/')) return null;
         if (!code.includes('?.') && !code.includes('??')) return null;
-        return transformWithEsbuild(code, id, { target: 'es2017', loader: 'js' });
+        // Keep `import.meta` intact: Vite replaces `import.meta.env.*` later,
+        // and esbuild would otherwise shim import.meta away and break that.
+        return transformWithEsbuild(code, id, {
+          target: 'es2017',
+          loader: 'js',
+          supported: { 'import-meta': true },
+        });
       },
     },
     // A `nomodule` legacy bundle for Android WebViews that have no ES-module

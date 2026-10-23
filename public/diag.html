@@ -1,0 +1,93 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>تشخيص / Diagnostics</title>
+</head>
+<body style="font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; padding: 16px; line-height: 1.5; color: #222;">
+    <h3 style="margin: 0 0 8px;">تشخيص المتصفح / Browser diagnostics</h3>
+    <p style="margin: 0 0 12px; color: #666; font-size: 13px;">
+        Open this page on the phone and screenshot it. Nothing here is private.
+    </p>
+    <pre id="out" style="white-space: pre-wrap; word-break: break-word; font-size: 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 8px; padding: 12px;">running…</pre>
+    <script>
+        // Deliberately ES5: this page must render on the oldest WebView too.
+        (function () {
+            var lines = [];
+            function add(key, value) { lines.push(key + ': ' + value); }
+            function probe(fn) {
+                try { return fn() ? 'yes' : 'no'; } catch (e) { return 'error (' + (e && e.message ? e.message : e) + ')'; }
+            }
+            function typeofSafe(name, expr) {
+                try { var v = expr(); return typeof v; } catch (e) { return 'error'; }
+            }
+
+            add('userAgent', navigator.userAgent);
+            add('protocol', location.protocol);
+            add('isSecureContext', window.isSecureContext);
+            add('--- syntax / modules ---', '');
+            add('script supports module', probe(function () {
+                return !!(window.HTMLScriptElement && HTMLScriptElement.supports && HTMLScriptElement.supports('module'));
+            }));
+            add('dynamic import()', typeofSafe('', function () { return Function('return import("data:text/javascript,")'); }));
+
+            add('--- runtime APIs ---', '');
+            add('fetch', typeofSafe('', function () { return fetch; }));
+            add('Promise', typeofSafe('', function () { return Promise; }));
+            add('Promise.finally', typeofSafe('', function () { return Promise.prototype.finally; }));
+            add('Promise.allSettled', typeofSafe('', function () { return Promise.allSettled; }));
+            add('String.replaceAll', typeofSafe('', function () { return String.prototype.replaceAll; }));
+            add('Array.prototype.at', typeofSafe('', function () { return Array.prototype.at; }));
+            add('Array.prototype.flat', typeofSafe('', function () { return Array.prototype.flat; }));
+            add('Object.fromEntries', typeofSafe('', function () { return Object.fromEntries; }));
+            add('Object.hasOwn', typeofSafe('', function () { return Object.hasOwn; }));
+            add('structuredClone', typeofSafe('', function () { return structuredClone; }));
+            add('crypto.randomUUID', typeofSafe('', function () { return window.crypto.randomUUID; }));
+            add('crypto.subtle', typeofSafe('', function () { return window.crypto.subtle; }));
+            add('localStorage', probe(function () { localStorage.setItem('diag', '1'); localStorage.removeItem('diag'); return true; }));
+            add('indexedDB', typeofSafe('', function () { return indexedDB; }));
+            add('ResizeObserver', typeofSafe('', function () { return ResizeObserver; }));
+            add('IntersectionObserver', typeofSafe('', function () { return IntersectionObserver; }));
+            add('matchMedia', typeofSafe('', function () { return window.matchMedia; }));
+            add('CSS.supports dvh', probe(function () { return window.CSS && CSS.supports && CSS.supports('height', '100dvh'); }));
+            add('Intl.DateTimeFormat', probe(function () { return typeof Intl !== 'undefined' && !!Intl.DateTimeFormat; }));
+
+            add('--- live tests ---', '');
+            add('module executed', 'waiting…');
+            add('nomodule executed', 'waiting…');
+            render();
+
+            function render() { document.getElementById('out').textContent = lines.join('\n'); }
+
+            // A real module script: runs only where modules are supported.
+            try {
+                var m = document.createElement('script');
+                m.type = 'module';
+                m.textContent = 'window.__diagModule = true;';
+                document.head.appendChild(m);
+            } catch (e) { }
+
+            // A real nomodule script: runs only where modules are NOT supported.
+            try {
+                var n = document.createElement('script');
+                n.setAttribute('nomodule', '');
+                n.textContent = 'window.__diagNoModule = true;';
+                document.head.appendChild(n);
+            } catch (e) { }
+
+            setTimeout(function () {
+                for (var i = 0; i < lines.length; i += 1) {
+                    if (lines[i].indexOf('module executed') === 0) {
+                        lines[i] = 'module executed: ' + (window.__diagModule ? 'yes' : 'no');
+                    }
+                    if (lines[i].indexOf('nomodule executed') === 0) {
+                        lines[i] = 'nomodule executed: ' + (window.__diagNoModule ? 'yes' : 'no');
+                    }
+                }
+                render();
+            }, 800);
+        })();
+    </script>
+</body>
+</html>
