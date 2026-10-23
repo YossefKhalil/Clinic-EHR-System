@@ -602,6 +602,62 @@ button.stat-link {
     }
 }
 
+/* Phone sheets: the create/edit-user form and the filter sheet share the
+   bottom-sheet pattern so the two most-used mobile surfaces behave alike. */
+
+/* A grabber affordance and two full-width, thumb-sized actions on the sheet. */
+@media (max-width: 767.98px) {
+    .filter-panel::before {
+        content: '';
+        position: absolute;
+        top: 0.45rem;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 2.5rem;
+        height: 0.25rem;
+        border-radius: 999px;
+        background: #ced4da;
+    }
+
+    .filter-panel-header {
+        padding-block-start: 1rem;
+    }
+
+    .filter-panel-footer .filter-panel-reset,
+    .filter-panel-footer .filter-panel-apply {
+        flex: 1 1 0;
+        min-width: 0;
+    }
+}
+
+/* The user form on a phone is a full-screen sheet with a scrolling body, so
+   the permission matrix and the Save/Cancel row are always reachable. */
+@media (max-width: 575.98px) {
+    #userFormModal .modal-dialog {
+        margin: 0;
+        max-width: none;
+        min-height: 100%;
+    }
+
+    #userFormModal .modal-content {
+        min-height: 100vh;
+        min-height: 100dvh;
+        border: 0;
+        border-radius: 0;
+    }
+
+    #userFormModal .modal-header,
+    #userFormModal .modal-body {
+        padding: 1rem;
+    }
+
+    /* The matrix is the fiddliest control on a phone: bigger hit areas. */
+    #userFormModal .permission-matrix .form-check-input {
+        width: 1.5rem;
+        height: 1.5rem;
+    }
+}
+
 /*
  * Icon spacing — direction-agnostic.
  *
