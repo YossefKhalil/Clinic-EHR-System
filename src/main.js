@@ -3364,4 +3364,6 @@ window.importAgentWizard = importAgentWizard;
 
 document.addEventListener('DOMContentLoaded', () => {
     Alpine.start();
+    // Tells the inline boot-fallback check that the app really started.
+    window.__appBooted = true;
 });

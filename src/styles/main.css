@@ -78,6 +78,23 @@
     display: none !important;
 }
 
+/* The static "the app could not start" screen (see index.html). Hidden until
+   the inline boot check reveals it. */
+.boot-fallback {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background: #fff;
+}
+
+.boot-fallback[hidden] {
+    display: none;
+}
+
 /*
  * RTL button / dropdown geometry (issue #17).
  *

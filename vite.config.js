@@ -66,7 +66,11 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    target: 'es2022',
+    // Ship syntax older mobile WebViews can parse. `es2022` produced class
+    // fields / `?.` / `??` that a stock Android WebView (and some in-app
+    // browsers) reject with a SyntaxError, which left the whole app behind
+    // `x-cloak` and showed a blank page. `es2019` is Chrome 73 / Android 10.
+    target: 'es2019',
     // The model runtimes are large and are loaded on demand.
     chunkSizeWarningLimit: 4096,
     rollupOptions: {
