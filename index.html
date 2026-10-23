@@ -3096,7 +3096,7 @@
                                             </div>
                                             <div class="col-md-6">
                                                 <label for="pf-nid" class="form-label fw-semibold"><span x-text="t('National ID')"></span> <span class="text-danger">*</span></label>
-                                                <input type="text" id="pf-nid" maxlength="14" class="form-control" x-model="patientForm.national_id" :placeholder="t('14-digit National ID')" required>
+                                                <input type="text" id="pf-nid" maxlength="14" class="form-control" x-model="patientForm.national_id" @input="onNationalIdInput()" @change="onNationalIdChange()" @blur="onNationalIdBlur()" :placeholder="t('14-digit National ID')" required>
                                             </div>
                                         </div>
                                     </div>
@@ -3203,13 +3203,13 @@
                                             </div>
                                             <div class="col-md-6">
                                                 <label class="form-label fw-semibold">
-                                                    <i class="bi bi-building me-1"></i><span x-text="t('Section')"></span>
+                                                    <i class="bi bi-building me-1"></i><span x-text="t('Section')"></span> <span class="text-danger">*</span>
                                                 </label>
                                                 <template x-if="!isSuperAdmin && profile?.section">
-                                                    <input type="text" class="form-control bg-light" :value="optionLabel('section', profile.section)" dir="rtl" disabled>
+                                                    <input type="text" class="form-control bg-light" :value="optionLabel('section', profile.section)" dir="rtl" disabled required>
                                                 </template>
                                                 <template x-if="isSuperAdmin || !profile?.section">
-                                                    <select class="form-select" x-model="patientForm.section" dir="rtl">
+                                                    <select class="form-select" x-model="patientForm.section" dir="rtl" required>
                                                         <option value="" x-text="t('-- Select Section --')"></option>
                                                         <template x-if="patientForm.section && !activeOptions('section').some(o => o.key === patientForm.section)">
                                                             <option :value="patientForm.section" x-text="optionLabel('section', patientForm.section)"></option>

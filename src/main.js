@@ -2606,6 +2606,61 @@ function app() {
             if (calculated !== null) this.patientForm.age = calculated;
         },
 
+        /**
+         * Derive date of birth from Egyptian national ID (14 digits).
+         * Egyptian National ID structure:
+         * - Digit 1: Century code (2 for 1900s, 3 for 2000s)
+         * - Digits 2-3: Year (last two digits)
+         * - Digits 4-5: Month (01-12)
+         * - Digits 6-7: Day (01-31)
+         * - Remaining digits: governorate, sequence, etc.
+         */
+        deriveDobFromEgyptianNid(nationalId) {
+            if (!nationalId) return null;
+            const id = String(nationalId).replace(/\D/g, '');
+            if (id.length !== 14) return null;
+            const centuryCode = id[0];
+            const yearPart = id.substring(1, 3);
+            const monthPart = id.substring(3, 5);
+            const dayPart = id.substring(5, 7);
+            let century;
+            if (centuryCode === '2') {
+                century = '19';
+            } else if (centuryCode === '3') {
+                century = '20';
+            } else {
+                return null;
+            }
+            const year = parseInt(century + yearPart, 10);
+            const month = parseInt(monthPart, 10);
+            const day = parseInt(dayPart, 10);
+            if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+            const dob = new Date(year, month - 1, day);
+            if (dob.getFullYear() !== year || dob.getMonth() !== month - 1 || dob.getDate() !== day) {
+                return null;
+            }
+            const monthStr = String(month).padStart(2, '0');
+            const dayStr = String(day).padStart(2, '0');
+            return `${year}-${monthStr}-${dayStr}`;
+        },
+
+        onNationalIdChange() {
+            if (!this.patientForm) return;
+            const dob = this.deriveDobFromEgyptianNid(this.patientForm.national_id);
+            if (dob) {
+                this.patientForm.date_of_birth = dob;
+                this.refreshAge();
+            }
+        },
+
+        onNationalIdInput() {
+            this.onNationalIdChange();
+        },
+
+        onNationalIdBlur() {
+            this.onNationalIdChange();
+        },
+
         // Same rule for the read-only patient profile.
         patientAgeOf(patient) {
             if (!patient) return 'N/A';
