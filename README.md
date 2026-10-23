@@ -10,7 +10,7 @@
 
 [Live demo](https://clinc-ehr.pages.dev) · [Features](#features) · [Architecture](#architecture) · [Getting started](#getting-started) · [Documentation](#documentation)
 
-[![CI](https://github.com/YossefKhalil/Clinic-EHR-System/actions/workflows/ci.yml/badge.svg?branch=ai-import-rebuild)](https://github.com/YossefKhalil/Clinic-EHR-System/actions/workflows/ci.yml)
+[![CI](https://github.com/YossefKhalil/Clinic-EHR-System/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/YossefKhalil/Clinic-EHR-System/actions/workflows/ci.yml)
 [![Live demo](https://img.shields.io/badge/live_demo-clinc--ehr.pages.dev-2ea44f?style=flat-square)](https://clinc-ehr.pages.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node-%E2%89%A520-339933?style=flat-square&logo=node.js&logoColor=white)](#prerequisites)
@@ -29,7 +29,7 @@ The application is deliberately serverless. The frontend is a static Vite build 
 
 | Area | Details |
 | --- | --- |
-| **Status** | Core EHR stable · AI-assisted import in preview |
+| **Status** | Core EHR stable · AI-assisted import (cloud + local) complete |
 | **Frontend** | Vite 5, Alpine.js 3, Bootstrap 5.3 |
 | **Backend** | Supabase Postgres, Auth, Storage, Edge Functions |
 | **Attachments** | Cloudinary |
@@ -85,9 +85,9 @@ The application is deliberately serverless. The frontend is a static Vite build 
 - **Lazy loading** for spreadsheet, document, and PDF libraries, so the initial bundle stays small.
 - **Deployment resilience**: a guarded `vite:preloadError` handler recovers from stale chunks after a redeploy.
 
-## AI-assisted patient import (preview)
+## AI-assisted patient import
 
-> **Preview status.** Extraction and review are implemented on this branch. The final commit step that writes reviewed rows into the patient registry is still in development, so the import action is intentionally a placeholder. The feature is disabled by default and hidden from staff until an administrator enables it.
+> **Status.** Cloud extraction pipeline (readers, chunking, provider fallback, validation, review) is complete. Local inference engine (browser-based GGUF/ONNX) is complete with model profiles, verification, and a settings UI. The commit-to-registry step that writes reviewed rows into the patient registry is implemented. The feature is disabled by default and hidden from staff until an administrator enables it.
 
 The import agent turns existing records into structured patient drafts, then gives staff a review surface before anything reaches the registry.
 
@@ -106,9 +106,21 @@ Files are identified by content signature, not by extension. Oversized files, en
 ### Pipeline
 
 1. **Read and chunk.** The browser extracts text and tables, assigns stable source-line identifiers, and splits the result into bounded chunks. Spreadsheet headers are repeated per chunk; tall note images are tiled with overlap.
-2. **Extract.** The `import-job` Edge Function runs each chunk through the administrator's ordered provider chain. Transient provider failures fall through to the next ready entry; malformed output gets one repair pass; truncated output is split and re-queued.
+2. **Extract.** The `import-job` Edge Function runs each chunk through the administrator's ordered provider chain (cloud). Transient provider failures fall through to the next ready entry; malformed output gets one repair pass; truncated output is split and re-queued.
 3. **Validate.** Extracted records are normalized and validated against the registry rules, checked for duplicates, and stored as reviewable rows with source citations.
 4. **Review.** Staff correct the draft in a table that mirrors the patients page. Nothing is written to the patient registry during extraction.
+5. **Commit.** Reviewed rows are written to the patient registry with the registrar's context and import provenance.
+
+### Local inference engine (browser-based)
+
+When `LOCAL_INFERENCE_ENABLED=1`, the clinic can run models entirely on the clinic PC:
+
+- **Text models**: GGUF (llama.cpp via wllama), single or split layout
+- **Vision/OCR**: ONNX Runtime Web (Falcon OCR), WebGPU → WASM fallback
+- **Settings card**: Engine Off/Cloud/Local, model pickers, Browse→Verify flow, config accordions with tier-aware defaults, device capability chips, cloud consent modal
+- **Verification**: Header probe + SHA-256, per-slot Ready/Error badges with codes
+- **Persistence**: Model handles in IndexedDB, resolved config written to job at import start
+- **Pipeline integration**: `local_claim`/`local_submit`/`local_heartbeat`/`local_fail`/`local_release` with lease tokens, CONFIG_DRIFT detection, model identity (SHA-256) audit
 
 ### Review workflow
 
@@ -125,12 +137,14 @@ Files are identified by content signature, not by extension. Oversized files, en
 
 ### Providers and credentials
 
-- **OpenRouter**, **Cloudflare Workers AI**, and any **OpenAI-compatible** endpoint, including OpenAI, Groq, Ollama, and LM Studio.
-- Providers can be mixed in an ordered chain of up to eight model entries.
+- **Cloud**: OpenRouter, Cloudflare Workers AI, and any OpenAI-compatible endpoint (OpenAI, Groq, Ollama, LM Studio).
+- **Local** (when `LOCAL_INFERENCE_ENABLED=1`): GGUF text models via wllama, ONNX vision/OCR models via ONNX Runtime Web.
+- Providers can be mixed in an ordered chain of up to eight model entries (cloud). Local uses one text slot and one vision+OCR slot.
 - Provider keys are stored AES-GCM encrypted, decrypted only inside Edge Functions, and never returned to the browser.
 - OpenRouter requests are sent with `data_collection: deny`. Other providers have their own retention and training policies.
+- Local models never leave the clinic PC. The server only learns the model name, size, and SHA-256.
 
-> **Privacy.** Enabling AI import sends extracted text, and for photos the images themselves, to the configured provider. Review the provider's data-handling terms and your clinic's consent and retention obligations before enabling the feature with patient data.
+> **Privacy.** Enabling AI import sends extracted text, and for photos the images themselves, to the configured cloud provider. Local inference keeps data on the clinic PC. Review the provider's data-handling terms and your clinic's consent and retention obligations before enabling the feature with patient data.
 
 ## Architecture
 
@@ -189,7 +203,8 @@ flowchart LR
 | Backend | Supabase Postgres, Auth, Storage, Edge Functions |
 | Database | PostgreSQL with row-level security |
 | File storage | Cloudinary |
-| AI extraction | OpenRouter, Cloudflare Workers AI, OpenAI-compatible endpoints |
+| AI extraction (cloud) | OpenRouter, Cloudflare Workers AI, OpenAI-compatible endpoints |
+| AI inference (local) | wllama (llama.cpp WASM), ONNX Runtime Web (WebGPU/WASM) |
 | Documents | SheetJS, mammoth, PDF.js |
 | Hosting | Cloudflare Pages |
 | CI/CD | GitHub Actions |
@@ -400,7 +415,7 @@ npm run lint           # ESLint
 npm run check:registry # field registry and schema contract
 ```
 
-The suite currently contains **428 tests across 35 files**. RLS tests run against an in-process Postgres (PGlite) loaded with `supabase/schema.sql`, so policies are exercised against real SQL rather than mocks. Import fixtures cover XLSX, CSV, DOCX, and PDF readers, and property-based tests cover the normalizers.
+The suite currently contains **637 tests across 55 files**. RLS tests run against an in-process Postgres (PGlite) loaded with `supabase/schema.sql`, so policies are exercised against real SQL rather than mocks. Import fixtures cover XLSX, CSV, DOCX, and PDF readers, and property-based tests cover the normalizers. Local AI engine tests cover model profiles, adapters, verification, config resolution, and pump contracts.
 
 CI runs lint, the registry check, coverage, and the production build on every push and pull request.
 
@@ -411,14 +426,31 @@ CI runs lint, the registry check, coverage, and the production build on every pu
 ├── index.html                     # SPA shell and all page templates
 ├── src/
 │   ├── main.js                    # Alpine application controller
+│   ├── services/                  # Supabase, patients, prices, users, options, export, ai-local
 │   ├── features/import-agent/     # Readers, extraction client, review state, UI
 │   │   ├── readers/               # XLSX, CSV, DOCX, PDF, image, text readers
+│   │   ├── local/                 # Local AI engine
+│   │   │   ├── adapters.js        # Adapter registry, probeGGUF/probeONNX, getAdapter
+│   │   │   ├── gguf-adapter.js    # llama.cpp WASM text adapter
+│   │   │   ├── onnx-adapter.js    # ONNX Runtime Web vision/OCR adapter
+│   │   │   ├── onnx-metadata.js   # Streaming protobuf graph reader
+│   │   │   ├── gguf-metadata.js   # GGUF header parser
+│   │   │   ├── falcon-ocr.js      # Falcon strip OCR pipeline
+│   │   │   ├── model-profile.js   # Per-slot profile + verification state machine
+│   │   │   ├── model-store.js     # Pickers, handles, chunked SHA-256
+│   │   │   ├── local-config.js    # Tier detection, defaults, validation
+│   │   │   ├── manifest.js        # Device probe, tier suggestion
+│   │   │   ├── local-runtime.js   # Resolved config for pump
+│   │   │   ├── pump.js            # Browser pump: claim/submit/heartbeat/fail/release
+│   │   │   ├── runner.js          # Import runner integration
+│   │   │   ├── setup.js           # Provider setup from profile
+│   │   │   ├── hash-wasm.js       # Streaming SHA-256
+│   │   │   └── wllama-provider.js # wllama completion wrapper
 │   │   ├── api.js                 # import-job / ai-settings client
 │   │   ├── intake.js              # File validation and hashing
 │   │   ├── review.js              # Review state, validation, duplicate logic
 │   │   └── ui.js                  # Import wizard and review screen
 │   ├── locales/                   # English and Arabic translations
-│   ├── services/                  # Supabase, patients, prices, users, options, export
 │   └── styles/                    # Bootstrap overrides and RTL styles
 ├── supabase/
 │   ├── schema.sql                 # Tables, triggers, RLS, import schema
@@ -433,7 +465,7 @@ CI runs lint, the registry check, coverage, and the production build on every pu
 ├── tests/
 │   ├── fixtures/                  # Reader and pipeline fixtures
 │   ├── rls/                       # Postgres RLS tests
-│   └── unit/                      # Reader, pipeline, review, and normalizer tests
+│   └── unit/                      # Reader, pipeline, review, normalizer, local AI tests
 ├── docs/                          # Design notes and import architecture
 ├── scripts/                       # Registry and fixture tooling
 ├── .github/workflows/             # CI, schema, function deploys, keep-alive
@@ -449,10 +481,11 @@ CI runs lint, the registry check, coverage, and the production build on every pu
 - Patient registry, profiles, attachments, global search, dashboard with financial summary, and Excel export.
 - User management, section-scoped access, and editable option lists.
 - Complete English/Arabic interface with RTL support.
+- AI-assisted import (cloud): readers, extraction pipeline, provider fallback chain, encrypted settings, review UI, quotas, retries, and resume.
 
-### Preview
+### Complete
 
-- **AI-assisted import**: readers, extraction pipeline, provider fallback chain, encrypted settings, review UI, quotas, retries, and resume are implemented. The commit-to-registry step remains.
+- **Local AI inference engine**: model profiles, GGUF/ONNX adapters, verification, settings UI, browser pump, CONFIG_DRIFT detection, lease tokens, model identity audit.
 
 ### Planned
 
