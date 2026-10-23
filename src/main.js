@@ -43,6 +43,7 @@ import { getPriceStats } from './services/prices.js';
 import { loadOptions as fetchOptions, allOptions, createOption, updateOption, countOptionUsage, deleteOption, optionLabel as lookupOptionLabel } from './services/options.js';
 import { buildSearchDictionary, searchTermVariants, maritalStatusLabel } from './services/search-terms.js';
 import { importAgentWizard, importAgentEnter } from './features/import-agent/ui.js';
+import { GOVERNORATE_BY_ID_CODE, BORN_ABROAD_ID_CODE } from '@import-core/enums.js';
 
 // The local runtime fields that hold text rather than a number. Reading a
 // text field as a number turns it into NaN, which the server stores as null.
@@ -2644,12 +2645,28 @@ function app() {
             return `${year}-${monthStr}-${dayStr}`;
         },
 
+        deriveGovernorateFromEgyptianNid(nationalId) {
+            if (!nationalId) return null;
+            const id = String(nationalId).replace(/\D/g, '');
+            if (id.length !== 14) return null;
+            const governorateCode = id.substring(7, 9);
+            if (governorateCode === BORN_ABROAD_ID_CODE) return null;
+            if (GOVERNORATE_BY_ID_CODE && GOVERNORATE_BY_ID_CODE[governorateCode]) {
+                return GOVERNORATE_BY_ID_CODE[governorateCode];
+            }
+            return null;
+        },
+
         onNationalIdChange() {
             if (!this.patientForm) return;
             const dob = this.deriveDobFromEgyptianNid(this.patientForm.national_id);
             if (dob) {
                 this.patientForm.date_of_birth = dob;
                 this.refreshAge();
+            }
+            const governorate = this.deriveGovernorateFromEgyptianNid(this.patientForm.national_id);
+            if (governorate && !this.patientForm.governorate) {
+                this.patientForm.governorate = governorate;
             }
         },
 
