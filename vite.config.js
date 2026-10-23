@@ -1,4 +1,5 @@
-import { defineConfig } from 'vite';
+import { defineConfig, transformWithEsbuild } from 'vite';
+import legacy from '@vitejs/plugin-legacy';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -93,6 +94,30 @@ export default defineConfig({
     port: 3000,
   },
   plugins: [
+    // Lower `?.` / `??` before anything else runs. plugin-legacy re-transpiles
+    // with Babel, whose optional-chaining transform crashes on this bundle
+    // ("Cannot read properties of null (reading 'declarations')"). Removing the
+    // syntax up front keeps that transform out of the pipeline; Babel then
+    // handles async/await and classes for the old targets.
+    {
+      name: 'lower-modern-syntax-early',
+      enforce: 'pre',
+      apply: 'build',
+      async transform(code, id) {
+        if (!/\.(m?js)$/.test(id) || id.includes('/.vite/')) return null;
+        if (!code.includes('?.') && !code.includes('??')) return null;
+        return transformWithEsbuild(code, id, { target: 'es2017', loader: 'js' });
+      },
+    },
+    // A `nomodule` legacy bundle for Android WebViews that have no ES-module
+    // support at all (Android 6/7 ship Chrome ~44-55, where a
+    // `<script type="module">` is simply ignored -- and the whole app sits
+    // behind `x-cloak`, so ignoring it means a blank page). Modern browsers
+    // keep the fast module build; these targets get a transpiled, polyfilled
+    // copy that runs as a classic script.
+    legacy({
+      targets: ['Android >= 6', 'Chrome >= 49', 'iOS >= 12', 'Firefox >= 60', 'Edge >= 18'],
+    }),
     {
       name: 'local-model-middleware',
       configureServer(server) { server.middlewares.use(modelMiddleware()); },

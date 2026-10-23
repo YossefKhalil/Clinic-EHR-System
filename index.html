@@ -23,21 +23,40 @@
             <i class="bi bi-exclamation-triangle-fill text-warning" style="font-size:2.5rem"></i>
             <p class="mt-3 mb-1 fw-semibold" dir="rtl">تعذّر تشغيل التطبيق على هذا المتصفح.</p>
             <p class="text-muted small mb-0">The app could not start in this browser. Please update it, or use a recent Chrome, Edge, Firefox or Safari.</p>
+            <p class="text-danger small mt-2 mb-0" id="bootFallbackDetail"></p>
         </div>
     </div>
     <script>
-        // If Alpine has not booted a few seconds after load, the module bundle
-        // failed. Reveal the message rather than leaving the page blank.
-        window.addEventListener('load', function () {
-            setTimeout(function () {
-                if (!window.__appBooted) {
-                    var el = document.getElementById('bootFallback');
-                    if (el) el.hidden = false;
-                    var loader = document.querySelector('.page-loader');
-                    if (loader) loader.style.display = 'none';
-                }
-            }, 4000);
-        });
+        // Never leave a blank page. If a script fails, or the app has not
+        // booted shortly after load, reveal a real message -- and the error
+        // text, so the cause is visible without a developer console.
+        (function () {
+            var fallback = document.getElementById('bootFallback');
+            var detail = document.getElementById('bootFallbackDetail');
+            function show(reason) {
+                if (window.__appBooted || !fallback) return;
+                if (detail && reason) detail.textContent = String(reason).slice(0, 300);
+                fallback.hidden = false;
+                var loader = document.querySelector('.page-loader');
+                if (loader) loader.style.display = 'none';
+            }
+            window.addEventListener('error', function (e) {
+                show((e && e.message) || (e && e.error && e.error.message) || 'script error');
+            });
+            window.addEventListener('unhandledrejection', function (e) {
+                var reason = e && e.reason;
+                show((reason && reason.message) || reason || 'unhandled rejection');
+            });
+            window.addEventListener('load', function () {
+                var tick = setInterval(function () {
+                    if (window.__appBooted && fallback) {
+                        fallback.hidden = true;
+                        clearInterval(tick);
+                    }
+                }, 1000);
+                setTimeout(function () { show('startup timed out'); }, 15000);
+            });
+        })();
     </script>
 
     <div x-show="!loading" x-cloak>
