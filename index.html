@@ -282,7 +282,7 @@
             <!-- DASHBOARD PAGE -->
             <div x-show="isLoggedIn && currentPage === 'dashboard'" x-cloak>
                 <!-- Welcome Banner -->
-                <div class="d-flex align-items-center justify-content-between mb-4">
+                <div class="d-flex align-items-center justify-content-between mb-4 dashboard-page-header">
                     <div>
                         <h2 class="fw-bold text-secondary mb-0">
                             <i class="bi bi-house-door-fill me-2 text-primary"></i><span x-text="t('Dashboard')"></span>
@@ -293,7 +293,7 @@
                             <span>(<span x-text="roleLabel()"></span>)</span>
                         </small>
                     </div>
-                    <span class="text-muted small"><i class="bi bi-calendar3 me-1"></i><span x-text="currentDate"></span></span>
+                    <span class="text-muted small dashboard-date"><i class="bi bi-calendar3 me-1"></i><span x-text="currentDate"></span></span>
                 </div>
 
                 <!-- Patients overview (one card): the totals, the completion

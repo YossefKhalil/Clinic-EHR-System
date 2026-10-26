@@ -199,6 +199,38 @@ button.stat-link {
     transform: scaleX(-1);
 }
 
+/* The dashboard welcome header: on a phone the date drops under the
+   greeting and gets the full row, instead of squeezing both halves into
+   one line and splitting the Gregorian and Hijri dates across a narrow
+   column. Desktop keeps its one-row title/greeting/date banner. */
+@media (max-width: 767.98px) {
+    .dashboard-page-header {
+        flex-direction: column;
+        align-items: stretch !important;
+        gap: 0.45rem;
+        margin-block-end: 1rem !important;
+    }
+
+    .dashboard-page-header h2 {
+        font-size: 1.35rem;
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+    }
+
+    .dashboard-page-header .dashboard-date {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: 0.8rem;
+        line-height: 1.45;
+    }
+
+    .dashboard-page-header .dashboard-date i.bi {
+        margin-inline: 0 !important;
+        flex: 0 0 auto;
+    }
+}
+
 @media (max-width: 767.98px) {
     .stat-card .card-body {
         padding: 0.9rem 1rem !important;
@@ -1600,6 +1632,12 @@ i.bi {
     .patients-header-actions .filter-sort-group > .btn {
         padding-inline: 0.25rem;
         font-size: 0.85rem;
+    }
+
+    /* At the 100% phone default the 15-digit national ID is the last few
+       pixels keeping the table from fitting at 320px. */
+    .patients-table code {
+        font-size: 0.72em;
     }
 }
 

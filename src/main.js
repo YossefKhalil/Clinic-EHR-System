@@ -245,11 +245,13 @@ function app() {
         // Settings tabs (#16): Clinic options / Users / AI & Import. Users are
         // fetched when their tab is shown, not on every Settings entry.
         settingsTab: 'options',
-        // The patients table text size (a personal preference).
-        patientTableFont: 0.9,
-        // Which patient columns the table shows (issue #51). `null` means
-        // "not loaded yet"; the first read fills it from storage.
+        // The View options hold two independent presets (desktop and phone):
+        // columns plus text size. `patientTableView` keeps both saved states
+        // for the signed-in account; the two fields below are the preset the
+        // current window is showing. `null` means "not loaded yet".
+        patientTableFont: 1,
         patientTableColumns: null,
+        patientTableView: null,
         patientViewPanelOpen: false,
         // The dashboard cards can be folded into one line (the state is
         // remembered in this browser).
@@ -430,7 +432,7 @@ function app() {
                 // The tab title follows the language too (the static <title>
                 // is the Arabic name for the first paint and for no-JS).
                 document.title = t('Medical File');
-                this.patientTableFont = this.loadPatientTableFont();
+                this.initPatientTableView();
                 this.applyBootstrapDirection();
                 const cards = this.loadCardState();
                 this.statsCardOpen = cards.stats;
@@ -483,6 +485,10 @@ function app() {
                 this.isSuperAdmin = false;
                 this.resetSessionState();
             }
+
+            // The View options are saved per account: load this user's two
+            // presets after the account (or the signed-out shell) is known.
+            this.loadPatientTableView();
         },
 
         /**
@@ -928,24 +934,121 @@ function app() {
             this.saveCardState();
         },
 
-        // The table text size is remembered per browser. The size runs from
-        // 90% to 150%: smaller than that the ten columns do not fit.
-        loadPatientTableFont() {
+        // The View options have two presets: one for a desktop window and
+        // one for a phone. They hold columns plus text size, they are saved
+        // per account, and the phone breakpoint swaps the whole preset.
+        patientTableViewDefaults() {
+            return {
+                desktop: {
+                    columns: [
+                        'name', 'national_id', 'mobile', 'governorate', 'is_completed',
+                        'follower', 'source_of_money', 'section', 'created_at',
+                    ],
+                    font: 1.4,
+                },
+                phone: {
+                    columns: ['name', 'national_id', 'is_completed'],
+                    font: 1,
+                },
+            };
+        },
+
+        /** Which preset the current window is using. */
+        currentPatientTableMode() {
+            return typeof window !== 'undefined'
+                && typeof window.matchMedia === 'function'
+                && window.matchMedia('(max-width: 767.98px)').matches
+                ? 'phone'
+                : 'desktop';
+        },
+
+        /** Preferences are per account, so two users on one PC do not mix. */
+        patientTableViewStorageKey() {
+            const owner = this.user?.id || this.user?.email || 'guest';
+            return `patientsTableView:${owner}`;
+        },
+
+        /** Keep one stored preset valid, even after the column list changes. */
+        normalizePatientTableView(mode, saved) {
+            const fallback = this.patientTableViewDefaults()[mode];
+            const known = new Set(this.tableColumnOptions().map((column) => column.key));
+            let columns = Array.isArray(saved?.columns)
+                ? [...new Set(saved.columns)].filter((key) => known.has(key))
+                : [];
+            if (!columns.length) columns = [...fallback.columns];
+            // The name column is the row's identity; it cannot be hidden.
+            if (!columns.includes('name')) columns.unshift('name');
+            const font = Number(saved?.font);
+            return {
+                columns,
+                font: Number.isFinite(font) && font >= 0.9 && font <= 1.5
+                    ? font
+                    : fallback.font,
+            };
+        },
+
+        loadPatientTableView() {
+            let saved = null;
             try {
-                const stored = Number(localStorage.getItem('patientsTableFont'));
-                if (Number.isFinite(stored) && stored >= 0.9 && stored <= 1.5) return stored;
+                const raw = localStorage.getItem(this.patientTableViewStorageKey());
+                saved = raw ? JSON.parse(raw) : null;
             } catch {
-                // No storage (private mode): the default is fine.
+                // A corrupt or unavailable store falls back to the defaults.
             }
-            return 0.9;
+            this.patientTableView = {
+                desktop: this.normalizePatientTableView('desktop', saved?.desktop),
+                phone: this.normalizePatientTableView('phone', saved?.phone),
+            };
+            this.applyPatientTableView();
+        },
+
+        /** Put the preset for the current breakpoint on screen. */
+        applyPatientTableView() {
+            const mode = this.currentPatientTableMode();
+            const view = this.patientTableView?.[mode]
+                || this.patientTableViewDefaults()[mode];
+            this.patientTableColumns = [...view.columns];
+            this.patientTableFont = view.font;
+        },
+
+        initPatientTableView() {
+            this.loadPatientTableView();
+            if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+            const media = window.matchMedia('(max-width: 767.98px)');
+            const apply = () => this.applyPatientTableView();
+            if (media.addEventListener) media.addEventListener('change', apply);
+            else if (media.addListener) media.addListener(apply);
+        },
+
+        /** Write one preset (the current breakpoint) for this account. */
+        savePatientTableView(mode, patch) {
+            if (!this.patientTableView) this.loadPatientTableView();
+            const defaults = this.patientTableViewDefaults();
+            this.patientTableView = {
+                ...this.patientTableView,
+                [mode]: {
+                    ...(this.patientTableView[mode] || defaults[mode]),
+                    ...patch,
+                },
+            };
+            try {
+                localStorage.setItem(
+                    this.patientTableViewStorageKey(),
+                    JSON.stringify(this.patientTableView),
+                );
+            } catch {
+                // No storage: the choice lasts for this page only.
+            }
         },
 
         savePatientTableFont() {
-            try {
-                localStorage.setItem('patientsTableFont', String(this.patientTableFont));
-            } catch {
-                // No storage: the setting lasts for this page only.
-            }
+            const mode = this.currentPatientTableMode();
+            const numeric = Number(this.patientTableFont);
+            const font = Number.isFinite(numeric)
+                ? Math.min(1.5, Math.max(0.9, Math.round(numeric * 100) / 100))
+                : this.patientTableViewDefaults()[mode].font;
+            this.patientTableFont = font;
+            this.savePatientTableView(mode, { font });
         },
 
         /**
@@ -977,58 +1080,33 @@ function app() {
         },
 
         /**
-         * The first-run column sets. A phone starts with the fields that
-         * decide who the patient is and what state the file is in; the
-         * section/source/follower and the long text fields stay available in
-         * View options instead of forcing a wide sideways scroll. Desktop
-         * keeps the full working set it always had.
+         * The first-run columns for a mode. A phone starts with the fields
+         * that decide who the patient is and what state the file is in;
+         * desktop keeps the full working set it always had.
          */
-        tableColumnDefaults() {
-            const desktop = [
-                'name', 'national_id', 'mobile', 'governorate', 'is_completed',
-                'follower', 'source_of_money', 'section', 'created_at',
-            ];
-            const phone = ['name', 'national_id', 'is_completed'];
-            const isPhone = typeof window !== 'undefined'
-                && typeof window.matchMedia === 'function'
-                && window.matchMedia('(max-width: 767.98px)').matches;
-            return isPhone ? phone : desktop;
+        tableColumnDefaults(mode = this.currentPatientTableMode()) {
+            return [...this.patientTableViewDefaults()[mode].columns];
         },
 
         /** The visible set, loaded from storage on first use. */
         tableColumns() {
             if (!Array.isArray(this.patientTableColumns)) {
-                this.patientTableColumns = this.loadPatientTableColumns();
+                this.loadPatientTableView();
             }
             return this.patientTableColumns;
         },
 
-        loadPatientTableColumns() {
-            try {
-                const raw = localStorage.getItem('patientsTableColumns');
-                const parsed = raw ? JSON.parse(raw) : null;
-                if (Array.isArray(parsed) && parsed.length) {
-                    const known = new Set(this.tableColumnOptions().map((column) => column.key));
-                    const kept = parsed.filter((key) => known.has(key));
-                    if (kept.length) return kept;
-                }
-            } catch {
-                // A corrupt value falls back to the defaults below.
-            }
-            return this.tableColumnDefaults();
-        },
-
         savePatientTableColumns(columns) {
+            const mode = this.currentPatientTableMode();
             // Keep the panel's order, so the persisted value is stable.
             const wanted = new Set(columns);
-            this.patientTableColumns = this.tableColumnOptions()
+            const ordered = this.tableColumnOptions()
                 .map((column) => column.key)
                 .filter((key) => wanted.has(key));
-            try {
-                localStorage.setItem('patientsTableColumns', JSON.stringify(this.patientTableColumns));
-            } catch {
-                // No storage: the choice lasts for this page only.
-            }
+            // The name column is the row's identity; it cannot be hidden.
+            if (!ordered.includes('name')) ordered.unshift('name');
+            this.patientTableColumns = ordered;
+            this.savePatientTableView(mode, { columns: ordered });
         },
 
         isColumnVisible(key) {
