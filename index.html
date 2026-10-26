@@ -517,14 +517,14 @@
                 </div>
 
                 <!-- Recent Patients -->
-                <div class="card border-0 shadow-sm">
+                <div class="card border-0 shadow-sm dashboard-recent-card">
                     <div class="card-header bg-white border-bottom py-3 d-flex align-items-center justify-content-between">
                         <h5 class="mb-0 fw-semibold"><i class="bi bi-clock-history me-2 text-primary"></i><span x-text="t('Recent Patients')"></span></h5>
                         <a href="#" class="btn btn-sm btn-outline-primary" @click="navigate('patients')"><span x-text="t('View All')"></span></a>
                     </div>
                     <div class="card-body p-0">
                         <div class="table-responsive">
-                            <table class="table table-hover align-middle mb-0">
+                            <table class="table table-hover align-middle mb-0 dashboard-recent-table">
                                 <thead class="table-light text-muted">
                                     <tr>
                                         <th class="ps-4 py-3" x-text="t('Patient')"></th>
@@ -536,16 +536,16 @@
                                 <tbody>
                                     <template x-for="patient in recentPatients" :key="patient.id">
                                         <tr>
-                                            <td class="ps-4">
+                                            <td class="ps-4 recent-patient-cell">
                                                 <a href="#" class="fw-semibold text-dark text-decoration-none" @click="showPatient(patient)" x-text="patient.name"></a>
                                             </td>
-                                            <td class="text-muted" x-text="patient.problem ? (patient.problem.length > 60 ? patient.problem.substring(0,60)+'…' : patient.problem) : ''"></td>
-                                            <td>
+                                            <td class="text-muted recent-problem-cell" x-text="patient.problem ? (patient.problem.length > 60 ? patient.problem.substring(0,60)+'…' : patient.problem) : ''"></td>
+                                            <td class="recent-status-cell">
                                                 <span class="badge" :class="patient.is_completed ? 'bg-success' : 'bg-secondary'">
                                                     <span x-text="patient.is_completed ? t('Completed') : t('Pending')"></span>
                                                 </span>
                                             </td>
-                                            <td>
+                                            <td class="recent-date-cell">
                                                 <template x-if="patient.visit_date">
                                                     <span class="badge bg-light text-dark border" x-text="formatDate(patient.visit_date)"></span>
                                                 </template>
@@ -555,7 +555,7 @@
                                             </td>
                                         </tr>
                                     </template>
-                                    <tr x-show="recentPatients.length === 0">
+                                    <tr x-show="recentPatients.length === 0" class="recent-empty-row">
                                         <td colspan="4" class="text-center py-4 text-muted" x-text="t('No patients recorded yet.')"></td>
                                     </tr>
                                 </tbody>
@@ -2497,18 +2497,18 @@
                                     <tbody>
                                         <template x-for="u in users" :key="u.id">
                                             <tr>
-                                                <td class="ps-4 fw-semibold">
+                                                <td class="ps-4 fw-semibold settings-user-name">
                                                     <span x-text="u.name"></span>
                                                     <span class="badge bg-light text-secondary border ms-1" x-show="u.id === user?.id" x-text="t('You')"></span>
                                                 </td>
-                                                <td class="text-muted" x-text="u.email"></td>
-                                                <td>
+                                                <td class="text-muted settings-user-email" x-text="u.email"></td>
+                                                <td class="settings-user-role">
                                                     <span class="badge rounded-pill px-2" :class="u.is_super_admin ? 'bg-danger' : 'bg-secondary'">
                                                         <i class="bi me-1" :class="u.is_super_admin ? 'bi-shield-lock-fill' : 'bi-person-fill'" aria-hidden="true"></i>
                                                         <span x-text="u.is_super_admin ? t('Super Admin') : t('Staff')"></span>
                                                     </span>
                                                 </td>
-                                                <td>
+                                                <td class="settings-user-access settings-user-read" :data-label="t('Read Access')">
                                                     <template x-if="u.is_super_admin">
                                                         <span class="text-muted small"><i class="bi bi-infinity me-1" aria-hidden="true"></i><span x-text="t('All sections')"></span></span>
                                                     </template>
@@ -2521,7 +2521,7 @@
                                                         </div>
                                                     </template>
                                                 </td>
-                                                <td>
+                                                <td class="settings-user-access settings-user-write" :data-label="t('Write Access')">
                                                     <template x-if="u.is_super_admin">
                                                         <span class="text-muted small"><i class="bi bi-infinity me-1" aria-hidden="true"></i><span x-text="t('All sections')"></span></span>
                                                     </template>
@@ -2534,7 +2534,7 @@
                                                         </div>
                                                     </template>
                                                 </td>
-                                                <td class="text-end pe-4">
+                                                <td class="text-end pe-4 settings-user-actions">
                                                     <div class="btn-group" role="group">
                                                         <button type="button" class="btn btn-sm btn-outline-primary" @click="editUser(u)" :aria-label="t('Edit User')" :title="t('Edit User')">
                                                             <i class="bi bi-pencil-square"></i>
@@ -2546,7 +2546,7 @@
                                                 </td>
                                             </tr>
                                         </template>
-                                        <tr x-show="users.length === 0">
+                                        <tr x-show="users.length === 0" class="settings-user-empty-row">
                                             <td colspan="6" class="text-center py-4 text-muted" x-text="t('No users found.')"></td>
                                         </tr>
                                     </tbody>

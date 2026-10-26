@@ -231,6 +231,83 @@ button.stat-link {
     }
 }
 
+/* Recent patients on the dashboard: a table reads well on a desktop, but
+   four columns squeeze the problem text into a vertical ribbon on a phone.
+   Below 768px each row becomes a small card instead: name, full-width
+   problem, then status and visit date side by side. */
+@media (max-width: 767.98px) {
+    .dashboard-recent-table thead {
+        display: none;
+    }
+
+    .dashboard-recent-table,
+    .dashboard-recent-table tbody,
+    .dashboard-recent-table tbody tr,
+    .dashboard-recent-table tbody td {
+        display: block;
+        width: 100%;
+    }
+
+    .dashboard-recent-table tbody tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+            "patient patient"
+            "problem problem"
+            "status date";
+        gap: 0.3rem 0.75rem;
+        padding: 0.85rem 1rem;
+        border-bottom: 1px solid var(--bs-border-color-translucent);
+    }
+
+    .dashboard-recent-table tbody tr:last-child {
+        border-bottom: 0;
+    }
+
+    .dashboard-recent-table tbody td {
+        padding: 0 !important;
+        border: 0 !important;
+    }
+
+    .dashboard-recent-table .recent-patient-cell {
+        grid-area: patient;
+        font-size: 1rem;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+    }
+
+    .dashboard-recent-table .recent-problem-cell {
+        grid-area: problem;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+    }
+
+    .dashboard-recent-table .recent-problem-cell:empty {
+        display: none;
+    }
+
+    .dashboard-recent-table .recent-status-cell {
+        grid-area: status;
+        justify-self: start;
+    }
+
+    .dashboard-recent-table .recent-date-cell {
+        grid-area: date;
+        justify-self: end;
+        white-space: nowrap;
+    }
+
+    .dashboard-recent-table .recent-empty-row {
+        display: block;
+        padding: 0;
+    }
+
+    .dashboard-recent-table .recent-empty-row td {
+        padding: 1.25rem 1rem !important;
+        text-align: center;
+    }
+}
+
 @media (max-width: 767.98px) {
     .stat-card .card-body {
         padding: 0.9rem 1rem !important;
@@ -1240,6 +1317,114 @@ i.bi {
 .settings-user-table .btn {
     min-width: 2.75rem;
     min-height: 2.75rem;
+}
+
+/*
+ * On a phone or a narrow tablet the six-column users table cannot fit: the
+ * access columns collapse into narrow ribbons and the row scrolls sideways.
+ * Each account becomes a card instead, with its name/actions at the top and
+ * the access badges on their own labelled lines. The desktop table is
+ * untouched.
+ */
+@media (max-width: 991.98px) {
+    .settings-user-table thead {
+        display: none;
+    }
+
+    .settings-user-table,
+    .settings-user-table tbody,
+    .settings-user-table tbody tr,
+    .settings-user-table tbody td {
+        display: block;
+        width: 100%;
+    }
+
+    .settings-user-table tbody tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+            "name actions"
+            "email email"
+            "role role"
+            "read read"
+            "write write";
+        gap: 0.3rem 0.75rem;
+        padding: 0.85rem 1rem;
+        border-bottom: 1px solid var(--bs-border-color-translucent);
+    }
+
+    .settings-user-table tbody tr:last-child {
+        border-bottom: 0;
+    }
+
+    .settings-user-table tbody td {
+        padding: 0 !important;
+        border: 0 !important;
+    }
+
+    .settings-user-table .settings-user-name {
+        grid-area: name;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 1rem;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+    }
+
+    .settings-user-table .settings-user-email {
+        grid-area: email;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+    }
+
+    .settings-user-table .settings-user-role {
+        grid-area: role;
+        line-height: 1;
+    }
+
+    .settings-user-table .settings-user-access {
+        grid-area: read;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 0.3rem;
+        line-height: 1.4;
+    }
+
+    .settings-user-table .settings-user-write {
+        grid-area: write;
+    }
+
+    .settings-user-table .settings-user-access::before {
+        content: attr(data-label);
+        color: var(--bs-secondary-color);
+        font-size: 0.75rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .settings-user-table .settings-user-access > div {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .settings-user-table .settings-user-actions {
+        grid-area: actions;
+        justify-self: end;
+        align-self: start;
+    }
+
+    .settings-user-table .settings-user-empty-row {
+        display: block;
+        padding: 0;
+    }
+
+    .settings-user-table .settings-user-empty-row td {
+        padding: 1.25rem 1rem !important;
+        text-align: center;
+    }
 }
 
 /* The per-section permission matrix in the user modal: a compact grid with a
