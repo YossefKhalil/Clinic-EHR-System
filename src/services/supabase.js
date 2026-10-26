@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { createSessionStorage } from './session-storage.js';
 
 let supabaseClient = null;
 let currentUser = null;
@@ -15,7 +16,13 @@ export async function initSupabase() {
     supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
         // Long extractions outlive a short-lived access token. Without this the
         // browser keeps an expired JWT and every table read fails mid-import.
-        auth: { autoRefreshToken: true, persistSession: true }
+        // The storage adapter is what "Remember me" switches between
+        // localStorage and sessionStorage (see session-storage.js).
+        auth: {
+            autoRefreshToken: true,
+            persistSession: true,
+            storage: createSessionStorage(),
+        },
     });
     
     try {

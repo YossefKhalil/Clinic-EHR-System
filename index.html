@@ -228,11 +228,11 @@
 
             <!-- Global toasts (showAlert): stacked in the corner, each one
                  auto-dismisses, nothing is pushed down the page. -->
-            <div class="toast-stack" aria-live="polite" aria-atomic="false">
+            <div class="toast-stack" :class="{ 'toast-stack--above-bar': isLoggedIn }" aria-live="polite" aria-atomic="false">
                 <template x-for="toast in toasts" :key="toast.id">
                     <div class="alert d-flex align-items-start gap-2 shadow-sm mb-0" :class="'alert-' + toast.type" role="alert">
                         <i class="bi mt-1" :class="toastIcon(toast.type)" aria-hidden="true"></i>
-                        <span class="flex-grow-1" x-text="toast.message"></span>
+                        <span class="flex-grow-1" :title="toast.message" x-text="toast.message"></span>
                         <button type="button" class="btn-close" @click="dismissAlert(toast.id)" :aria-label="t('Close')"></button>
                     </div>
                 </template>
@@ -263,6 +263,10 @@
                             <div class="mt-4 mb-3">
                                 <label class="form-label" x-text="t('Password')"></label>
                                 <input id="password" type="password" class="form-control" x-model="loginForm.password" required autocomplete="current-password">
+                            </div>
+                            <div class="form-check mt-3">
+                                <input class="form-check-input" type="checkbox" id="rememberMe" x-model="loginForm.remember">
+                                <label class="form-check-label" for="rememberMe" x-text="t('Remember me')"></label>
                             </div>
                             <div class="d-flex justify-content-end mt-4">
                                 <button type="submit" class="btn btn-primary" :disabled="loginLoading">
@@ -568,15 +572,6 @@
                         <h2 class="text-secondary fw-bold mb-0">
                             <i class="bi bi-people-fill me-2 text-primary"></i><span x-text="t('Patients Management')"></span>
                         </h2>
-                        <!-- The table size is a personal preference: the rows
-                             carry a lot of data and the text can be tighter. -->
-                        <div class="d-flex align-items-center gap-2 mt-2">
-                            <label class="small text-muted text-nowrap" for="patientTableFont" x-text="t('Text size')"></label>
-                            <input type="range" class="form-range" style="max-width:8rem" id="patientTableFont"
-                                min="0.9" max="1.5" step="0.05" x-model.number="patientTableFont"
-                                @input="savePatientTableFont()">
-                            <span class="small text-muted" style="min-width:2.6rem" x-text="Math.round(patientTableFont * 100) + '%'"></span>
-                        </div>
                     </div>
                     <div class="col-12 col-md-6 text-end d-flex flex-wrap justify-content-end align-items-center gap-2">
                         <!-- The filter control (issue #13) lives in the toolbar row:
@@ -617,6 +612,54 @@
                                     </li>
                                 </template>
                             </ul>
+                        </div>
+                        <!-- View options (issue #51): the eye opens the text
+                             size and the column chooser. -->
+                        <div class="export-group view-group" @click.outside="closePatientViewPanel()">
+                            <button type="button" class="btn"
+                                :class="patientViewPanelOpen ? 'btn-primary' : 'btn-outline-secondary'"
+                                @click="patientViewPanelOpen = !patientViewPanelOpen"
+                                aria-haspopup="dialog" :aria-expanded="patientViewPanelOpen ? 'true' : 'false'"
+                                :title="t('View options')" :aria-label="t('View options')">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                            <div class="export-panel view-panel" x-show="patientViewPanelOpen" x-cloak role="dialog"
+                                :aria-label="t('View options')" @keydown.escape.stop="closePatientViewPanel()">
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <h6 class="mb-0 fw-semibold" x-text="t('View options')"></h6>
+                                    <button type="button" class="btn-close" :aria-label="t('Close')" @click="closePatientViewPanel()"></button>
+                                </div>
+
+                                <div class="mb-3">
+                                    <div class="export-panel-heading" x-text="t('Text size')"></div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <input type="range" class="form-range" id="patientTableFont"
+                                            min="0.9" max="1.5" step="0.05" x-model.number="patientTableFont"
+                                            @input="savePatientTableFont()">
+                                        <span class="small text-muted" style="min-width:2.6rem" x-text="Math.round(patientTableFont * 100) + '%'"></span>
+                                    </div>
+                                </div>
+
+                                <div class="mb-2 d-flex align-items-center justify-content-between">
+                                    <div class="export-panel-heading mb-0" x-text="t('Columns')"></div>
+                                    <div class="d-flex align-items-center gap-1">
+                                        <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" @click="showAllColumns()" x-text="t('All')"></button>
+                                        <span class="text-muted small" aria-hidden="true">·</span>
+                                        <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" @click="resetTableColumns()" x-text="t('Reset')"></button>
+                                    </div>
+                                </div>
+                                <div class="export-field-list">
+                                    <template x-for="column in tableColumnOptions()" :key="column.key">
+                                        <label class="form-check mb-0">
+                                            <input class="form-check-input" type="checkbox"
+                                                :checked="isColumnVisible(column.key)"
+                                                :disabled="column.key === 'name'"
+                                                @change="setColumnVisible(column.key, $event.target.checked)">
+                                            <span class="form-check-label" x-text="column.label"></span>
+                                        </label>
+                                    </template>
+                                </div>
+                            </div>
                         </div>
                         <button type="button" class="btn filter-clear-all text-secondary" x-show="activeFilterCount()" x-cloak @click="clearAllFilters()">
                             <i class="bi bi-x-circle"></i><span x-text="t('Clear all')"></span>
@@ -871,60 +914,69 @@
                                                 :disabled="patients.length === 0"
                                                 :aria-label="t('Select all')">
                                         </th>
-                                        <th class="py-3 sortable-head ps-2" :aria-sort="ariaSort('name')">
+                                        <th class="py-3 sortable-head ps-2" :aria-sort="ariaSort('name')" x-show="isColumnVisible('name')">
                                             <button type="button" class="table-sort-btn" @click="sortPatientsBy('name')">
                                                 <span x-text="t('Patient Name')"></span>
                                                 <i class="bi sort-arrow" :class="sortIcon('name')"></i>
                                             </button>
                                         </th>
-                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('national_id')">
+                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('national_id')" x-show="isColumnVisible('national_id')">
                                             <button type="button" class="table-sort-btn" @click="sortPatientsBy('national_id')">
                                                 <span x-text="t('National ID')"></span>
                                                 <i class="bi sort-arrow" :class="sortIcon('national_id')"></i>
                                             </button>
                                         </th>
-                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('mobile')">
+                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('mobile')" x-show="isColumnVisible('mobile')">
                                             <button type="button" class="table-sort-btn" @click="sortPatientsBy('mobile')">
                                                 <span x-text="t('Mobile No.')"></span>
                                                 <i class="bi sort-arrow" :class="sortIcon('mobile')"></i>
                                             </button>
                                         </th>
-                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('governorate')">
+                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('governorate')" x-show="isColumnVisible('governorate')">
                                             <button type="button" class="table-sort-btn" @click="sortPatientsBy('governorate')">
                                                 <span x-text="t('Governorate')"></span>
                                                 <i class="bi sort-arrow" :class="sortIcon('governorate')"></i>
                                             </button>
                                         </th>
-                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('is_completed')">
+                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('is_completed')" x-show="isColumnVisible('is_completed')">
                                             <button type="button" class="table-sort-btn" @click="sortPatientsBy('is_completed')">
                                                 <span x-text="t('Status')"></span>
                                                 <i class="bi sort-arrow" :class="sortIcon('is_completed')"></i>
                                             </button>
                                         </th>
-                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('follower')">
+                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('follower')" x-show="isColumnVisible('follower')">
                                             <button type="button" class="table-sort-btn" @click="sortPatientsBy('follower')">
                                                 <span x-text="t('Follower')"></span>
                                                 <i class="bi sort-arrow" :class="sortIcon('follower')"></i>
                                             </button>
                                         </th>
-                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('source_of_money')">
+                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('source_of_money')" x-show="isColumnVisible('source_of_money')">
                                             <button type="button" class="table-sort-btn" @click="sortPatientsBy('source_of_money')">
                                                 <span x-text="t('Source')"></span>
                                                 <i class="bi sort-arrow" :class="sortIcon('source_of_money')"></i>
                                             </button>
                                         </th>
-                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('section')">
+                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('section')" x-show="isColumnVisible('section')">
                                             <button type="button" class="table-sort-btn" @click="sortPatientsBy('section')">
                                                 <span x-text="t('Section')"></span>
                                                 <i class="bi sort-arrow" :class="sortIcon('section')"></i>
                                             </button>
                                         </th>
-                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('created_at')">
+                                        <th class="py-3 sortable-head " :aria-sort="ariaSort('created_at')" x-show="isColumnVisible('created_at')">
                                             <button type="button" class="table-sort-btn" @click="sortPatientsBy('created_at')">
                                                 <span x-text="t('Registered Date')"></span>
                                                 <i class="bi sort-arrow" :class="sortIcon('created_at')"></i>
                                             </button>
                                         </th>
+                                        <th class="py-3" x-show="isColumnVisible('date_of_birth')" x-text="t('Date of Birth')"></th>
+                                        <th class="py-3" x-show="isColumnVisible('age')" x-text="t('Age')"></th>
+                                        <th class="py-3" x-show="isColumnVisible('marital_status')" x-text="t('Marital Status')"></th>
+                                        <th class="py-3" x-show="isColumnVisible('children_count')" x-text="t('Number of Children')"></th>
+                                        <th class="py-3" x-show="isColumnVisible('price')" x-text="t('Price')"></th>
+                                        <th class="py-3" x-show="isColumnVisible('visit_date')" x-text="t('Visit Date')"></th>
+                                        <th class="py-3" x-show="isColumnVisible('address')" x-text="t('Address')"></th>
+                                        <th class="py-3" x-show="isColumnVisible('problem')" x-text="t('Problem')"></th>
+                                        <th class="py-3" x-show="isColumnVisible('solution')" x-text="t('Solution')"></th>
                                         <th class="text-end pe-4 py-3" x-text="t('Actions')"></th>
                                     </tr>
                                 </thead>
@@ -937,11 +989,11 @@
                                                     @change="togglePatientSelection(patient.id, $event.target.checked)"
                                                     :aria-label="t('Select patient')">
                                             </td>
-                                            <td class="ps-2">
+                                            <td class="ps-2" x-show="isColumnVisible('name')">
                                                 <span class="fw-bold text-dark d-block" x-text="patient.name"></span>
                                             </td>
-                                            <td><code x-text="patient.national_id"></code></td>
-                                            <td>
+                                            <td x-show="isColumnVisible('national_id')"><code x-text="patient.national_id"></code></td>
+                                            <td x-show="isColumnVisible('mobile')">
                                                 <template x-if="patient.mobile">
                                                     <span><i class="bi bi-telephone text-muted me-1"></i><span x-text="patient.mobile"></span></span>
                                                 </template>
@@ -949,12 +1001,12 @@
                                                     <span class="text-muted"><em x-text="t('None')"></em></span>
                                                 </template>
                                             </td>
-                                            <td>
+                                            <td x-show="isColumnVisible('governorate')">
                                                 <span class="badge bg-light text-dark border px-2 py-1">
                                                     <i class="bi bi-geo-alt-fill text-danger me-1"></i><span x-text="patient.governorate ? governorateLabel(patient.governorate) : 'N/A'"></span>
                                                 </span>
                                             </td>
-                                            <td>
+                                            <td x-show="isColumnVisible('is_completed')">
                                                 <button class="btn btn-sm px-2 py-1" :class="patient.is_completed ? 'btn-success' : 'btn-outline-secondary'" @click="toggleStatus(patient)">
                                                     <template x-if="patient.is_completed">
                                                         <span><i class="bi bi-check-circle-fill me-1"></i><span x-text="t('Completed')"></span></span>
@@ -964,17 +1016,44 @@
                                                     </template>
                                                 </button>
                                             </td>
-                                            <td>
+                                            <td x-show="isColumnVisible('follower')">
                                                 <span class="text-secondary fs-7"><i class="bi bi-person-badge me-1"></i><span x-text="followerLabel(patient.follower)"></span></span>
                                             </td>
-                                            <td>
+                                            <td x-show="isColumnVisible('source_of_money')">
                                                 <span class="text-secondary fs-7"><i class="bi bi-cash-coin me-1"></i><span x-text="patient.source_of_money ? optionLabel('source', patient.source_of_money) : ''"></span></span>
                                             </td>
-                                            <td>
+                                            <td x-show="isColumnVisible('section')">
                                                 <span class="text-secondary fs-7"><i class="bi bi-building me-1"></i><span x-text="patient.section ? optionLabel('section', patient.section) : ''"></span></span>
                                             </td>
-                                            <td>
+                                            <td x-show="isColumnVisible('created_at')">
                                                 <span class="text-muted small" x-text="formatDateOnly(patient.created_at)"></span>
+                                            </td>
+                                            <td x-show="isColumnVisible('date_of_birth')">
+                                                <span class="text-muted small" x-text="patient.date_of_birth ? formatDateOnly(patient.date_of_birth) : '—'"></span>
+                                            </td>
+                                            <td x-show="isColumnVisible('age')">
+                                                <span x-text="patientAgeOf(patient)"></span>
+                                            </td>
+                                            <td x-show="isColumnVisible('marital_status')">
+                                                <span class="text-muted small" x-text="patient.marital_status ? optionLabel('marital', patient.marital_status) : '—'"></span>
+                                            </td>
+                                            <td x-show="isColumnVisible('children_count')">
+                                                <span x-text="patient.children_count ?? '—'"></span>
+                                            </td>
+                                            <td x-show="isColumnVisible('price')">
+                                                <span x-text="patient.price ?? '—'"></span>
+                                            </td>
+                                            <td x-show="isColumnVisible('visit_date')">
+                                                <span class="text-muted small" x-text="patient.visit_date ? formatDateOnly(patient.visit_date) : '—'"></span>
+                                            </td>
+                                            <td x-show="isColumnVisible('address')">
+                                                <span class="text-muted small" x-text="patient.address || '—'"></span>
+                                            </td>
+                                            <td x-show="isColumnVisible('problem')">
+                                                <span class="text-muted small" :title="patient.problem || ''" x-text="patient.problem ? (patient.problem.length > 40 ? patient.problem.slice(0, 40) + '…' : patient.problem) : '—'"></span>
+                                            </td>
+                                            <td x-show="isColumnVisible('solution')">
+                                                <span class="text-muted small" :title="patient.solution || ''" x-text="patient.solution ? (patient.solution.length > 40 ? patient.solution.slice(0, 40) + '…' : patient.solution) : '—'"></span>
                                             </td>
                                             <td class="text-end pe-4">
                                                 <div class="btn-group" role="group">
@@ -992,12 +1071,12 @@
                                         </tr>
                                     </template>
                                     <tr x-show="patientsLoading">
-                                        <td colspan="11" class="text-center py-5">
+                                        <td :colspan="visibleColumnCount() + 2" class="text-center py-5">
                                             <div class="spinner-border text-primary"></div>
                                         </td>
                                     </tr>
                                     <tr x-show="!patientsLoading && patients.length === 0">
-                                        <td colspan="11" class="text-center py-5 text-muted">
+                                        <td :colspan="visibleColumnCount() + 2" class="text-center py-5 text-muted">
                                             <i class="bi bi-folder-x fs-1 text-secondary d-block mb-2"></i>
                                             <span class="fw-semibold" x-text="t('No patients recorded yet.')"></span>
                                         </td>
@@ -3183,7 +3262,12 @@
 
                                     <div>
                                         <small class="text-muted d-block fw-semibold" x-text="t('Dependents / Children')"></small>
-                                        <span class="fw-semibold text-dark"><span x-text="selectedPatient?.children_count ?? '0'"></span> <span x-text="t('child(ren)')"></span></span>
+                                        <template x-if="selectedPatient?.children_count !== null && selectedPatient?.children_count !== undefined && selectedPatient?.children_count !== ''">
+                                            <span class="fw-semibold text-dark"><span x-text="selectedPatient.children_count"></span> <span x-text="t('child(ren)')"></span></span>
+                                        </template>
+                                        <template x-if="selectedPatient?.children_count === null || selectedPatient?.children_count === undefined || selectedPatient?.children_count === ''">
+                                            <span class="text-muted" x-text="t('Not recorded')"></span>
+                                        </template>
                                     </div>
 
                                     <div>

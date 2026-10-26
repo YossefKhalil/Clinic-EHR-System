@@ -16,6 +16,7 @@ import bootstrapBundle from 'bootstrap/dist/js/bootstrap.bundle.min.js';
 import Alpine from 'alpinejs';
 import { initI18n, t, setLocale, getLocale } from './services/i18n.js';
 import { initSupabase, supabase, getCurrentUser, signInWithIdentifier, signOut } from './services/supabase.js';
+import { readRememberPreference, saveRememberPreference } from './services/session-storage.js';
 import { loadImportEnabled, clearImportFlagCache } from './services/import-flag.js';
 import { dbErrorMessage } from './services/error-message.js';
 import { loadAiSettings as loadAiSettingsApi, saveAiSettings as saveAiSettingsApi, testAiProvider as testAiProviderApi, loadImportLimits as loadImportLimitsApi, saveImportLimits as saveImportLimitsApi, resetCloudConsent as resetCloudConsentApi } from './services/ai-settings.js';
@@ -167,7 +168,7 @@ function app() {
         // mock data, without a session. Never touches real data.
         mockPreview: false,
         
-        loginForm: { identifier: '', password: '' },
+        loginForm: { identifier: '', password: '', remember: true },
         loginError: null,
         loginLoading: false,
         
@@ -244,6 +245,10 @@ function app() {
         settingsTab: 'options',
         // The patients table text size (a personal preference).
         patientTableFont: 0.9,
+        // Which patient columns the table shows (issue #51). `null` means
+        // "not loaded yet"; the first read fills it from storage.
+        patientTableColumns: null,
+        patientViewPanelOpen: false,
         // The dashboard cards can be folded into one line (the state is
         // remembered in this browser).
         statsCardOpen: true,
@@ -545,7 +550,7 @@ function app() {
             // Transient UI state
             this.exporting = false;
             this.toasts = [];
-            this.loginForm = { identifier: '', password: '' };
+            this.loginForm = { identifier: '', password: '', remember: readRememberPreference() };
             this.loginError = null;
             this.loginLoading = false;
         },
@@ -765,6 +770,9 @@ function app() {
             this.loginLoading = true;
             this.loginError = null;
             
+            // Store the choice before the client writes the session: the
+            // storage adapter reads it to pick localStorage or sessionStorage.
+            saveRememberPreference(this.loginForm.remember !== false);
             try {
                 await signInWithIdentifier(this.loginForm.identifier, this.loginForm.password);
             } catch (error) {
@@ -779,7 +787,7 @@ function app() {
             // Nothing below may strand them on the login screen: a missing
             // profile row or a failed dashboard fetch is reported, not fatal.
             this.updateAuthState();
-            this.loginForm = { identifier: '', password: '' };
+            this.loginForm = { identifier: '', password: '', remember: readRememberPreference() };
             this.currentPage = 'dashboard';
             this.loginLoading = false;
             
@@ -935,6 +943,106 @@ function app() {
             } catch {
                 // No storage: the setting lasts for this page only.
             }
+        },
+
+        /**
+         * The columns the table can show (issue #51): the ones it always had,
+         * plus every other field on a patient record. The extra ones start
+         * hidden, so the default table is exactly what it was.
+         */
+        tableColumnOptions() {
+            return [
+                { key: 'name', label: 'Patient Name' },
+                { key: 'national_id', label: 'National ID' },
+                { key: 'mobile', label: 'Mobile No.' },
+                { key: 'governorate', label: 'Governorate' },
+                { key: 'is_completed', label: 'Status' },
+                { key: 'follower', label: 'Follower' },
+                { key: 'source_of_money', label: 'Source of Money' },
+                { key: 'section', label: 'Section' },
+                { key: 'created_at', label: 'Registered Date' },
+                { key: 'date_of_birth', label: 'Date of Birth' },
+                { key: 'age', label: 'Age' },
+                { key: 'marital_status', label: 'Marital Status' },
+                { key: 'children_count', label: 'Number of Children' },
+                { key: 'price', label: 'Price' },
+                { key: 'visit_date', label: 'Visit Date' },
+                { key: 'address', label: 'Address' },
+                { key: 'problem', label: 'Problem' },
+                { key: 'solution', label: 'Solution' },
+            ].map((column) => ({ ...column, label: this.t(column.label) }));
+        },
+
+        tableColumnDefaults() {
+            return [
+                'name', 'national_id', 'mobile', 'governorate', 'is_completed',
+                'follower', 'source_of_money', 'section', 'created_at',
+            ];
+        },
+
+        /** The visible set, loaded from storage on first use. */
+        tableColumns() {
+            if (!Array.isArray(this.patientTableColumns)) {
+                this.patientTableColumns = this.loadPatientTableColumns();
+            }
+            return this.patientTableColumns;
+        },
+
+        loadPatientTableColumns() {
+            try {
+                const raw = localStorage.getItem('patientsTableColumns');
+                const parsed = raw ? JSON.parse(raw) : null;
+                if (Array.isArray(parsed) && parsed.length) {
+                    const known = new Set(this.tableColumnOptions().map((column) => column.key));
+                    const kept = parsed.filter((key) => known.has(key));
+                    if (kept.length) return kept;
+                }
+            } catch {
+                // A corrupt value falls back to the defaults below.
+            }
+            return this.tableColumnDefaults();
+        },
+
+        savePatientTableColumns(columns) {
+            // Keep the panel's order, so the persisted value is stable.
+            const wanted = new Set(columns);
+            this.patientTableColumns = this.tableColumnOptions()
+                .map((column) => column.key)
+                .filter((key) => wanted.has(key));
+            try {
+                localStorage.setItem('patientsTableColumns', JSON.stringify(this.patientTableColumns));
+            } catch {
+                // No storage: the choice lasts for this page only.
+            }
+        },
+
+        isColumnVisible(key) {
+            return this.tableColumns().includes(key);
+        },
+
+        visibleColumnCount() {
+            return this.tableColumns().length;
+        },
+
+        setColumnVisible(key, visible) {
+            const next = new Set(this.tableColumns());
+            if (visible) next.add(key);
+            else next.delete(key);
+            // The name column is the row's identity; it cannot be hidden.
+            next.add('name');
+            this.savePatientTableColumns([...next]);
+        },
+
+        showAllColumns() {
+            this.savePatientTableColumns(this.tableColumnOptions().map((column) => column.key));
+        },
+
+        resetTableColumns() {
+            this.savePatientTableColumns(this.tableColumnDefaults());
+        },
+
+        closePatientViewPanel() {
+            this.patientViewPanelOpen = false;
         },
 
         /**
@@ -2877,7 +2985,9 @@ function app() {
                 date_of_birth: '',
                 age: '',
                 marital_status: '',
-                children_count: 0,
+                // Empty means "not recorded". Zero is a real answer
+                // ("no children") and must only ever come from the user.
+                children_count: '',
                 governorate: '',
                 address: '',
                 problem: '',
@@ -2936,7 +3046,7 @@ function app() {
                 date_of_birth: patient.date_of_birth || '',
                 age: patient.age ?? '',
                 marital_status: patient.marital_status || '',
-                children_count: patient.children_count ?? 0,
+                children_count: patient.children_count ?? '',
                 governorate: patient.governorate || '',
                 address: patient.address || '',
                 problem: patient.problem || '',

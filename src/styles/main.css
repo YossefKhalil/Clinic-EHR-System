@@ -286,6 +286,65 @@ button.stat-link {
 }
 
 /*
+ * Phones (issue #47): a bottom snackbar instead of the corner card, so a long
+ * message never covers the navbar or pushes the page. It sits above the
+ * mobile bottom bar when that bar is on screen, and clears the home
+ * indicator. Everything here is scoped to small screens: the desktop corner
+ * stack keeps its geometry.
+ */
+@media (max-width: 575.98px) {
+    .toast-stack {
+        top: auto;
+        inset-block-end: calc(1rem + env(safe-area-inset-bottom, 0px));
+        inset-inline: 0.75rem;
+        width: auto;
+        max-height: 45vh;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+
+    /* The bottom bar is 60px; the toast clears it instead of covering it. */
+    .toast-stack--above-bar {
+        inset-block-end: calc(60px + env(safe-area-inset-bottom, 0px) + 0.75rem);
+    }
+
+    .toast-stack .alert {
+        padding: 0.6rem 0.75rem;
+        font-size: 0.85rem;
+        animation: toast-in-mobile 0.2s ease-out;
+    }
+
+    /* A long server message is clamped to three lines; the full text stays in
+       the toast's title so it is still reachable. */
+    .toast-stack .alert > span.flex-grow-1 {
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    /* Bigger tap target without growing the toast. */
+    .toast-stack .alert .btn-close {
+        padding: 0.45rem;
+        margin: -0.2rem -0.2rem -0.2rem 0;
+        background-size: 0.6rem;
+    }
+}
+
+@keyframes toast-in-mobile {
+    from {
+        opacity: 0;
+        transform: translateY(0.75rem);
+    }
+}
+
+@media (max-width: 575.98px) and (prefers-reduced-motion: reduce) {
+    .toast-stack .alert {
+        animation: none;
+    }
+}
+
+/*
  * Patients filters toolbar + panel (issue #13).
  *
  * ONE component for both shells: the panel is an anchored popover beside the
