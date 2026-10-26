@@ -385,6 +385,31 @@ button.stat-link {
     box-shadow: 0 0.85rem 2rem rgba(0, 0, 0, 0.18);
 }
 
+/* The filters, sort and view buttons are one control: only the outer edges
+   keep a radius, so the group reads as a single segmented button. Bootstrap
+   already squares the middle edges, except the sort toggle's end edge. */
+.filter-sort-group > .btn:not(:last-child) {
+    border-start-end-radius: 0;
+    border-end-end-radius: 0;
+}
+
+/*
+ * View options (issue #51) share the filters panel: same popover on a
+ * desktop, same bottom sheet on a phone. It is narrower, and it opens toward
+ * the reading start from the control's edge.
+ */
+.view-panel {
+    inset-inline-start: auto;
+    inset-inline-end: 0;
+    width: min(22rem, 92vw);
+}
+
+/* The panel body is the only scroller. Eighteen fields sit in the export
+   list's two-column grid; at this width they fit without a nested scroll. */
+.view-panel .view-field-list {
+    max-height: none;
+}
+
 .filter-panel-body {
     max-height: 65vh;
     overflow-y: auto;

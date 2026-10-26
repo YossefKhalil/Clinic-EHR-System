@@ -577,171 +577,182 @@
                         <!-- The filter control (issue #13) lives in the toolbar row:
                              its panel is anchored to it, the applied-filter chips
                              stay under the toolbar. -->
-                <div class="filter-toolbar" @click.outside="showFilters && closeFilters()">
-                    <div class="d-flex flex-wrap align-items-center gap-2">
-                        <!-- Filters and sorting in one control: the button opens
-                             the filters, the arrow next to it opens the sort
-                             menu. One thing to look at, two things to do. -->
-                        <div class="btn-group filter-sort-group">
-                            <button type="button" id="patientFiltersToggle" x-ref="patientFiltersToggle"
-                                aria-haspopup="dialog" aria-controls="patientFiltersPanel"
-                                :aria-expanded="showFilters ? 'true' : 'false'"
-                                :class="(showFilters || activeFilterCount()) ? 'btn-primary' : 'btn-outline-secondary'"
-                                class="btn filter-toggle"
-                                @click="showFilters ? closeFilters() : openFilters()">
-                                <i class="bi bi-funnel"></i>
-                                <span x-text="t('Filters')"></span>
-                                <span class="badge text-bg-light border" x-show="activeFilterCount()" x-cloak x-text="activeFilterCount()"></span>
-                            </button>
-                            <button type="button" class="btn dropdown-toggle sort-toggle" data-bs-toggle="dropdown" aria-expanded="false"
-                                :class="(showFilters || activeFilterCount()) ? 'btn-primary' : 'btn-outline-secondary'"
-                                :title="sortSummary()" :aria-label="t('Sort')">
-                                <i class="bi" :class="sortIcon(patientSort.key)"></i>
-                            </button>
-                            <ul class="dropdown-menu dropdown-menu-end sort-menu">
-                                <li class="dropdown-header" x-text="t('Sort by')"></li>
-                                <template x-for="option in sortOptions()" :key="option.key">
-                                    <li>
-                                        <button type="button" class="dropdown-item d-flex align-items-center justify-content-between gap-3"
-                                            :class="{ active: patientSort.key === option.key }"
-                                            @click="sortPatientsBy(option.key)">
-                                            <span x-text="option.label"></span>
-                                            <i class="bi" x-show="patientSort.key === option.key"
-                                                :class="patientSort.dir === 'asc' ? 'bi-sort-up' : 'bi-sort-down'"></i>
-                                        </button>
-                                    </li>
-                                </template>
-                            </ul>
-                        </div>
-                        <!-- View options (issue #51): the eye opens the text
-                             size and the column chooser. -->
-                        <div class="export-group view-group" @click.outside="closePatientViewPanel()">
-                            <button type="button" class="btn"
-                                :class="patientViewPanelOpen ? 'btn-primary' : 'btn-outline-secondary'"
-                                @click="patientViewPanelOpen = !patientViewPanelOpen"
-                                aria-haspopup="dialog" :aria-expanded="patientViewPanelOpen ? 'true' : 'false'"
-                                :title="t('View options')" :aria-label="t('View options')">
-                                <i class="bi bi-eye"></i>
-                            </button>
-                            <div class="export-panel view-panel" x-show="patientViewPanelOpen" x-cloak role="dialog"
-                                :aria-label="t('View options')" @keydown.escape.stop="closePatientViewPanel()">
-                                <div class="d-flex align-items-center justify-content-between mb-3">
+                        <div class="filter-toolbar" @click.outside="closePatientPanels()">
+                            <div class="d-flex flex-wrap align-items-center gap-2">
+                                <!-- Filters and sorting in one control: the button opens
+                                     the filters, the arrow next to it opens the sort
+                                     menu. One thing to look at, two things to do. -->
+                                <div class="btn-group filter-sort-group">
+                                    <button type="button" id="patientFiltersToggle" x-ref="patientFiltersToggle"
+                                        aria-haspopup="dialog" aria-controls="patientFiltersPanel"
+                                        :aria-expanded="showFilters ? 'true' : 'false'"
+                                        :class="(showFilters || activeFilterCount()) ? 'btn-primary' : 'btn-outline-secondary'"
+                                        class="btn filter-toggle"
+                                        @click="showFilters ? closeFilters() : openFilters()">
+                                        <i class="bi bi-funnel"></i>
+                                        <span x-text="t('Filters')"></span>
+                                        <span class="badge text-bg-light border" x-show="activeFilterCount()" x-cloak x-text="activeFilterCount()"></span>
+                                    </button>
+                                    <button type="button" class="btn dropdown-toggle sort-toggle" data-bs-toggle="dropdown" aria-expanded="false"
+                                        :class="(showFilters || activeFilterCount()) ? 'btn-primary' : 'btn-outline-secondary'"
+                                        :title="sortSummary()" :aria-label="t('Sort')">
+                                        <i class="bi" :class="sortIcon(patientSort.key)"></i>
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end sort-menu">
+                                        <li class="dropdown-header" x-text="t('Sort by')"></li>
+                                        <template x-for="option in sortOptions()" :key="option.key">
+                                            <li>
+                                                <button type="button" class="dropdown-item d-flex align-items-center justify-content-between gap-3"
+                                                    :class="{ active: patientSort.key === option.key }"
+                                                    @click="sortPatientsBy(option.key)">
+                                                    <span x-text="option.label"></span>
+                                                    <i class="bi" x-show="patientSort.key === option.key"
+                                                        :class="patientSort.dir === 'asc' ? 'bi-sort-up' : 'bi-sort-down'"></i>
+                                                </button>
+                                            </li>
+                                        </template>
+                                    </ul>
+                                    <!-- Third member of the same control (issue #51):
+                                         the eye opens the table's view options. -->
+                                    <button type="button" id="patientViewToggle" x-ref="patientViewToggle"
+                                        class="btn view-toggle"
+                                        :class="patientViewPanelOpen ? 'btn-primary' : 'btn-outline-secondary'"
+                                        @click="togglePatientViewPanel()"
+                                        aria-haspopup="dialog" aria-controls="patientViewPanel"
+                                        :aria-expanded="patientViewPanelOpen ? 'true' : 'false'"
+                                        :title="t('View options')" :aria-label="t('View options')">
+                                        <i class="bi bi-eye"></i>
+                                    </button>
+                                </div>
+                                <button type="button" class="btn filter-clear-all text-secondary" x-show="activeFilterCount()" x-cloak @click="clearAllFilters()">
+                                    <i class="bi bi-x-circle"></i><span x-text="t('Clear all')"></span>
+                                </button>
+                            </div>
+
+                            <!-- Applied-filter chips (removed one without reopening the panel) -->
+
+                            <div class="filter-scrim" x-show="showFilters" x-cloak @click="closeFilters()"></div>
+                            <div class="filter-scrim" x-show="patientViewPanelOpen" x-cloak @click="closePatientViewPanel()"></div>
+
+                            <div id="patientFiltersPanel" x-ref="filterPanel" class="filter-panel" role="dialog" aria-modal="true"
+                                :aria-label="t('Filters')" x-show="showFilters" x-cloak
+                                @keydown="filtersPanelKeydown($event)">
+                                <div class="filter-panel-header d-flex align-items-center justify-content-between">
+                                    <h6 class="mb-0 fw-semibold" x-text="t('Filters')"></h6>
+                                    <button type="button" class="btn-close" :aria-label="t('Close')" @click="closeFilters()"></button>
+                                </div>
+                                <form class="filter-panel-body" @submit.prevent="applyFilters()">
+                                    <div class="row g-3">
+                                        <div class="col-12">
+                                            <label class="form-label mb-1" for="patientFilters.search" x-text="t('Search')"></label>
+                                            <input type="search" id="patientFilters.search" class="form-control" x-model="filterDraft.search" :placeholder="t('Search any patient field...')">
+                                        </div>
+                                        <div class="col-12 col-sm-6">
+                                            <label class="form-label mb-1" for="patientFilters.status" x-text="t('Status')"></label>
+                                            <select id="patientFilters.status" class="form-select" x-model="filterDraft.is_completed">
+                                                <option value="" x-text="t('All')"></option>
+                                                <option value="false" x-text="t('Pending')"></option>
+                                                <option value="true" x-text="t('Completed')"></option>
+                                            </select>
+                                        </div>
+                                        <div class="col-6 col-sm-3">
+                                            <label class="form-label mb-1" for="patientFilters.dateFrom" x-text="t('Registered From')"></label>
+                                            <input type="date" id="patientFilters.dateFrom" class="form-control" x-model="filterDraft.date_from">
+                                        </div>
+                                        <div class="col-6 col-sm-3">
+                                            <label class="form-label mb-1" for="patientFilters.dateTo" x-text="t('Registered To')"></label>
+                                            <input type="date" id="patientFilters.dateTo" class="form-control" x-model="filterDraft.date_to">
+                                        </div>
+                                    </div>
+
+                                    <div x-show="isSuperAdmin" x-cloak>
+                                        <div class="filter-scope-heading" x-text="t('Scope')"></div>
+                                        <div class="row g-3">
+                                            <div class="col-12 col-sm-4">
+                                                <label class="form-label mb-1" for="patientFilters.follower" x-text="t('Follower')"></label>
+                                                <select id="patientFilters.follower" class="form-select" x-model="filterDraft.follower">
+                                                    <option value="" x-text="t('-- All Followers --')"></option>
+                                                    <template x-for="opt in activeOptions('follower')" :key="'fl-' + opt.key">
+                                                        <option :value="opt.key" x-text="optionLabel('follower', opt.key)"></option>
+                                                    </template>
+                                                </select>
+                                            </div>
+                                            <div class="col-12 col-sm-4">
+                                                <label class="form-label mb-1" for="patientFilters.section" x-text="t('Section')"></label>
+                                                <select id="patientFilters.section" class="form-select" x-model="filterDraft.section">
+                                                    <option value="" x-text="t('-- All Sections --')"></option>
+                                                    <template x-for="opt in activeOptions('section')" :key="'fs-' + opt.key">
+                                                        <option :value="opt.key" x-text="optionLabel('section', opt.key)"></option>
+                                                    </template>
+                                                </select>
+                                            </div>
+                                            <div class="col-12 col-sm-4">
+                                                <label class="form-label mb-1" for="patientFilters.source" x-text="t('Source of Money')"></label>
+                                                <select id="patientFilters.source" class="form-select" x-model="filterDraft.source_of_money">
+                                                    <option value="" x-text="t('-- All Sources --')"></option>
+                                                    <template x-for="opt in activeOptions('source')" :key="'fo-' + opt.key">
+                                                        <option :value="opt.key" x-text="optionLabel('source', opt.key)"></option>
+                                                    </template>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Sticky actions on the mobile sheet -->
+                                    <div class="filter-panel-footer">
+                                        <button type="button" class="btn btn-outline-secondary filter-panel-reset" @click="resetFilters()" x-text="t('Reset')"></button>
+                                        <button type="submit" class="btn btn-primary filter-panel-apply" x-text="t('Apply')"></button>
+                                    </div>
+                                </form>
+                            </div>
+                            <!-- The view options: the popover the filters use on a
+                                 desktop, the bottom sheet they use on a phone. -->
+                            <div id="patientViewPanel" x-ref="viewPanel" class="filter-panel view-panel"
+                                role="dialog" aria-modal="true" :aria-label="t('View options')"
+                                x-show="patientViewPanelOpen" x-cloak
+                                @keydown="viewPanelKeydown($event)">
+                                <div class="filter-panel-header d-flex align-items-center justify-content-between">
                                     <h6 class="mb-0 fw-semibold" x-text="t('View options')"></h6>
                                     <button type="button" class="btn-close" :aria-label="t('Close')" @click="closePatientViewPanel()"></button>
                                 </div>
 
-                                <div class="mb-3">
-                                    <div class="export-panel-heading" x-text="t('Text size')"></div>
-                                    <div class="d-flex align-items-center gap-2">
-                                        <input type="range" class="form-range" id="patientTableFont"
-                                            min="0.9" max="1.5" step="0.05" x-model.number="patientTableFont"
-                                            @input="savePatientTableFont()">
-                                        <span class="small text-muted" style="min-width:2.6rem" x-text="Math.round(patientTableFont * 100) + '%'"></span>
+                                <div class="filter-panel-body">
+                                    <div class="mb-3">
+                                        <div class="export-panel-heading" x-text="t('Text size')"></div>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <input type="range" class="form-range" id="patientTableFont"
+                                                min="0.9" max="1.5" step="0.05" x-model.number="patientTableFont"
+                                                @input="savePatientTableFont()">
+                                            <span class="small text-muted" style="min-width:2.6rem" x-text="Math.round(patientTableFont * 100) + '%'"></span>
+                                        </div>
+                                    </div>
+
+                                    <div class="mb-2 d-flex align-items-center justify-content-between">
+                                        <div class="export-panel-heading mb-0" x-text="t('Columns')"></div>
+                                        <div class="d-flex align-items-center gap-1">
+                                            <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" @click="showAllColumns()" x-text="t('All')"></button>
+                                            <span class="text-muted small" aria-hidden="true">·</span>
+                                            <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" @click="resetTableColumns()" x-text="t('Reset')"></button>
+                                        </div>
+                                    </div>
+                                    <div class="export-field-list view-field-list">
+                                        <template x-for="column in tableColumnOptions()" :key="column.key">
+                                            <label class="form-check mb-0">
+                                                <input class="form-check-input" type="checkbox"
+                                                    :checked="isColumnVisible(column.key)"
+                                                    :disabled="column.key === 'name'"
+                                                    @change="setColumnVisible(column.key, $event.target.checked)">
+                                                <span class="form-check-label" x-text="column.label"></span>
+                                            </label>
+                                        </template>
                                     </div>
                                 </div>
 
-                                <div class="mb-2 d-flex align-items-center justify-content-between">
-                                    <div class="export-panel-heading mb-0" x-text="t('Columns')"></div>
-                                    <div class="d-flex align-items-center gap-1">
-                                        <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" @click="showAllColumns()" x-text="t('All')"></button>
-                                        <span class="text-muted small" aria-hidden="true">·</span>
-                                        <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" @click="resetTableColumns()" x-text="t('Reset')"></button>
-                                    </div>
-                                </div>
-                                <div class="export-field-list">
-                                    <template x-for="column in tableColumnOptions()" :key="column.key">
-                                        <label class="form-check mb-0">
-                                            <input class="form-check-input" type="checkbox"
-                                                :checked="isColumnVisible(column.key)"
-                                                :disabled="column.key === 'name'"
-                                                @change="setColumnVisible(column.key, $event.target.checked)">
-                                            <span class="form-check-label" x-text="column.label"></span>
-                                        </label>
-                                    </template>
+                                <div class="filter-panel-footer">
+                                    <button type="button" class="btn btn-primary filter-panel-apply" @click="closePatientViewPanel()" x-text="t('Done')"></button>
                                 </div>
                             </div>
                         </div>
-                        <button type="button" class="btn filter-clear-all text-secondary" x-show="activeFilterCount()" x-cloak @click="clearAllFilters()">
-                            <i class="bi bi-x-circle"></i><span x-text="t('Clear all')"></span>
-                        </button>
-                    </div>
-
-                    <!-- Applied-filter chips (removed one without reopening the panel) -->
-
-                    <div class="filter-scrim" x-show="showFilters" x-cloak @click="closeFilters()"></div>
-
-                    <div id="patientFiltersPanel" x-ref="filterPanel" class="filter-panel" role="dialog" aria-modal="true"
-                        :aria-label="t('Filters')" x-show="showFilters" x-cloak
-                        @keydown="filtersPanelKeydown($event)">
-                        <div class="filter-panel-header d-flex align-items-center justify-content-between">
-                            <h6 class="mb-0 fw-semibold" x-text="t('Filters')"></h6>
-                            <button type="button" class="btn-close" :aria-label="t('Close')" @click="closeFilters()"></button>
-                        </div>
-                        <form class="filter-panel-body" @submit.prevent="applyFilters()">
-                            <div class="row g-3">
-                                <div class="col-12">
-                                    <label class="form-label mb-1" for="patientFilters.search" x-text="t('Search')"></label>
-                                    <input type="search" id="patientFilters.search" class="form-control" x-model="filterDraft.search" :placeholder="t('Search any patient field...')">
-                                </div>
-                                <div class="col-12 col-sm-6">
-                                    <label class="form-label mb-1" for="patientFilters.status" x-text="t('Status')"></label>
-                                    <select id="patientFilters.status" class="form-select" x-model="filterDraft.is_completed">
-                                        <option value="" x-text="t('All')"></option>
-                                        <option value="false" x-text="t('Pending')"></option>
-                                        <option value="true" x-text="t('Completed')"></option>
-                                    </select>
-                                </div>
-                                <div class="col-6 col-sm-3">
-                                    <label class="form-label mb-1" for="patientFilters.dateFrom" x-text="t('Registered From')"></label>
-                                    <input type="date" id="patientFilters.dateFrom" class="form-control" x-model="filterDraft.date_from">
-                                </div>
-                                <div class="col-6 col-sm-3">
-                                    <label class="form-label mb-1" for="patientFilters.dateTo" x-text="t('Registered To')"></label>
-                                    <input type="date" id="patientFilters.dateTo" class="form-control" x-model="filterDraft.date_to">
-                                </div>
-                            </div>
-
-                            <div x-show="isSuperAdmin" x-cloak>
-                                <div class="filter-scope-heading" x-text="t('Scope')"></div>
-                                <div class="row g-3">
-                                    <div class="col-12 col-sm-4">
-                                        <label class="form-label mb-1" for="patientFilters.follower" x-text="t('Follower')"></label>
-                                        <select id="patientFilters.follower" class="form-select" x-model="filterDraft.follower">
-                                            <option value="" x-text="t('-- All Followers --')"></option>
-                                            <template x-for="opt in activeOptions('follower')" :key="'fl-' + opt.key">
-                                                <option :value="opt.key" x-text="optionLabel('follower', opt.key)"></option>
-                                            </template>
-                                        </select>
-                                    </div>
-                                    <div class="col-12 col-sm-4">
-                                        <label class="form-label mb-1" for="patientFilters.section" x-text="t('Section')"></label>
-                                        <select id="patientFilters.section" class="form-select" x-model="filterDraft.section">
-                                            <option value="" x-text="t('-- All Sections --')"></option>
-                                            <template x-for="opt in activeOptions('section')" :key="'fs-' + opt.key">
-                                                <option :value="opt.key" x-text="optionLabel('section', opt.key)"></option>
-                                            </template>
-                                        </select>
-                                    </div>
-                                    <div class="col-12 col-sm-4">
-                                        <label class="form-label mb-1" for="patientFilters.source" x-text="t('Source of Money')"></label>
-                                        <select id="patientFilters.source" class="form-select" x-model="filterDraft.source_of_money">
-                                            <option value="" x-text="t('-- All Sources --')"></option>
-                                            <template x-for="opt in activeOptions('source')" :key="'fo-' + opt.key">
-                                                <option :value="opt.key" x-text="optionLabel('source', opt.key)"></option>
-                                            </template>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Sticky actions on the mobile sheet -->
-                            <div class="filter-panel-footer">
-                                <button type="button" class="btn btn-outline-secondary filter-panel-reset" @click="resetFilters()" x-text="t('Reset')"></button>
-                                <button type="submit" class="btn btn-primary filter-panel-apply" x-text="t('Apply')"></button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
                         <!-- Export: the button writes the current dataset in
                              Arabic with every column; the caret opens the
                              language, the rows and the columns. -->

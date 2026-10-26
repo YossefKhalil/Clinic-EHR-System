@@ -1041,8 +1041,31 @@ function app() {
             this.savePatientTableColumns(this.tableColumnDefaults());
         },
 
+        /**
+         * The eye in the Filters/Sort control. The two popovers share one
+         * toolbar, so opening one closes the other.
+         */
+        togglePatientViewPanel() {
+            this.showFilters = false;
+            this.patientViewPanelOpen = !this.patientViewPanelOpen;
+            if (!this.patientViewPanelOpen) return;
+            // Move focus into the dialog, so Esc and the focus trap work
+            // without a first Tab. The close button is first, so Tab goes on
+            // into the panel.
+            this.$nextTick(() => {
+                this.$refs.viewPanel?.querySelector('button, input')?.focus();
+            });
+        },
+
         closePatientViewPanel() {
             this.patientViewPanelOpen = false;
+            this.$refs.patientViewToggle?.focus();
+        },
+
+        /** Outside click: close whichever popover is open. */
+        closePatientPanels() {
+            if (this.showFilters) this.closeFilters();
+            if (this.patientViewPanelOpen) this.patientViewPanelOpen = false;
         },
 
         /**
@@ -2546,6 +2569,7 @@ function app() {
         // therefore always shows what the table is actually scoped by.
         openFilters() {
             this.filterDraft = { ...emptyPatientFilters(), ...this.patientFilters };
+            this.patientViewPanelOpen = false;
             this.showFilters = true;
             this.$nextTick(() => {
                 this.$refs.filterPanel?.querySelector('input, select')?.focus();
@@ -2575,8 +2599,22 @@ function app() {
                 this.closeFilters();
                 return;
             }
-            if (event.key !== 'Tab' || !this.showFilters) return;
-            const panel = this.$refs.filterPanel;
+            if (event.key === 'Tab' && this.showFilters) {
+                this.trapPanelFocus(event, this.$refs.filterPanel);
+            }
+        },
+
+        // The view options are the same dialog, so they keep Tab inside too.
+        viewPanelKeydown(event) {
+            if (event.key === 'Escape') {
+                event.stopPropagation();
+                this.closePatientViewPanel();
+                return;
+            }
+            if (event.key === 'Tab') this.trapPanelFocus(event, this.$refs.viewPanel);
+        },
+
+        trapPanelFocus(event, panel) {
             if (!panel) return;
             const focusables = panel.querySelectorAll(
                 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
