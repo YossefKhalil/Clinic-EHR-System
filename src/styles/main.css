@@ -1277,3 +1277,386 @@ i.bi {
     font-size: 1.05rem;
     font-weight: 600;
 }
+
+/*
+ * Select mode (the export panel switch): the row checkboxes are opt-in, so
+ * the switch gets its own quiet card in the panel and the mobile select-all
+ * bar only exists while the checkbox column is on screen.
+ */
+.select-mode-toggle {
+    padding: 0.6rem 0.75rem;
+    border: 1px solid #e9ecef;
+    border-radius: 0.6rem;
+    background: #f8f9fa;
+}
+
+@media (max-width: 767.98px) {
+    .patients-select-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        margin-block-end: 0.75rem;
+        padding: 0.6rem 0.8rem;
+        background: #fff;
+        border: 1px solid #dee2e6;
+        border-radius: 0.65rem;
+    }
+
+    .patients-select-bar .form-check-input {
+        width: 1.15rem;
+        height: 1.15rem;
+        margin-block-start: 0.15rem;
+    }
+}
+
+/*
+ * The patient toolbar: the sort and view segments carry the same labels as
+ * the filter segment on every width, and the caret is redundant now that the
+ * label names the control. On a desktop the title yields the room, so the
+ * three groups stay on one line instead of stacking the add button below.
+ */
+.patients-header-actions .sort-toggle::after {
+    display: none;
+}
+
+/* The three segments are flex boxes so the icon and its label sit on one
+   centered line. The stylesheet's global `i.bi` side margins are removed here
+   and the gap is declared once on the label: that keeps the visible group
+   (icon + gap + label) exactly on the segment's center line instead of letting
+   the icon's outer margin push it a couple of pixels off to one side. */
+.patients-header-actions .filter-sort-group > .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.patients-header-actions .filter-sort-group > .btn > i.bi {
+    margin-inline: 0 !important;
+}
+
+.patients-header-actions .filter-sort-group > .btn .filter-toggle-label,
+.patients-header-actions .filter-sort-group > .btn .sort-toggle-label,
+.patients-header-actions .filter-sort-group > .btn .view-toggle-label {
+    margin-inline-start: 0.4rem;
+}
+
+.patients-header-actions .filter-sort-group > .btn .badge {
+    margin-inline-start: 0.4rem;
+}
+
+@media (min-width: 992px) {
+    .patients-page-header {
+        display: flex;
+        flex-wrap: nowrap;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .patients-page-header .patients-header-title {
+        width: auto;
+        min-width: 0;
+        flex: 0 1 auto;
+    }
+
+    .patients-page-header .patients-header-actions {
+        width: auto;
+        min-width: 0;
+        flex: 1 1 auto;
+        justify-content: flex-end !important;
+    }
+}
+
+/*
+ * Patients page on a phone (issue #49).
+ *
+ * Desktop gets no new geometry: everything below is inside the phone
+ * breakpoint. The header becomes a title line plus a deliberate two-row
+ * toolbar (a full-width segmented filter control, then export and add).
+ * The table stays the desktop table: the phone simply starts with a short
+ * default column set (View options still shows every column), the type and
+ * cell padding tighten, and the three row actions become square icons so
+ * View, Edit and Delete all keep their place. The card keeps its horizontal
+ * scroller as a last resort for a column set the reviewer adds back.
+ */
+@media (max-width: 767.98px) {
+    /* --- Header ------------------------------------------------------- */
+    .patients-page-header {
+        margin-block-end: 1rem !important;
+        row-gap: 0.75rem;
+    }
+
+    .patients-page-header .patients-header-title {
+        width: 100%;
+    }
+
+    .patients-page-header h2 {
+        font-size: 1.35rem;
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+    }
+
+    .patients-page-header .patients-header-actions {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: stretch !important;
+        justify-content: stretch !important;
+        gap: 0.5rem;
+        width: 100%;
+        text-align: start !important;
+    }
+
+    /* Filters + sort + view are one control: give it the whole row so the
+       three segments divide it evenly instead of floating at one edge. */
+    .patients-header-actions > .filter-toolbar {
+        grid-column: 1 / -1;
+        width: 100%;
+    }
+
+    .patients-header-actions .filter-toolbar > .d-flex {
+        flex-wrap: nowrap;
+        gap: 0.4rem !important;
+        width: 100%;
+    }
+
+    .patients-header-actions .filter-sort-group {
+        flex: 1 1 auto;
+        display: flex;
+        min-width: 0;
+    }
+
+    .patients-header-actions .filter-sort-group > .btn {
+        flex: 1 1 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 0;
+        min-height: 44px;
+    }
+
+    .patients-header-actions .filter-clear-all {
+        flex: 0 0 auto;
+    }
+
+    .patients-header-actions > .export-group,
+    .patients-header-actions > .shadow-sm {
+        display: flex;
+        width: 100%;
+        min-width: 0;
+    }
+
+    .patients-header-actions .export-group > .btn,
+    .patients-header-actions > .shadow-sm > .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 0;
+        padding-inline: 0.45rem;
+        font-size: 0.8rem;
+        line-height: 1.15;
+        white-space: normal;
+    }
+
+    .patients-header-actions .export-group > .btn:first-child,
+    .patients-header-actions > .shadow-sm > .btn:first-child {
+        flex: 1 1 auto;
+        min-height: 44px;
+    }
+
+    .patients-header-actions .dropdown-toggle-split {
+        min-height: 44px;
+        padding-inline: 0.3rem;
+    }
+
+    /* The filter panel is fixed on a phone, so the toolbar row keeps its own
+       width; the export panel is a bottom sheet at this breakpoint. */
+    .patients-header-actions > .export-group {
+        position: relative;
+    }
+
+    /* --- Table -------------------------------------------------------- */
+    .patients-table {
+        font-size: calc(0.85rem * var(--patients-table-font, 1));
+    }
+
+    .patients-table thead th {
+        padding-block: 0.5rem !important;
+        font-size: calc(0.85rem * var(--patients-table-font, 1));
+        white-space: nowrap;
+    }
+
+    .patients-table > :not(caption) > * > * {
+        padding-block: 0.45rem !important;
+        padding-inline: 0.2rem !important;
+    }
+
+    /* A sort arrow that is not active is invisible but still takes width.
+       On a phone that width is the difference between fitting and scrolling,
+       so only the sorted column shows its arrow; the toolbar's sort control
+       still names the active sort. */
+    .patients-table thead th .sort-arrow {
+        display: none;
+    }
+
+    .patients-table thead th[aria-sort="ascending"] .sort-arrow,
+    .patients-table thead th[aria-sort="descending"] .sort-arrow {
+        display: inline-block;
+    }
+
+    .patients-table .patient-name-cell {
+        padding-inline-start: 0.35rem !important;
+    }
+
+    .patients-table .patient-actions-cell {
+        width: 1%;
+        padding-inline: 0.2rem !important;
+        white-space: nowrap;
+    }
+
+    /* The long national ID is the one value worth tightening further on a
+       phone; it stays a single readable line. */
+    .patients-table code {
+        font-size: 0.8em;
+    }
+
+    /* View, Edit and Delete keep their three buttons; each one is a square
+       icon instead of a padded label-sized control. */
+    .patients-table .patient-actions-cell .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.9rem;
+        min-width: 1.9rem;
+        height: 1.9rem;
+        padding: 0 !important;
+    }
+
+    .patients-table .patient-actions-cell .btn i {
+        font-size: 0.85rem;
+        line-height: 1;
+    }
+
+    /* The status toggle is its icon on a phone; the column header names the
+       column and the button keeps its translated accessible name. */
+    .patients-table .patient-status-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.9rem;
+        min-width: 1.9rem;
+        height: 1.9rem;
+        padding: 0 !important;
+    }
+
+    .patients-table .patient-status-btn i {
+        margin: 0 !important;
+        font-size: 0.9rem;
+        line-height: 1;
+    }
+
+    /* The icon is the whole content on a phone; center its line box instead
+       of leaving the baseline offsets of the desktop label layout. */
+    .patients-table .patient-status-btn > span {
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        line-height: 1;
+    }
+
+    .patients-table .patient-status-btn > span > i {
+        display: block;
+    }
+
+    .patients-table .patient-status-label {
+        display: none;
+    }
+
+    /* Select mode adds one narrow column; keep its checkbox from widening
+       the row any more than the tick itself needs. */
+    .patients-table .patient-select-cell {
+        width: 1.75rem !important;
+        padding-inline: 0.2rem !important;
+    }
+
+    .patients-table .patient-select-cell .form-check-input {
+        width: 1rem;
+        height: 1rem;
+        margin: 0;
+    }
+}
+
+/* Very narrow phones (320px): the two half-width buttons keep their full
+   labels by dropping only the decorative icon. */
+@media (max-width: 359.98px) {
+    .patients-header-actions .export-group .bi-file-earmark-spreadsheet,
+    .patients-header-actions > .shadow-sm .bi-person-plus-fill {
+        display: none;
+    }
+
+    /* Three labeled segments in 97px each: tighten the type a touch so the
+       sort label never spills out of its segment. */
+    .patients-header-actions .filter-sort-group > .btn {
+        padding-inline: 0.25rem;
+        font-size: 0.85rem;
+    }
+}
+
+/* --- Navbar: one clean row on every phone width ----------------------- */
+@media (max-width: 991.98px) {
+    .navbar {
+        flex-wrap: nowrap;
+    }
+
+    .navbar > .container {
+        flex-wrap: nowrap !important;
+        column-gap: 0;
+    }
+
+    /* The search owns the free space instead of asking for a fixed basis;
+       with `min-width: 0` it can always shrink beside the brand and toggler. */
+    .global-search {
+        flex: 1 1 0%;
+        min-width: 0;
+        margin-inline: 0.45rem;
+    }
+
+    .navbar-brand {
+        flex: 0 0 auto;
+        padding-block: 0.35rem;
+        padding-inline: 0.25rem;
+    }
+
+    .navbar-toggler {
+        display: inline-flex;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        width: 2.75rem;
+        height: 2.75rem;
+        padding: 0;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .navbar > .container {
+        padding-inline: 0.65rem;
+    }
+
+    .global-search {
+        margin-inline: 0.35rem;
+    }
+
+    .global-search-input {
+        height: 2.5rem;
+        padding-inline-start: 2.1rem !important;
+        padding-inline-end: 0.9rem !important;
+        font-size: 0.85rem;
+    }
+
+    .global-search-icon,
+    .global-search-spinner {
+        inset-inline-start: 0.7rem;
+    }
+}

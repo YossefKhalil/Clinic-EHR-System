@@ -567,13 +567,13 @@
 
             <!-- PATIENTS PAGE -->
             <div x-show="isLoggedIn && currentPage === 'patients'" x-cloak>
-                <div class="row mb-4 align-items-center">
-                    <div class="col-12 col-md-6">
+                <div class="row mb-4 align-items-center patients-page-header">
+                    <div class="col-12 col-md-6 patients-header-title">
                         <h2 class="text-secondary fw-bold mb-0">
                             <i class="bi bi-people-fill me-2 text-primary"></i><span x-text="t('Patients Management')"></span>
                         </h2>
                     </div>
-                    <div class="col-12 col-md-6 text-end d-flex flex-wrap justify-content-end align-items-center gap-2">
+                    <div class="col-12 col-md-6 text-end d-flex flex-wrap justify-content-end align-items-center gap-2 patients-header-actions">
                         <!-- The filter control (issue #13) lives in the toolbar row:
                              its panel is anchored to it, the applied-filter chips
                              stay under the toolbar. -->
@@ -590,13 +590,14 @@
                                         class="btn filter-toggle"
                                         @click="showFilters ? closeFilters() : openFilters()">
                                         <i class="bi bi-funnel"></i>
-                                        <span x-text="t('Filters')"></span>
+                                        <span class="filter-toggle-label" x-text="t('Filters')"></span>
                                         <span class="badge text-bg-light border" x-show="activeFilterCount()" x-cloak x-text="activeFilterCount()"></span>
                                     </button>
                                     <button type="button" class="btn dropdown-toggle sort-toggle" data-bs-toggle="dropdown" aria-expanded="false"
                                         :class="(showFilters || activeFilterCount()) ? 'btn-primary' : 'btn-outline-secondary'"
                                         :title="sortSummary()" :aria-label="t('Sort')">
                                         <i class="bi" :class="sortIcon(patientSort.key)"></i>
+                                        <span class="sort-toggle-label" x-text="t('Sort')"></span>
                                     </button>
                                     <ul class="dropdown-menu dropdown-menu-end sort-menu">
                                         <li class="dropdown-header" x-text="t('Sort by')"></li>
@@ -622,6 +623,9 @@
                                         :aria-expanded="patientViewPanelOpen ? 'true' : 'false'"
                                         :title="t('View options')" :aria-label="t('View options')">
                                         <i class="bi bi-eye"></i>
+                                        <!-- The three segments share the row on a
+                                             phone; the labels keep them even. -->
+                                        <span class="view-toggle-label" x-text="t('View')"></span>
                                     </button>
                                 </div>
                                 <button type="button" class="btn filter-clear-all text-secondary" x-show="activeFilterCount()" x-cloak @click="clearAllFilters()">
@@ -787,6 +791,21 @@
                                         </div>
                                     </div>
 
+                                    <!-- The table's checkboxes stay out of the way until
+                                         the reviewer needs them: "Select mode" reveals the
+                                         whole selection column and the mobile select-all bar. -->
+                                    <div class="select-mode-toggle mb-3">
+                                        <div class="form-check form-switch mb-0">
+                                            <input class="form-check-input" type="checkbox" role="switch"
+                                                id="patientSelectMode" x-model="selectMode"
+                                                @change="onSelectModeChange()">
+                                            <label class="form-check-label" for="patientSelectMode">
+                                                <span class="fw-semibold" x-text="t('Select mode')"></span>
+                                                <span class="d-block text-muted small" x-text="t('Show row checkboxes to select patients for export.')"></span>
+                                            </label>
+                                        </div>
+                                    </div>
+
                                     <div class="mb-3">
                                         <div class="export-panel-heading" x-text="t('Rows')"></div>
                                         <label class="form-check d-flex align-items-start gap-2 mb-1">
@@ -911,6 +930,19 @@
                     <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" @click="loadPatients()" x-text="t('Retry')"></button>
                 </div>
 
+                <!-- On a phone the table header is gone, so select mode gets its
+                     own compact bar: select-all for the page and the running count. -->
+                <div class="patients-select-bar d-md-none" x-show="selectMode" x-cloak>
+                    <label class="form-check mb-0">
+                        <input class="form-check-input" type="checkbox"
+                            :checked="allPageSelected()"
+                            @change="toggleSelectAllOnPage($event.target.checked)"
+                            :disabled="patients.length === 0">
+                        <span class="form-check-label" x-text="t('Select all')"></span>
+                    </label>
+                    <span class="small text-muted" x-text="t('Selected patients') + ': ' + selectedPatientIds.length"></span>
+                </div>
+
                 <div class="card shadow-sm border-0 patients-table-card">
                     <div class="card-body p-0">
                         <div class="table-responsive">
@@ -918,7 +950,7 @@
                                 :style="'--patients-table-font: ' + patientTableFont">
                                 <thead class="table-light border-bottom text-muted">
                                     <tr>
-                                        <th class="py-3 ps-4" style="width:2.5rem">
+                                        <th class="py-3 ps-4 patient-select-cell" style="width:2.5rem" x-show="selectMode">
                                             <input class="form-check-input" type="checkbox"
                                                 :checked="allPageSelected()"
                                                 @change="toggleSelectAllOnPage($event.target.checked)"
@@ -993,14 +1025,14 @@
                                 </thead>
                                 <tbody>
                                     <template x-for="patient in patients" :key="patient.id">
-                                        <tr>
-                                            <td class="ps-4">
+                                        <tr class="patient-row">
+                                            <td class="ps-4 patient-select-cell" x-show="selectMode">
                                                 <input class="form-check-input" type="checkbox"
                                                     :checked="isPatientSelected(patient.id)"
                                                     @change="togglePatientSelection(patient.id, $event.target.checked)"
                                                     :aria-label="t('Select patient')">
                                             </td>
-                                            <td class="ps-2" x-show="isColumnVisible('name')">
+                                            <td class="ps-2 patient-name-cell" x-show="isColumnVisible('name')">
                                                 <span class="fw-bold text-dark d-block" x-text="patient.name"></span>
                                             </td>
                                             <td x-show="isColumnVisible('national_id')"><code x-text="patient.national_id"></code></td>
@@ -1018,12 +1050,16 @@
                                                 </span>
                                             </td>
                                             <td x-show="isColumnVisible('is_completed')">
-                                                <button class="btn btn-sm px-2 py-1" :class="patient.is_completed ? 'btn-success' : 'btn-outline-secondary'" @click="toggleStatus(patient)">
+                                                <button class="btn btn-sm px-2 py-1 patient-status-btn"
+                                                    :class="patient.is_completed ? 'btn-success' : 'btn-outline-secondary'"
+                                                    @click="toggleStatus(patient)"
+                                                    :title="patient.is_completed ? t('Completed') : t('Pending')"
+                                                    :aria-label="patient.is_completed ? t('Completed') : t('Pending')">
                                                     <template x-if="patient.is_completed">
-                                                        <span><i class="bi bi-check-circle-fill me-1"></i><span x-text="t('Completed')"></span></span>
+                                                        <span><i class="bi bi-check-circle-fill me-1"></i><span class="patient-status-label" x-text="t('Completed')"></span></span>
                                                     </template>
                                                     <template x-if="!patient.is_completed">
-                                                        <span><i class="bi bi-circle me-1"></i><span x-text="t('Pending')"></span></span>
+                                                        <span><i class="bi bi-circle me-1"></i><span class="patient-status-label" x-text="t('Pending')"></span></span>
                                                     </template>
                                                 </button>
                                             </td>
@@ -1066,28 +1102,31 @@
                                             <td x-show="isColumnVisible('solution')">
                                                 <span class="text-muted small" :title="patient.solution || ''" x-text="patient.solution ? (patient.solution.length > 40 ? patient.solution.slice(0, 40) + '…' : patient.solution) : '—'"></span>
                                             </td>
-                                            <td class="text-end pe-4">
+                                            <td class="text-end pe-4 patient-actions-cell">
                                                 <div class="btn-group" role="group">
-                                                    <button class="btn btn-sm btn-outline-secondary" @click="showPatient(patient)" title="View">
-                                                        <i class="bi bi-eye"></i>
+                                                    <button class="btn btn-sm btn-outline-secondary" @click="showPatient(patient)"
+                                                        :title="t('View')" :aria-label="t('View')">
+                                                        <i class="bi bi-person-vcard"></i>
                                                     </button>
-                                                    <button class="btn btn-sm btn-outline-primary" @click="editPatient(patient)" title="Edit">
+                                                    <button class="btn btn-sm btn-outline-primary" @click="editPatient(patient)"
+                                                        :title="t('Edit')" :aria-label="t('Edit')">
                                                         <i class="bi bi-pencil-square"></i>
                                                     </button>
-                                                    <button class="btn btn-sm btn-outline-danger" @click="removePatient(patient)" title="Delete">
+                                                    <button class="btn btn-sm btn-outline-danger" @click="removePatient(patient)"
+                                                        :title="t('Delete')" :aria-label="t('Delete')">
                                                         <i class="bi bi-trash"></i>
                                                     </button>
                                                 </div>
                                             </td>
                                         </tr>
                                     </template>
-                                    <tr x-show="patientsLoading">
-                                        <td :colspan="visibleColumnCount() + 2" class="text-center py-5">
+                                    <tr x-show="patientsLoading" class="patients-table-status-row">
+                                        <td :colspan="tableColumnSpan()" class="patients-table-status-cell text-center py-5">
                                             <div class="spinner-border text-primary"></div>
                                         </td>
                                     </tr>
-                                    <tr x-show="!patientsLoading && patients.length === 0">
-                                        <td :colspan="visibleColumnCount() + 2" class="text-center py-5 text-muted">
+                                    <tr x-show="!patientsLoading && patients.length === 0" class="patients-table-status-row">
+                                        <td :colspan="tableColumnSpan()" class="patients-table-status-cell text-center py-5 text-muted">
                                             <i class="bi bi-folder-x fs-1 text-secondary d-block mb-2"></i>
                                             <span class="fw-semibold" x-text="t('No patients recorded yet.')"></span>
                                         </td>

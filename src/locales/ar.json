@@ -868,6 +868,8 @@
   "All matching filters": "كل النتائج المطابقة",
   "Current page": "الصفحة الحالية",
   "Selected patients": "المرضى المحددون",
+  "Select mode": "وضع التحديد",
+  "Show row checkboxes to select patients for export.": "اعرض مربعات الاختيار لتحديد المرضى للتصدير.",
   "Fields": "الأعمدة",
   "Select patient": "تحديد المريض",
   "No patients selected.": "لم يتم تحديد أي مريض.",

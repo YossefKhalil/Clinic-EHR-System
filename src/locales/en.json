@@ -868,6 +868,8 @@
   "All matching filters": "All matching filters",
   "Current page": "Current page",
   "Selected patients": "Selected patients",
+  "Select mode": "Select mode",
+  "Show row checkboxes to select patients for export.": "Show row checkboxes to select patients for export.",
   "Fields": "Fields",
   "Select patient": "Select patient",
   "No patients selected.": "No patients selected.",

@@ -208,8 +208,10 @@ function app() {
         exportPanelOpen: false,
         exportOptions: { language: 'ar', rows: 'filtered', fields: [...EXPORT_FIELD_KEYS] },
         exportFields: EXPORT_FIELDS,
-        // Rows ticked in the table ("export selected patients").
+        // Rows ticked in the table ("export selected patients"). The column of
+        // checkboxes stays hidden until the export panel's Select mode is on.
         selectedPatientIds: [],
+        selectMode: false,
         
         globalSearchFocused: false,
         globalSearchLoading: false,
@@ -516,6 +518,7 @@ function app() {
             this.patientSort = { key: 'created_at', dir: 'desc' };
             this.showFilters = false;
             this.selectedPatientIds = [];
+            this.selectMode = false;
             this.exportPanelOpen = false;
             this.exportOptions = { language: 'ar', rows: 'filtered', fields: [...EXPORT_FIELD_KEYS] };
             this.globalSearch = '';
@@ -973,11 +976,23 @@ function app() {
             ].map((column) => ({ ...column, label: this.t(column.label) }));
         },
 
+        /**
+         * The first-run column sets. A phone starts with the fields that
+         * decide who the patient is and what state the file is in; the
+         * section/source/follower and the long text fields stay available in
+         * View options instead of forcing a wide sideways scroll. Desktop
+         * keeps the full working set it always had.
+         */
         tableColumnDefaults() {
-            return [
+            const desktop = [
                 'name', 'national_id', 'mobile', 'governorate', 'is_completed',
                 'follower', 'source_of_money', 'section', 'created_at',
             ];
+            const phone = ['name', 'national_id', 'is_completed'];
+            const isPhone = typeof window !== 'undefined'
+                && typeof window.matchMedia === 'function'
+                && window.matchMedia('(max-width: 767.98px)').matches;
+            return isPhone ? phone : desktop;
         },
 
         /** The visible set, loaded from storage on first use. */
@@ -2802,6 +2817,25 @@ function app() {
 
         exportSelectAllFields(selectAll) {
             this.exportOptions.fields = selectAll ? [...EXPORT_FIELD_KEYS] : [];
+        },
+
+        /**
+         * Select mode is the one switch that adds the checkbox column to the
+         * table. Turning it off clears the ticks (and the "selected rows"
+         * export scope) so an invisible selection cannot leak into an export.
+         */
+        onSelectModeChange() {
+            if (this.selectMode) return;
+            this.selectedPatientIds = [];
+            if (this.exportOptions.rows === 'selected') {
+                this.exportOptions.rows = 'filtered';
+            }
+        },
+
+        // The "select" column is hidden outside select mode, so colspans count
+        // it only while it is on screen.
+        tableColumnSpan() {
+            return this.visibleColumnCount() + 1 + (this.selectMode ? 1 : 0);
         },
 
         isPatientSelected(id) {
