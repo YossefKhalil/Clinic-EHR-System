@@ -256,21 +256,6 @@ flowchart LR
 - A **Cloudflare Pages** account for deployment. Optional for local development.
 - The **Supabase CLI** for deploying Edge Functions or applying the schema from a terminal.
 
-### Local-only testing (no hosted data)
-
-Run the whole app against a local backend and keep the hosted project
-untouched. No Docker needed:
-
-```bash
-npm run local
-```
-
-That starts a Supabase-compatible mock (real Postgres via PGlite, the real Edge
-Functions in Deno) plus Vite, and creates a throwaway Super Admin
-(`yossef` / `123`). See
-[`docs/local-host-testing`](docs/local-host-testing/README.md). A full local
-Supabase stack (Docker + WSL2) is documented there as an alternative.
-
 ### 1. Clone and install
 
 ```bash
