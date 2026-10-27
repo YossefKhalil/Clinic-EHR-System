@@ -12,10 +12,25 @@ import { handleRest } from './postgrest.mjs';
 import { verify } from './jwt.mjs';
 import { PORT, FUNCTIONS_PORT } from './config.mjs';
 
+const DEFAULT_ALLOW_HEADERS = [
+    'authorization',
+    'x-client-info',
+    'apikey',
+    'content-type',
+    'prefer',
+    'range',
+    'accept',
+    'x-supabase-api-version',
+    'x-retry-count',
+    'x-upsert',
+    'cache-control',
+    'pragma',
+].join(', ');
+
 const CORS = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PATCH, PUT, DELETE, OPTIONS, HEAD',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, prefer, range, accept, x-supabase-api-version',
+    'Access-Control-Allow-Headers': DEFAULT_ALLOW_HEADERS,
     'Access-Control-Expose-Headers': 'content-range, Content-Range',
     'Access-Control-Max-Age': '86400',
 };
@@ -63,14 +78,20 @@ export async function startMockServer() {
 
     const server = createServer(async (req, res) => {
         const url = new URL(req.url ?? '/', `http://127.0.0.1:${PORT}`);
+        // supabase-js adds headers we cannot predict (x-retry-count on its
+        // retries, for example), so the preflight reflects whatever the browser
+        // asks for instead of a fixed list.
+        const requestedHeaders = req.headers['access-control-request-headers'];
+        const corsHeaders = requestedHeaders
+            ? { ...CORS, 'Access-Control-Allow-Headers': requestedHeaders }
+            : CORS;
         if (req.method === 'OPTIONS') {
-            res.writeHead(204, CORS);
+            res.writeHead(204, corsHeaders);
             res.end();
             return;
         }
         // Every response gets CORS, so the Vite origin can read it.
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        for (const [key, value] of Object.entries(CORS)) res.setHeader(key, value);
+        for (const [key, value] of Object.entries(corsHeaders)) res.setHeader(key, value);
 
         try {
             if (url.pathname === '/health') {
