@@ -629,6 +629,8 @@
   "importAgent.chunkError.PERSIST_FAILED": "The extracted rows could not be saved.",
   "importAgent.chunkError.INTERNAL": "Something went wrong while saving the result.",
   "importAgent.review.chunksFailed": ":count chunks failed to extract",
+  "importAgent.review.failureModel": "Model",
+  "importAgent.review.failureReason": "Reason",
   "importAgent.reject.PARSE_FAILED": "This file could not be read as patient data.",
   "importAgent.chunkError.OUTPUT_TRUNCATED": "The model used its whole answer budget and stopped before it finished.",
   "importAgent.error.WORKER_RESOURCE_LIMIT": "The import worker ran out of resources and was stopped. The import is saved - resume it, or split the file into smaller parts.",

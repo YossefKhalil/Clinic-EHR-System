@@ -1367,14 +1367,23 @@
                             <div class="fw-semibold" x-text="t('importAgent.review.chunksFailed', { count: failedChunks.length })"></div>
                             <ul class="mb-1 ps-3">
                                 <template x-for="chunk in failedChunks" :key="chunk.id">
-                                    <li class="d-flex flex-wrap align-items-center gap-2">
-                                        <span class="text-nowrap" x-text="'#' + chunk.idx"></span>
-                                        <span x-text="chunkErrorLabel(chunk.error_code)"></span>
+                                    <li>
+                                        <div class="d-flex flex-wrap align-items-center gap-2">
+                                            <span class="text-nowrap" x-text="'#' + chunk.idx"></span>
+                                            <span x-text="chunkErrorLabel(chunk.error_code)"></span>
+                                        </div>
+                                        <div class="font-monospace text-break small" x-show="chunkFailureDetail(chunk.id)" x-text="chunkFailureDetail(chunk.id)"></div>
                                     </li>
                                 </template>
                             </ul>
-                            <div class="small text-muted" x-show="providerFailure?.model" x-text="providerFailure?.model"></div>
-                            <div class="font-monospace text-break" x-show="providerFailure?.detail" x-text="providerFailure?.detail"></div>
+                            <div class="small text-muted mt-1" x-show="providerFailure?.model">
+                                <span x-text="t('importAgent.review.failureModel')"></span>:
+                                <span x-text="providerFailure?.model"></span>
+                            </div>
+                            <div class="mt-1" x-show="providerFailure?.detail">
+                                <span class="small text-muted" x-text="t('importAgent.review.failureReason')"></span>:
+                                <span class="font-monospace text-break" x-text="providerFailure?.detail"></span>
+                            </div>
                             <div class="mt-2 d-flex flex-wrap gap-2">
                                 <button type="button" class="btn btn-sm btn-outline-danger" @click="retryFailed()"
                                     x-text="t('importAgent.review.retryChunk')"></button>

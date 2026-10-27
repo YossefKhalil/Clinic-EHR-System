@@ -107,6 +107,51 @@ describe('localPump', () => {
         expect(fail.payload.retryable).toBeUndefined();
     });
 
+    it('sends the runtime message so the banner can explain the failure', async () => {
+        const api = fakeApi({ id: 'chunk-1', idx: 0, payload: PAYLOAD });
+        await localPump({
+            api,
+            jobId: 'job-1',
+            provider: {},
+            mode: 'single',
+            tier: 'mid',
+            runChunk: async () => {
+                const error = new Error('the model chat template is not supported by this runtime');
+                error.code = 'MODEL_TEMPLATE_UNSUPPORTED';
+                throw error;
+            },
+        });
+        const fail = api.calls.find((call) => call.action === 'local_fail');
+        expect(fail.payload.error_code).toBe('MODEL_TEMPLATE_UNSUPPORTED');
+        expect(fail.payload.error_detail).toBe('the model chat template is not supported by this runtime');
+    });
+
+    it('submits a failed result unchanged and reports why', async () => {
+        const api = fakeApi({ id: 'chunk-1', idx: 0, payload: PAYLOAD });
+        const events = [];
+        const result = {
+            status: 'failed',
+            errorCode: 'PROVIDER_ERROR',
+            errorDetail: 'ggml_abort in common_chat_templates_get_caps',
+        };
+        await localPump({
+            api,
+            jobId: 'job-1',
+            provider: {},
+            mode: 'single',
+            tier: 'mid',
+            onProgress: (event) => events.push(event),
+            runChunk: async () => result,
+        });
+        const submit = api.calls.find((call) => call.action === 'local_submit');
+        expect(submit.payload.result.errorCode).toBe('PROVIDER_ERROR');
+        expect(submit.payload.result.errorDetail).toContain('common_chat_templates_get_caps');
+        // The wizard shows this next to the failed chunk.
+        const failed = events.find((event) => event.phase === 'result_failed');
+        expect(failed).toMatchObject({ chunk: 'chunk-1', code: 'PROVIDER_ERROR' });
+        expect(failed.detail).toContain('common_chat_templates_get_caps');
+    });
+
     it('sends the job model identity and resolved config with every claim and submit', async () => {
         const lease = '2026-10-23T15:00:00.000000+00:00';
         const api = fakeApi({ id: 'chunk-1', idx: 0, payload: PAYLOAD, lease_until: lease });

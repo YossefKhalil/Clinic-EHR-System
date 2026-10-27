@@ -628,6 +628,8 @@
   "importAgent.chunkError.PERSIST_FAILED": "تعذّر حفظ الصفوف المستخرجة.",
   "importAgent.chunkError.INTERNAL": "حدث خطأ أثناء حفظ النتيجة.",
   "importAgent.review.chunksFailed": "فشل استخراج :count جزء",
+  "importAgent.review.failureModel": "النموذج",
+  "importAgent.review.failureReason": "السبب",
   "importAgent.reject.PARSE_FAILED": "تعذّرت قراءة هذا الملف كبيانات مرضى.",
   "importAgent.chunkError.OUTPUT_TRUNCATED": "استهلك النموذج كامل ميزانية الإجابة وتوقف قبل أن يكمل.",
   "importAgent.error.WORKER_RESOURCE_LIMIT": "استنفد عامل الاستيراد موارده وتم إيقافه. الاستيراد محفوظ - استأنفه أو قسّم الملف إلى أجزاء أصغر.",

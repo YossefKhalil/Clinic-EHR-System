@@ -103,6 +103,12 @@ export async function localPump(input) {
                 // refused the chunk (a bad chat template, an out-of-memory
                 // decode, a context that is too small).
                 console.warn(`[local] chunk ${chunk.id} failed: ${result.errorCode ?? 'PROVIDER_ERROR'} - ${result.errorDetail ?? 'no detail'}`);
+                onProgress?.({
+                    phase: 'result_failed',
+                    chunk: chunk.id,
+                    code: result.errorCode ?? 'PROVIDER_ERROR',
+                    detail: result.errorDetail ?? null,
+                });
             }
         } catch (error) {
             clearInterval(heartbeatTimer);
@@ -120,7 +126,12 @@ export async function localPump(input) {
             // happened. It does not get to decide that a broken model is
             // retryable.
             await api.callJob('local_fail', {
-                job_id: jobId, chunk_id: chunk.id, error_code: code, lease_expires_at: leaseExpiresAt,
+                job_id: jobId,
+                chunk_id: chunk.id,
+                error_code: code,
+                // The review banner shows this: the code alone cannot say why.
+                error_detail: String(error?.message ?? '').slice(0, 500) || null,
+                lease_expires_at: leaseExpiresAt,
             }).catch(() => {});
             onProgress?.({ phase: 'chunk_failed', chunk: chunk.id, error, retryable });
             if (FATAL_CODES.has(code)) running = false;
@@ -177,7 +188,11 @@ export async function localPump(input) {
                 return;
             }
             await api.callJob('local_fail', {
-                job_id: jobId, chunk_id: chunk.id, error_code: code, lease_expires_at: leaseExpiresAt,
+                job_id: jobId,
+                chunk_id: chunk.id,
+                error_code: code,
+                error_detail: String(error?.message ?? '').slice(0, 500) || null,
+                lease_expires_at: leaseExpiresAt,
             }).catch(() => {});
             onProgress?.({ phase: 'submit_failed', chunk: chunk.id, error, retryable: !isDeterministicLocalError(code) });
             return;

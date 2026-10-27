@@ -212,6 +212,9 @@ export function importAgentWizard() {
         localPhase: '',
         // The runtime settings the clinic saved in the settings card.
         localConfig: null,
+        // Why each local chunk failed in this session: the review banner shows
+        // the runtime's own message, which the chunk row does not carry.
+        localFailures: [],
 
         // extraction
         job: null,
@@ -666,6 +669,7 @@ export function importAgentWizard() {
         async localPumpLoop() {
             const controller = new AbortController();
             this.localAbort = controller;
+            this.localFailures = [];
             try {
                 const { runLocalImport } = await import('./local/runner.js');
                 const localResult = await runLocalImport({
@@ -679,6 +683,10 @@ export function importAgentWizard() {
                         else if (event?.phase === 'extract') this.localPhase = 'extracting';
                         else if (event?.phase === 'loading_models' || event?.phase === 'loading_model') this.localPhase = 'loading_model';
                         else if (event?.phase === 'done') this.localPhase = '';
+                        else if (event?.phase === 'result_failed') this.noteChunkFailure(event.chunk, event.code, event.detail);
+                        else if (event?.phase === 'chunk_failed' || event?.phase === 'submit_failed') {
+                            this.noteChunkFailure(event.chunk, event.error?.code, event.error?.message);
+                        }
                         if (event?.progress) this.progress = { ...this.progress, ...event.progress };
                     },
                 });
@@ -1060,6 +1068,25 @@ export function importAgentWizard() {
             const key = `importAgent.chunkError.${code}`;
             const value = this.t(key);
             return value === key ? code : value;
+        },
+
+        /** Remember the runtime's own message for a chunk that just failed. */
+        noteChunkFailure(chunkId, code, detail) {
+            if (!chunkId || !detail) return;
+            const entry = {
+                chunkId,
+                code: code ?? null,
+                detail: String(detail).slice(0, 500),
+            };
+            this.localFailures = [
+                ...(this.localFailures ?? []).filter((item) => item.chunkId !== chunkId),
+                entry,
+            ];
+        },
+
+        /** The runtime's message for a failed chunk, when this session saw it. */
+        chunkFailureDetail(chunkId) {
+            return (this.localFailures ?? []).find((item) => item.chunkId === chunkId)?.detail ?? '';
         },
 
         /**

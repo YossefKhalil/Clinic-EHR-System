@@ -1517,6 +1517,34 @@ function localJobFor(job: Record<string, unknown>) {
 }
 
 /**
+ * Remember why a local chunk failed, on the job itself.
+ *
+ * The review banner reads `config.last_provider_error` (the field the cloud
+ * pump already writes), so a local failure can show the runtime's own message
+ * instead of only "The provider call failed." The code alone is not enough:
+ * the message is what says *why* (an unsupported chat template, a context that
+ * is too small, an image chunk the model cannot read).
+ */
+async function rememberLocalFailure(
+    service: Service,
+    job: { id: string; config?: unknown },
+    code: string,
+    detail: unknown,
+): Promise<void> {
+    const config = { ...objectAt(job.config) };
+    config.last_provider_error = {
+        code,
+        detail: detail ? String(detail).slice(0, 500) : null,
+        model: localJobFor(job as Record<string, unknown>).model?.name ?? null,
+        retryAfterMs: null,
+        at: new Date().toISOString(),
+    };
+    const { error } = await service.from('import_jobs').update({ config }).eq('id', job.id);
+    if (error) console.error('local failure detail not stored', job.id, error.message);
+    else job.config = config;
+}
+
+/**
  * Why this claim or submit must be refused: the model or the text/OCR
  * settings the browser is about to use are not the ones the job started
  * with. `null` when they agree.
@@ -1749,6 +1777,16 @@ async function actionLocalSubmit(body: Record<string, unknown>, ctx: Context) {
         modelIdentity: local.model,
     });
     if (split) await insertSplitChildren(service, job.id as string, split);
+    if (result.status === 'failed') {
+        // The extractor turns a thrown provider error into a result, so this
+        // is the local failure path that carries the runtime's message.
+        await rememberLocalFailure(
+            service,
+            job,
+            result.errorCode ?? 'PROVIDER_ERROR',
+            (result as { errorDetail?: string | null }).errorDetail,
+        );
+    }
 
     await failExhausted(service, job.id, ctx.limits, localMaxAttempts(job));
     const progress = await chunkProgress(service, job.id);
@@ -1771,6 +1809,7 @@ async function actionLocalFail(body: Record<string, unknown>, ctx: Context) {
 
     const chunkId = String(body.chunk_id ?? '');
     const code = String(body.error_code ?? 'LOCAL_ERROR').slice(0, 64) || 'LOCAL_ERROR';
+    const detail = String(body.error_detail ?? '');
     const maxAttempts = localMaxAttempts(job);
 
     const { data: chunk } = await service
@@ -1809,6 +1848,10 @@ async function actionLocalFail(body: Record<string, unknown>, ctx: Context) {
         // has the chunk now, so this failure is not ours to record.
         return json({ ok: true, requeued: false, retryable: false, chunk_status: chunk.status });
     }
+
+    // Keep the runtime's own message so the banner can explain the failure,
+    // even after the page is reloaded.
+    await rememberLocalFailure(service, job, code, detail);
 
     await failExhausted(service, job.id, limits, maxAttempts);
     const progress = await chunkProgress(service, job.id);
