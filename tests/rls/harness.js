@@ -18,7 +18,7 @@ export const SCHEMA_PATH = fileURLToPath(new URL('../../supabase/schema.sql', im
 // Mirrors the hosted platform: everything a Supabase project provides before
 // supabase/schema.sql runs. Default privileges grant ALL to the API roles —
 // that is how hosted projects behave too; RLS is what gates rows.
-const SUPABASE_PRELUDE = `
+export const SUPABASE_PRELUDE = `
 DO $$ BEGIN CREATE ROLE anon NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE ROLE service_role NOLOGIN BYPASSRLS; EXCEPTION WHEN duplicate_object THEN NULL; END $$;

@@ -258,17 +258,18 @@ flowchart LR
 
 ### Local-only testing (no hosted data)
 
-To run the whole app against a **local Supabase stack** (its own Postgres,
-Auth, REST and Edge Functions) and keep the hosted project untouched, use the
-scripts in [`docs/local-host-testing`](docs/local-host-testing/README.md):
+Run the whole app against a local backend and keep the hosted project
+untouched. No Docker needed:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File docs/local-host-testing/setup.ps1
-powershell -ExecutionPolicy Bypass -File docs/local-host-testing/start.ps1
+```bash
+npm run local
 ```
 
-That creates a throwaway local login (`yossef` / `123`, Super Admin) and writes
-`.env.local`. Docker Desktop with WSL2 is required.
+That starts a Supabase-compatible mock (real Postgres via PGlite, the real Edge
+Functions in Deno) plus Vite, and creates a throwaway Super Admin
+(`yossef` / `123`). See
+[`docs/local-host-testing`](docs/local-host-testing/README.md). A full local
+Supabase stack (Docker + WSL2) is documented there as an alternative.
 
 ### 1. Clone and install
 
