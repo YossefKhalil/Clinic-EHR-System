@@ -818,6 +818,7 @@
   "importAgent.error.OCR_RUNTIME_UNAVAILABLE": "The photo reader is not part of this build.",
   "importAgent.chunkError.MODEL_NOT_MULTIMODAL": "The model cannot read photos. Pick a model with a vision part.",
   "importAgent.chunkError.MODEL_INCOMPATIBLE": "The model cannot be used on this computer.",
+  "importAgent.chunkError.MODEL_TEMPLATE_UNSUPPORTED": "The model's chat template is not supported by the browser runtime. Set a chat template in the model configuration, or pick another model.",
   "importAgent.chunkError.MODEL_FILE_UNAVAILABLE": "The model file is not reachable. Pick it again.",
   "importAgent.chunkError.MODEL_FILE_MISSING": "A file the model needs is missing.",
   "importAgent.chunkError.OCR_SUPPORT_FILES_MISSING": "The tokenizer and config files are missing.",

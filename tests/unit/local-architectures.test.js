@@ -36,6 +36,18 @@ describe('the checked-in architecture list', () => {
         expect(isSupportedArchitecture('not-a-real-architecture')).toBe(false);
     });
 
+    it('supports the qwen35 targets the build executes', () => {
+        // The enum list the manifest was generated from missed these two, but
+        // the same wasm carries their model code; both were seen in the wild.
+        expect(SUPPORTED_ARCHITECTURES).toContain('qwen35');
+        expect(SUPPORTED_ARCHITECTURES).toContain('qwen35moe');
+        const wasm = fs.readFileSync(
+            new URL('../../node_modules/@wllama/wllama/esm/wasm/wllama.wasm', import.meta.url),
+        ).toString('latin1');
+        expect(wasm).toContain('llama_model_qwen35moe');
+        expect(wasm).toContain('llama_model_qwen35');
+    });
+
     it('names only the runtime it can actually identify', () => {
         // wllama does not expose the llama.cpp revision, so the label stops at
         // the wrapper version instead of inventing one.

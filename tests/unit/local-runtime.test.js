@@ -265,6 +265,7 @@ describe('localConfigDrift', () => {
 describe('isDeterministicLocalError', () => {
     it('knows the errors that cannot succeed on a retry', () => {
         expect(isDeterministicLocalError('MODEL_FILE_UNAVAILABLE')).toBe(true);
+        expect(isDeterministicLocalError('MODEL_TEMPLATE_UNSUPPORTED')).toBe(true);
         expect(isDeterministicLocalError('CONFIG_DRIFT')).toBe(true);
         expect(isDeterministicLocalError('TIMEOUT')).toBe(false);
         expect(isDeterministicLocalError(undefined)).toBe(false);

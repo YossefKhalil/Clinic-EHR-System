@@ -1,7 +1,7 @@
 {
   "wllamaVersion": "3.8.1",
   "llamaCppRevision": null,
-  "generatedFrom": "LLM_ARCH_NAMES values in @wllama/wllama 3.8.1 esm/wasm/wllama.wasm",
+  "generatedFrom": "LLM_ARCH_NAMES values in @wllama/wllama 3.8.1 esm/wasm/wllama.wasm, plus the qwen35/qwen35moe model targets present in the same build (llama_model_qwen35moe symbols)",
   "architectures": [
     "afmoe",
     "apertus",
@@ -85,6 +85,8 @@
     "qwen2moe",
     "qwen2vl",
     "qwen3",
+    "qwen35",
+    "qwen35moe",
     "qwen3moe",
     "qwen3next",
     "qwen3vl",

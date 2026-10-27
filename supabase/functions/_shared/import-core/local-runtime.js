@@ -285,6 +285,9 @@ export function localConfigDrift(stored, current) {
 export const LOCAL_DETERMINISTIC_CODES = Object.freeze([
     'MODEL_NOT_MULTIMODAL',
     'MODEL_INCOMPATIBLE',
+    // The runtime cannot apply the model's own chat template; retrying the
+    // same model cannot change that.
+    'MODEL_TEMPLATE_UNSUPPORTED',
     'MODEL_FILE_UNAVAILABLE',
     'MODEL_FILE_MISSING',
     'VISION_GGUF_UNSUPPORTED',

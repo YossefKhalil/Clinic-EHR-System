@@ -150,6 +150,34 @@ function usageFrom(response, fallbackText) {
 }
 
 /**
+ * Map a wllama failure onto a code the wizard can translate.
+ *
+ * llama.cpp aborts inside its Jinja engine when a model's own chat template
+ * uses a feature the build does not implement (`failed to apply chat
+ * template`). The abort reaches JavaScript as a stack trace, so the text is
+ * matched; a template override in the model config bypasses this path
+ * entirely. Every other error is rethrown untouched.
+ */
+export function mapRuntimeError(error) {
+    const message = String(error?.message ?? error ?? '');
+    if (/chat_template|chat template|template application|failed to apply/i.test(message)) {
+        const mapped = new Error('the model chat template is not supported by this runtime');
+        mapped.code = 'MODEL_TEMPLATE_UNSUPPORTED';
+        mapped.cause = error;
+        return mapped;
+    }
+    return error;
+}
+
+async function runRuntime(operation) {
+    try {
+        return await operation();
+    } catch (error) {
+        throw mapRuntimeError(error);
+    }
+}
+
+/**
  * The provider object the extractor talks to.
  *
  * The text path goes through `createChatCompletion`, so the prompt follows
@@ -193,14 +221,14 @@ export function createLocalProvider(overrideConfig = null) {
                         content.push({ type: 'image', data: await dataUrlToBuffer(part.dataUrl) });
                     }
                 }
-                const response = await wllama.createChatCompletion({
+                const response = await runRuntime(() => wllama.createChatCompletion({
                     messages: [
                         { role: 'system', content: request.system || '' },
                         { role: 'user', content },
                     ],
                     ...sampling,
                     abortSignal,
-                });
+                }));
                 const text = response?.choices?.[0]?.message?.content ?? '';
                 return {
                     text: String(text),
@@ -223,12 +251,12 @@ export function createLocalProvider(overrideConfig = null) {
                     system: request.system || '',
                     user: userText,
                 });
-                const response = await wllama.createCompletion({
+                const response = await runRuntime(() => wllama.createCompletion({
                     prompt,
                     ...sampling,
                     stop: config.text.stopSequences?.length ? config.text.stopSequences : undefined,
                     abortSignal,
-                });
+                }));
                 const text = response?.choices?.[0]?.text ?? '';
                 return {
                     text: String(text),
@@ -239,14 +267,14 @@ export function createLocalProvider(overrideConfig = null) {
                 };
             }
 
-            const response = await wllama.createChatCompletion({
+            const response = await runRuntime(() => wllama.createChatCompletion({
                 messages: [
                     { role: 'system', content: request.system || '' },
                     { role: 'user', content: userText },
                 ],
                 ...sampling,
                 abortSignal,
-            });
+            }));
             const text = response?.choices?.[0]?.message?.content ?? '';
             return {
                 text: String(text),

@@ -19,6 +19,7 @@ import { isDeterministicLocalError } from '@import-core/local-runtime.js';
 const FATAL_CODES = new Set([
     'MODEL_FILE_UNAVAILABLE',
     'MODEL_FILE_MISSING',
+    'MODEL_TEMPLATE_UNSUPPORTED',
     'TEXT_MODEL_UNAVAILABLE',
     'NO_MODEL_PROFILE',
     'LOCAL_MODEL_NOT_CONFIGURED',
@@ -95,6 +96,14 @@ export async function localPump(input) {
             }
             onProgress?.({ phase: 'extract', chunk: chunk.id });
             result = await runChunk({ provider, chunk: workChunk, maxTokens: budgets.maxOutputTokens });
+            if (result?.status === 'failed') {
+                // The extractor turns a thrown provider error into a result, so
+                // the review banner only sees the code. Keep the runtime's own
+                // message in the console: it is what says *why* the model
+                // refused the chunk (a bad chat template, an out-of-memory
+                // decode, a context that is too small).
+                console.warn(`[local] chunk ${chunk.id} failed: ${result.errorCode ?? 'PROVIDER_ERROR'} - ${result.errorDetail ?? 'no detail'}`);
+            }
         } catch (error) {
             clearInterval(heartbeatTimer);
             const code = error?.code || 'LOCAL_ERROR';

@@ -817,6 +817,7 @@
   "importAgent.error.OCR_RUNTIME_UNAVAILABLE": "قارئ الصور غير جزء من هذه النسخة.",
   "importAgent.chunkError.MODEL_NOT_MULTIMODAL": "النموذج لا يستطيع قراءة الصور. اختر نموذجًا به جزء للرؤية.",
   "importAgent.chunkError.MODEL_INCOMPATIBLE": "النموذج لا يعمل على هذا الجهاز.",
+  "importAgent.chunkError.MODEL_TEMPLATE_UNSUPPORTED": "قالب محادثة النموذج غير مدعوم في محرك المتصفح. عيّن قالب محادثة في إعدادات النموذج، أو اختر نموذجاً آخر.",
   "importAgent.chunkError.MODEL_FILE_UNAVAILABLE": "ملف النموذج غير متاح. اختره مرة أخرى.",
   "importAgent.chunkError.MODEL_FILE_MISSING": "ملف يحتاجه النموذج مفقود.",
   "importAgent.chunkError.OCR_SUPPORT_FILES_MISSING": "ملفات المحلل والإعداد مفقودة.",
