@@ -8,7 +8,9 @@ import { describe, it, expect } from 'vitest';
 import {
     parseGgufHeader,
     hasVisionTensors,
+    isProjectorGguf,
     isSupportedArchitecture,
+    runtimeIdentityLabel,
     GgufError,
     GGUF_VALUE_TYPES,
 } from '../../src/features/import-agent/local/gguf-metadata.js';
@@ -116,6 +118,21 @@ describe('hasVisionTensors', () => {
         expect(hasVisionTensors([{ name: 'text_embd.weight' }])).toBe(false);
         expect(hasVisionTensors([{ name: 'clip.vision.patch.weight' }])).toBe(true);
         expect(hasVisionTensors([{ name: 'mmproj.weight' }])).toBe(true);
+    });
+});
+
+describe('isProjectorGguf', () => {
+    it('recognises the clip architecture, the mmproj tensors and the mmproj name', () => {
+        expect(isProjectorGguf({ architecture: 'clip', tensors: [] }, 'model.gguf')).toBe(true);
+        expect(isProjectorGguf({ architecture: 'llama', tensors: [{ name: 'mmproj.weight' }] }, 'model.gguf')).toBe(true);
+        expect(isProjectorGguf({ architecture: 'llama', tensors: [] }, 'mmproj-model-f16.gguf')).toBe(true);
+        expect(isProjectorGguf({ architecture: 'llama', tensors: [{ name: 'token_embd.weight' }] }, 'model.gguf')).toBe(false);
+    });
+});
+
+describe('runtimeIdentityLabel', () => {
+    it('names the wrapper build the manifest was generated from', () => {
+        expect(runtimeIdentityLabel()).toMatch(/^wllama \d+\.\d+\.\d+/);
     });
 });
 

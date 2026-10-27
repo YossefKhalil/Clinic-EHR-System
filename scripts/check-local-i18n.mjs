@@ -3,6 +3,7 @@
 //
 // Run: node scripts/check-local-i18n.mjs
 import fs from 'node:fs';
+import { PROBE_MESSAGE_KEYS } from '../src/features/import-agent/local/probe-messages.js';
 
 const en = JSON.parse(fs.readFileSync('src/locales/en.json', 'utf8'));
 const ar = JSON.parse(fs.readFileSync('src/locales/ar.json', 'utf8'));
@@ -52,6 +53,11 @@ for (const key of localKeys) {
 }
 // The keys the runtime builds out of a prefix have to exist as well.
 for (const key of ['importAgent.progress.local.loading_model', 'importAgent.progress.local.reading_photos', 'importAgent.progress.local.extracting']) {
+    if (!enKeys.has(key)) { console.error(`missing in en.json: ${key}`); missing += 1; }
+    if (!arKeys.has(key)) { console.error(`missing in ar.json: ${key}`); missing += 1; }
+}
+// Every probe code the settings card can show has a translated sentence.
+for (const key of Object.values(PROBE_MESSAGE_KEYS)) {
     if (!enKeys.has(key)) { console.error(`missing in en.json: ${key}`); missing += 1; }
     if (!arKeys.has(key)) { console.error(`missing in ar.json: ${key}`); missing += 1; }
 }

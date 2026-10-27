@@ -54,6 +54,12 @@ describe('clampLocalConfig', () => {
         const clamped = clampLocalConfig({ text: { custom: 'kept' } });
         expect(clamped.text.custom).toBe('kept');
     });
+
+    it('clamps the entered System RAM', () => {
+        expect(clampLocalConfig({ runtime: { systemMemoryGb: 5000 } }).runtime.systemMemoryGb)
+            .toBe(LOCAL_RUNTIME_BOUNDS.systemMemoryGb.max);
+        expect(clampLocalConfig({ runtime: { systemMemoryGb: -1 } }).runtime.systemMemoryGb).toBe(0);
+    });
 });
 
 describe('normalizeLocalProfile', () => {
@@ -85,6 +91,20 @@ describe('normalizeLocalProfile', () => {
         expect(profile.textSha256).toBe(textHash);
         expect(profile.visionSha256).toBe(visionHash);
     });
+
+    it('keeps the optional projector identity', () => {
+        const hash = 'C'.repeat(64);
+        const profile = normalizeLocalProfile({
+            mode: 'single',
+            name: 'model.gguf',
+            mmprojName: 'mmproj.gguf',
+            mmprojSize: 512,
+            mmprojSha256: hash,
+        });
+        expect(profile.mmprojName).toBe('mmproj.gguf');
+        expect(profile.mmprojSize).toBe(512);
+        expect(profile.mmprojSha256).toBe(hash);
+    });
 });
 
 describe('localProfileSummary', () => {
@@ -109,6 +129,22 @@ describe('localProfileSummary', () => {
         });
         expect(JSON.stringify(summary)).not.toContain('secret');
     });
+
+    it('carries the projector beside the multimodal model', () => {
+        const summary = localProfileSummary({
+            mode: 'single',
+            multimodal: { name: 'model.gguf', size: 10 },
+            mmproj: { name: 'mmproj.gguf', size: 512, sha256: 'C'.repeat(64) },
+        });
+        expect(summary).toEqual({
+            mode: 'single',
+            name: 'model.gguf',
+            size: 10,
+            mmprojName: 'mmproj.gguf',
+            mmprojSize: 512,
+            mmprojSha256: 'C'.repeat(64),
+        });
+    });
 });
 
 describe('localModelIdentity', () => {
@@ -116,6 +152,23 @@ describe('localModelIdentity', () => {
         const hash = 'A'.repeat(64);
         expect(localModelIdentity({ mode: 'single', name: 'model.gguf', sha256: hash }))
             .toEqual({ mode: 'single', name: 'model.gguf', sha256: hash });
+    });
+
+    it('carries the optional projector in the single layout', () => {
+        const hash = 'A'.repeat(64);
+        const projectorHash = 'C'.repeat(64);
+        expect(localModelIdentity({
+            mode: 'single',
+            name: 'model.gguf',
+            sha256: hash,
+            mmprojName: 'mmproj.gguf',
+            mmprojSha256: projectorHash,
+        })).toEqual({
+            mode: 'single',
+            name: 'model.gguf',
+            sha256: hash,
+            mmproj: { name: 'mmproj.gguf', sha256: projectorHash },
+        });
     });
 
     it('names the text model and carries the optional vision model in the split layout', () => {
@@ -165,6 +218,21 @@ describe('sameLocalModel', () => {
             { mode: 'split', name: 'text.gguf', vision: { name: 'a.onnx' } },
             { mode: 'split', name: 'text.gguf', vision: { name: 'b.onnx' } },
         )).toBe(false);
+    });
+
+    it('treats a different projector as a different model', () => {
+        expect(sameLocalModel(
+            { mode: 'single', name: 'model.gguf' },
+            { mode: 'single', name: 'model.gguf', mmproj: { name: 'mmproj.gguf' } },
+        )).toBe(false);
+        expect(sameLocalModel(
+            { mode: 'single', name: 'model.gguf', mmproj: { name: 'mmproj.gguf', sha256: 'A'.repeat(64) } },
+            { mode: 'single', name: 'model.gguf', mmproj: { name: 'mmproj.gguf', sha256: 'B'.repeat(64) } },
+        )).toBe(false);
+        expect(sameLocalModel(
+            { mode: 'single', name: 'model.gguf', mmproj: { name: 'mmproj.gguf' } },
+            { mode: 'single', name: 'model.gguf', mmproj: { name: 'mmproj.gguf' } },
+        )).toBe(true);
     });
 });
 

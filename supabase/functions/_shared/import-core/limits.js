@@ -134,6 +134,9 @@ export const LOCAL_RUNTIME_BOUNDS = Object.freeze({
     heartbeatSeconds: { min: 10, max: 1800 },
     maxAttempts: { min: 1, max: 10 },
     parallel: { min: 1, max: 4 },
+    // 0 means "the clinic did not enter it"; Firefox and Safari do not
+    // expose navigator.deviceMemory, so the settings card asks instead.
+    systemMemoryGb: { min: 0, max: 1024 },
 });
 
 /**

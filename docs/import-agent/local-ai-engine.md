@@ -139,6 +139,100 @@ window could still be marked as failed, the settings the admin saved were
 ignored by the run, and a text field in the card was read as a number. The
 tests in `tests/unit/local-*.test.js` cover each of them.
 
+## Issue #52 fixes
+
+The reported failures fell into eight groups. This is what changed.
+
+### F1/F7: the probe contract
+
+- The runtime's architecture list is generated from `@wllama/wllama` **3.8.1**
+  and checked in as `architectures.json`. A unit test compares the file with
+  the installed package, so an upgrade cannot silently widen or narrow the
+  list. The wasm strings are evidence, not a stable API.
+- An architecture outside the list is still refused, but the card offers
+  **Load anyway**. The choice is stored on the slot
+  (`allowUnsupportedArchitecture`) and travels with the file, so an import
+  after a reload still loads the model the clinic accepted.
+- Every refusal has a translated sentence under
+  `aiSettings.local.probe.<CODE>` in both locales. The raw English `detail`
+  stays on the result for diagnostics and is never the visible message. The
+  i18n checker imports `PROBE_MESSAGE_KEYS` and fails when a key is missing.
+- `MMPROJ_INVALID` is its own code: a file picked in the projector slot that
+  is not a projector is refused with a sentence that says so.
+- An ONNX graph that is cut short keeps `ONNX_TRUNCATED` and reports how many
+  of the declared bytes were read; only a graph that is structurally not ONNX
+  maps to `ONNX_MAGIC_INVALID`/`FILE_TYPE_UNKNOWN`. The sniffer accepts any
+  plausible protobuf first key (field 1–15, wire 0/1/2/5), so an exporter that
+  starts with `producer_version` or `domain` is not mislabelled.
+- The readiness row names the runtime (`wllama 3.8.1`). wllama exposes no
+  llama.cpp revision, so the label does not invent one.
+
+### F2: System RAM and the tier
+
+- `local_config.runtime.systemMemoryGb` (0–1024, **0 = not entered**) wins
+  over `navigator.deviceMemory` when the tier is suggested. Firefox and Safari
+  report no RAM, so a clinic on those browsers can now earn the `high` tier.
+- The shared clamp in `limits.js` / `local-runtime.js` bounds the value on
+  both sides. The readiness chip says `entered` or `reported`, and the tier
+  chip is recomputed as the field changes.
+
+### F4: the single-model vision setup
+
+- A single profile may carry an optional `mmproj` projector
+  (`mmprojName`/`mmprojSize`/`mmprojSha256`). It is part of the model identity
+  (`localModelIdentity`, `sameLocalModel`), because a different projector
+  reads the same photo differently.
+- The projector is probed in the `projector` role and loaded as the second
+  blob: `initWllama({ blobs: [model, projector] })`. The loaded runtime only
+  claims `multimodal` when the projector is present, so a multimodal GGUF
+  without its projector says "text only" instead of failing inside wllama.
+- The card warns when a GGUF declares a vision tower and no projector is
+  selected, and when the text half has no vision tower at all.
+- The split layout is unchanged: text GGUF plus an ONNX Falcon vision model.
+  A GGUF in the vision slot is still refused with `VISION_GGUF_UNSUPPORTED`.
+
+### F3: re-check, hashes and translated errors
+
+- **Verify** hashes once and probes the header. **Re-check** probes the header
+  again without re-reading a 700 MB file, which is the useful action after an
+  interrupted download.
+- The verification state machine keeps the probe positions
+  (`bytesConsumed`, `fileSize`), the parameters and the runtime label, so a
+  refusal can say *how far* the read got. A SHA-256 mismatch is its own code
+  (`MODEL_HASH_MISMATCH`) and shows on the slot.
+- A form loaded from the server does not lose the browser-side probe state:
+  the capabilities, the warnings, the runtime label and the override are
+  carried forward when the slot still names the same file.
+
+### F8: persistence for Firefox and Safari
+
+- The profile store is now **IndexedDB v3** with a `files` store. A browser
+  without the File System Access API keeps the `File` itself; Chromium keeps
+  its handle. `loadProfile` rehydrates the stored bytes into `file`, and every
+  caller (`verifyModel`, `verifyLocalModelSlot`, `setupLocalModels`,
+  `runner`) accepts `file ?? handle`.
+- `persistLocalState` asks for `navigator.storage.persist()` and reports
+  `granted`, `denied`, `quota` or `unsupported`. A quota failure keeps the
+  in-memory file for the session and shows a warning instead of losing the
+  settings; a denied request warns that the stored model may be evicted.
+- The runner accepts a slot with a stored `File` and no handle, so a Firefox
+  import no longer stops with `MODEL_PROFILE_HANDLE_MISSING`.
+
+### F5: threads, COOP/COEP and docs
+
+- The Threads field is disabled and annotated when the page is not
+  cross-origin isolated, because `resolveThreads` returns 1 in that case. The
+  readiness chip says `1 thread (page is not cross-origin isolated)`.
+- Multi-thread loading stays an explicit deployment opt-in: the app still
+  sets no COOP/COEP headers by default, so the Supabase calls are unaffected.
+
+### F6: locales
+
+- All new local keys exist in `src/locales/en.json` and
+  `src/locales/ar.json` with matching placeholders, including the 24 probe
+  messages. `scripts/check-local-i18n.mjs` validates `PROBE_MESSAGE_KEYS` as
+  well as the keys it finds in the templates.
+
 ## What is dark, and why
 
 The OCR path (Phase 2) is written but cannot run yet:

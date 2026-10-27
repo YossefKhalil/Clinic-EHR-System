@@ -58,6 +58,9 @@ export const DEFAULT_LOCAL_CONFIG = {
         heartbeatSeconds: 60,
         maxAttempts: 5,
         parallel: 1,
+        // 0 = not entered. The card asks for it on browsers that do not
+        // expose navigator.deviceMemory (Firefox, Safari).
+        systemMemoryGb: 0,
     },
 };
 
@@ -178,6 +181,7 @@ const NUMERIC_BOUNDS = Object.freeze({
     'runtime.heartbeatSeconds': LOCAL_RUNTIME_BOUNDS.heartbeatSeconds,
     'runtime.maxAttempts': LOCAL_RUNTIME_BOUNDS.maxAttempts,
     'runtime.parallel': LOCAL_RUNTIME_BOUNDS.parallel,
+    'runtime.systemMemoryGb': LOCAL_RUNTIME_BOUNDS.systemMemoryGb,
 });
 
 const BOOLEAN_FIELDS = Object.freeze([

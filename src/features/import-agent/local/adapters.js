@@ -25,7 +25,10 @@
 import {
     parseGgufHeader,
     hasVisionTensors,
+    isProjectorGguf,
     isSupportedArchitecture,
+    MODEL_RUNTIME,
+    runtimeIdentityLabel,
     GgufError,
 } from './gguf-metadata.js';
 import {
@@ -43,6 +46,7 @@ export const PROBE_CODES = Object.freeze({
     GGUF_MAGIC_INVALID: 'GGUF_MAGIC_INVALID',
     GGUF_TRUNCATED: 'GGUF_TRUNCATED',
     VISION_GGUF_UNSUPPORTED: 'VISION_GGUF_UNSUPPORTED',
+    MMPROJ_INVALID: 'MMPROJ_INVALID',
     ONNX_IO_UNMATCHED: 'ONNX_IO_UNMATCHED',
     ONNX_OP_UNAVAILABLE: 'ONNX_OP_UNAVAILABLE',
     ONNX_EXTERNAL_DATA_UNSUPPORTED: 'ONNX_EXTERNAL_DATA_UNSUPPORTED',
@@ -101,15 +105,20 @@ export function sniffKind(bytes) {
         }
     }
     // An ONNX file is a protobuf. Its first field is a key, and a key is a
-    // varint: a small field number with a wire type. `ir_version` (field 1)
-    // and `graph` (field 7) are the two the exporters put first.
+    // varint: a small field number with a wire type. The exporters usually
+    // start with `ir_version` (1), `producer_name` (2) or `graph` (7), but
+    // `producer_version` (3), `domain` (4), `model_version` (5) and
+    // `doc_string` (6) are just as valid. Accept any plausible first key and
+    // let the graph parser decide: guessing from one byte must not turn a
+    // healthy model into FILE_TYPE_UNKNOWN.
     if (bytes.byteLength >= 1) {
         const key = bytes[0];
         const field = key >>> 3;
         const wire = key & 0x7;
-        if ((field === 1 && wire === 0) || (field === 7 && wire === 2) || (field === 2 && wire === 2)) {
-            return 'onnx';
-        }
+        // Wire types 0 (varint), 1 (fixed64), 2 (length-delimited) and 5
+        // (fixed32) are the ones a protobuf message uses for a real field.
+        const plausibleWire = wire === 0 || wire === 1 || wire === 2 || wire === 5;
+        if (field >= 1 && field <= 15 && plausibleWire) return 'onnx';
     }
     return 'unknown';
 }
@@ -167,6 +176,7 @@ function defaultCapabilities(kind) {
  * @param {{ name?: string, slice?: Function, getFile?: Function }|Uint8Array} source
  * @param {{ mode?: 'single'|'split', chatTemplate?: string|null,
  *           allowMissingTemplate?: boolean, supportedArchitectures?: string[],
+ *           allowUnsupportedArchitecture?: boolean, role?: 'model'|'projector',
  *           defaultContextWindow?: number }} [options]
  * @returns {Promise<object>}
  */
@@ -226,7 +236,8 @@ async function readGgufHeader(file) {
 }
 
 function probeGgufHeader(header, fileName, options, capabilities, warnings) {
-    const vision = hasVisionTensors(header.tensors, fileName);
+    const projector = isProjectorGguf(header, fileName);
+    const vision = projector || hasVisionTensors(header.tensors, fileName);
     const override = typeof options.chatTemplate === 'string' && options.chatTemplate.length > 0
         ? options.chatTemplate
         : null;
@@ -242,16 +253,55 @@ function probeGgufHeader(header, fileName, options, capabilities, warnings) {
     capabilities.multimodal = vision;
     capabilities.templateSource = override ? 'config' : (header.chatTemplate ? 'gguf' : 'builtin');
 
+    // A projector is not a model: it has no template, no context window and
+    // no chat template. It only needs to be recognised as the vision tower
+    // the text model will load beside itself.
+    if (options.role === 'projector') {
+        capabilities.projector = true;
+        if (!projector) {
+            return refusal(
+                PROBE_CODES.MMPROJ_INVALID,
+                'this file is not a vision projector (expected the clip architecture or mmproj tensors)',
+                capabilities,
+                warnings,
+                { params: { name: fileName || header.architecture || '?' } },
+            );
+        }
+        return {
+            ok: true,
+            error: null,
+            code: null,
+            adapter: GGUF_ADAPTER_ID,
+            capabilities,
+            architecture: header.architecture,
+            chatTemplate: null,
+            contextWindow: null,
+            projector: true,
+            runtime: MODEL_RUNTIME,
+            runtimeLabel: runtimeIdentityLabel(),
+            warnings,
+            detail: 'vision projector: it lets the text model read photos',
+        };
+    }
+
     if (!contextWindow) {
         warnings.push('the model does not declare a context window; the configured value is used');
     }
 
-    if (!isSupportedArchitecture(header.architecture, options.supportedArchitectures)) {
+    const architectureSupported = isSupportedArchitecture(header.architecture, options.supportedArchitectures);
+    capabilities.architectureSupported = architectureSupported;
+    if (!architectureSupported && options.allowUnsupportedArchitecture !== true) {
         return refusal(
             PROBE_CODES.GGUF_ARCH_UNSUPPORTED,
             `the model architecture "${header.architecture ?? 'unknown'}" is not in this runtime's build`,
             capabilities,
             warnings,
+            { params: { architecture: header.architecture ?? 'unknown' } },
+        );
+    }
+    if (!architectureSupported) {
+        warnings.push(
+            `the architecture "${header.architecture ?? 'unknown'}" is not on the checked-in support list; loading it anyway may fail`,
         );
     }
 
@@ -289,6 +339,8 @@ function probeGgufHeader(header, fileName, options, capabilities, warnings) {
         architecture: header.architecture,
         chatTemplate: capabilities.chatTemplate,
         contextWindow: contextWindow || null,
+        runtime: MODEL_RUNTIME,
+        runtimeLabel: runtimeIdentityLabel(),
         warnings,
         detail: vision
             ? 'multimodal model: it can read photos directly'
@@ -351,7 +403,16 @@ function onnxParseRefusal(error, capabilities, warnings) {
     const code = error instanceof OnnxError && error.code === 'ONNX_TRUNCATED'
         ? PROBE_CODES.ONNX_TRUNCATED
         : PROBE_CODES.ONNX_MAGIC_INVALID;
-    return refusal(code, String(error?.message ?? 'the file is not a readable ONNX graph'), capabilities, warnings);
+    return refusal(
+        code,
+        String(error?.message ?? 'the file is not a readable ONNX graph'),
+        capabilities,
+        warnings,
+        {
+            bytesConsumed: Number(error?.bytesConsumed) || 0,
+            fileSize: Number(error?.fileSize) || 0,
+        },
+    );
 }
 
 async function probeOnnxFile(file, options, capabilities, warnings) {
@@ -506,13 +567,12 @@ export async function probeModelFile(file, options = {}) {
         ? await probeONNX(file, options)
         : probeOnnxBytes(head, options, capabilities, warnings);
     if (result.ok) return result;
-    // The legacy panel used FILE_TYPE_UNKNOWN for a protobuf that is not a
-    // graph and FILE_UNREADABLE for a truncated one. Keep those codes.
+    // A protobuf that is not a graph is still FILE_TYPE_UNKNOWN in the legacy
+    // panel. A truncated graph keeps the precise ONNX_TRUNCATED code: the
+    // clinic can tell a partial download from a wrong file, and the card has
+    // a translated message for it.
     if (result.error === PROBE_CODES.ONNX_MAGIC_INVALID) {
         return { ...result, error: PROBE_CODES.FILE_TYPE_UNKNOWN, code: PROBE_CODES.FILE_TYPE_UNKNOWN };
-    }
-    if (result.error === PROBE_CODES.ONNX_TRUNCATED) {
-        return { ...result, error: PROBE_CODES.FILE_UNREADABLE, code: PROBE_CODES.FILE_UNREADABLE };
     }
     return result;
 }

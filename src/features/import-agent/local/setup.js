@@ -1,7 +1,7 @@
 // Model setup: load the models the clinic picked.
 //
-// Layout "single"  one multimodal GGUF in wllama. The images go to the model
-//                  as image parts.
+// Layout "single"  one multimodal GGUF in wllama plus its optional mmproj
+//                  projector. The images go to the model as image parts.
 // Layout "split"   a text GGUF in wllama plus a vision model. The vision
 //                  model reads the photos and the text model extracts the
 //                  records.
@@ -26,13 +26,24 @@ function error(code, message) {
 }
 
 /**
+ * The file of a profile slot.
+ *
+ * A Chromium profile stores a handle; Firefox and Safari store the File
+ * itself. Either one is a usable source for the runtime.
+ */
+async function slotFile(slot) {
+    if (slot?.file) return slot.file;
+    return fileFromHandle(slot?.handle);
+}
+
+/**
  * Check a model file before it is loaded.
  *
  * The header is read, not the weights: a file that cannot be used is
  * refused here with a code, not after a 686 MB download.
  */
-async function probe(file) {
-    const result = await probeModelFile(file);
+async function probe(file, options = {}) {
+    const result = await probeModelFile(file, options);
     if (!result.ok) throw error(result.code, result.detail);
     return result;
 }
@@ -50,12 +61,24 @@ export async function setupLocalModels(input) {
     const { config } = resolveLocalConfig(tier, input.config || {});
 
     if (profile.mode === 'single') {
-        const file = await fileFromHandle(profile.multimodal?.handle);
+        const file = await slotFile(profile.multimodal);
         if (!file) throw error('MODEL_FILE_UNAVAILABLE', 'the multimodal model file is not reachable');
-        const capabilities = await probe(file);
+        const capabilities = await probe(file, {
+            mode: 'single',
+            chatTemplate: config.text.chatTemplate,
+            allowUnsupportedArchitecture: profile.multimodal?.allowUnsupportedArchitecture === true,
+        });
+        // The projector is a second GGUF. Without it the text model still
+        // works, but it cannot read photos; the panel warns about that.
+        const projectorFile = await slotFile(profile.mmproj);
+        if (projectorFile) await probe(projectorFile, { role: 'projector' });
+        // wllama only accepts image parts when the projector was loaded too.
+        const loadedCapabilities = { ...capabilities, multimodal: Boolean(projectorFile) };
         await initWllama(
-            { file, label: profile.multimodal.name },
-            { config, tier, capabilities, onProgress: (loaded, total) => input.onProgress?.('text', loaded, total) },
+            projectorFile
+                ? { blobs: [file, projectorFile], label: profile.multimodal.name }
+                : { file, label: profile.multimodal.name },
+            { config, tier, capabilities: loadedCapabilities, onProgress: (loaded, total) => input.onProgress?.('text', loaded, total) },
         );
         return {
             mode: 'single',
@@ -67,15 +90,19 @@ export async function setupLocalModels(input) {
     }
 
     // Layout "split".
-    const textFile = await fileFromHandle(profile.text?.handle);
+    const textFile = await slotFile(profile.text);
     if (!textFile) throw error('TEXT_MODEL_UNAVAILABLE', 'the text model file is not reachable');
-    const textCapabilities = await probe(textFile);
+    const textCapabilities = await probe(textFile, {
+        mode: 'split',
+        chatTemplate: config.text.chatTemplate,
+        allowUnsupportedArchitecture: profile.text?.allowUnsupportedArchitecture === true,
+    });
 
     // Vision is optional in split mode - only needed for images.
     let visionFile = null;
     let visionReady = false;
-    if (profile.vision?.handle) {
-        visionFile = await fileFromHandle(profile.vision.handle);
+    if (profile.vision?.handle || profile.vision?.file) {
+        visionFile = await slotFile(profile.vision);
         if (visionFile) {
             if (!String(visionFile.name).toLowerCase().endsWith('.onnx')) {
                 throw error('VISION_GGUF_UNSUPPORTED', 'the split layout needs an ONNX vision model');

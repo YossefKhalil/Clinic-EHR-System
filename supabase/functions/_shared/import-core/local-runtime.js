@@ -58,13 +58,21 @@ export function clampLocalConfig(config) {
             heartbeatSeconds: clampNumber(runtime.heartbeatSeconds, bounds.heartbeatSeconds.min, bounds.heartbeatSeconds.max, 60),
             maxAttempts: clampNumber(runtime.maxAttempts, bounds.maxAttempts.min, bounds.maxAttempts.max, 5),
             parallel: clampNumber(runtime.parallel, 1, bounds.parallel.max, 1),
+            // The entered System RAM is a *hint* for the tier suggestion, not
+            // a runtime limit. 0 means the clinic has not entered it.
+            systemMemoryGb: clampNumber(
+                runtime.systemMemoryGb,
+                bounds.systemMemoryGb.min,
+                bounds.systemMemoryGb.max,
+                0,
+            ),
         },
     };
 }
 
-const PROFILE_TEXT_KEYS = ['name', 'textName', 'visionName', 'supportName'];
-const PROFILE_SIZE_KEYS = ['size', 'textSize', 'visionSize'];
-const PROFILE_HASH_KEYS = ['sha256', 'textSha256', 'visionSha256'];
+const PROFILE_TEXT_KEYS = ['name', 'textName', 'visionName', 'supportName', 'mmprojName'];
+const PROFILE_SIZE_KEYS = ['size', 'textSize', 'visionSize', 'mmprojSize'];
+const PROFILE_HASH_KEYS = ['sha256', 'textSha256', 'visionSha256', 'mmprojSha256'];
 
 function shortString(value, max = 200) {
     return typeof value === 'string' ? value.slice(0, max) : '';
@@ -119,6 +127,7 @@ export function localProfileSummary(profile) {
     if (mode === 'single' || mode === 'split') out.mode = mode;
     const slots = [
         ['multimodal', { name: 'name', size: 'size', sha256: 'sha256' }],
+        ['mmproj', { name: 'mmprojName', size: 'mmprojSize', sha256: 'mmprojSha256' }],
         ['text', { name: 'textName', size: 'textSize', sha256: 'textSha256' }],
         ['vision', { name: 'visionName', size: 'visionSize', sha256: 'visionSha256' }],
     ];
@@ -142,13 +151,16 @@ export function localProfileSummary(profile) {
  *
  * The split layout extracts with its text model; the multimodal model is the
  * only model in the single layout. The vision model is part of a split job's
- * identity because changing it changes how a photo is read.
+ * identity because changing it changes how a photo is read. In the single
+ * layout the projector is part of the identity for the same reason: a
+ * different `mmproj` file reads the same image differently.
  *
  * Accepts both the picked profile (nested slots) and the flattened profile
  * the server stores, so the browser and the Edge Function build the same
  * identity from the same data.
  *
  * @returns {{ mode: 'single'|'split', name?: string, sha256?: string,
+ *             mmproj?: { name?: string, sha256?: string },
  *             vision?: { name?: string, sha256?: string } }}
  */
 export function normalizeLocalIdentity(value) {
@@ -168,6 +180,15 @@ export function normalizeLocalIdentity(value) {
             if (visionName) identity.vision.name = visionName;
             if (visionSha256) identity.vision.sha256 = visionSha256;
         }
+    } else {
+        const mmproj = value?.mmproj ?? null;
+        const mmprojName = shortString(mmproj?.name ?? value?.mmprojName);
+        const mmprojSha256 = safeHash(mmproj?.sha256 ?? value?.mmprojSha256);
+        if (mmprojName || mmprojSha256) {
+            identity.mmproj = {};
+            if (mmprojName) identity.mmproj.name = mmprojName;
+            if (mmprojSha256) identity.mmproj.sha256 = mmprojSha256;
+        }
     }
     return identity;
 }
@@ -176,6 +197,7 @@ export function normalizeLocalIdentity(value) {
  * The identity of the model a picked or stored profile names.
  *
  * @returns {{ mode: 'single'|'split', name?: string, sha256?: string,
+ *             mmproj?: { name?: string, sha256?: string },
  *             vision?: { name?: string, sha256?: string } }}
  */
 export function localModelIdentity(profile) {
@@ -201,6 +223,13 @@ export function sameLocalModel(a, b) {
             && left.vision.name.toLowerCase() !== right.vision.name.toLowerCase()) return false;
         if (left.vision.sha256 && right.vision.sha256
             && left.vision.sha256 !== right.vision.sha256) return false;
+    }
+    if (Boolean(left.mmproj) !== Boolean(right.mmproj)) return false;
+    if (left.mmproj && right.mmproj) {
+        if (left.mmproj.name && right.mmproj.name
+            && left.mmproj.name.toLowerCase() !== right.mmproj.name.toLowerCase()) return false;
+        if (left.mmproj.sha256 && right.mmproj.sha256
+            && left.mmproj.sha256 !== right.mmproj.sha256) return false;
     }
     return true;
 }

@@ -55,15 +55,18 @@ export async function runLocalImport(input) {
 
     const profile = await loadProfile();
     if (!profile || !profileComplete(profile)) throw error('NO_MODEL_PROFILE', 'no model profile');
-    // The name alone is not enough: the runner needs a handle it can open in
-    // this browser. A missing handle means the profile came from another
-    // browser (or from before handles were stored), so tell the clinic to
-    // pick the file again instead of failing later with a generic error.
+    // The name alone is not enough: the runner needs a file it can open in
+    // this browser. Chromium keeps a handle, Firefox and Safari keep the File
+    // in IndexedDB. A slot with neither came from another browser (or from
+    // before files were stored), so tell the clinic to pick it again instead
+    // of failing later with a generic error.
     const slot = profile.mode === 'single' ? profile.multimodal : profile.text;
-    if (!slot?.handle || profileNeedsRepair(slot)) {
+    if (profileNeedsRepair(slot)) {
         throw error('MODEL_PROFILE_HANDLE_MISSING', 'the model file has to be picked again in this browser');
     }
-    const file = await fileFromHandle(slot.handle);
+    // The stored File (Firefox/Safari) or the handle (Chromium); a stale
+    // permission on the handle is a separate, clearer failure.
+    const file = slot.file ?? await fileFromHandle(slot.handle);
     if (!file) throw error('MODEL_FILE_UNREACHABLE', 'the model file is not reachable');
 
     const device = await probeDevice();

@@ -20,6 +20,7 @@ import {
     verifyModel,
     repairProfile,
     profileNeedsRepair,
+    loadFileBlob,
     PROFILE_STATUSES,
 } from '../../src/features/import-agent/local/model-profile.js';
 
@@ -140,6 +141,58 @@ describe('per-slot storage', () => {
     });
 });
 
+describe('stored Files (Firefox and Safari)', () => {
+    it('saves and restores a File for a slot without a handle', async () => {
+        const file = fileOf(ggufBytes(), 'text.gguf');
+        await saveProfile('text', {
+            file,
+            name: file.name,
+            size: file.size,
+            kind: 'gguf',
+            mode: 'split',
+        });
+
+        const loaded = await loadProfile('text');
+        expect(loaded.handle).toBe(null);
+        expect(loaded.file).toBeTruthy();
+        expect(loaded.file.name).toBe('text.gguf');
+        expect(new Uint8Array(await loaded.file.arrayBuffer()))
+            .toEqual(new Uint8Array(await file.arrayBuffer()));
+        expect(profileNeedsRepair(loaded)).toBe(false);
+    });
+
+    it('carries the stored File into the composite profile', async () => {
+        const file = fileOf(ggufBytes(), 'text.gguf');
+        const profile = emptyProfile();
+        profile.mode = 'split';
+        profile.text = { file, name: file.name, size: file.size, kind: 'gguf' };
+        await saveProfile(profile);
+
+        const loaded = await loadProfile();
+        expect(loaded.text.file).toBeTruthy();
+        expect(loaded.text.handle).toBeFalsy();
+        expect(loaded.text.name).toBe('text.gguf');
+    });
+
+    it('deletes the stored bytes with the slot', async () => {
+        const file = fileOf(ggufBytes(), 'text.gguf');
+        await saveProfile('text', { file, name: file.name, size: file.size });
+        expect(await loadFileBlob('text')).toBeTruthy();
+
+        await deleteProfile('text');
+        expect(await loadFileBlob('text')).toBe(null);
+        expect(await loadProfile('text')).toBe(null);
+    });
+
+    it('clears the stored bytes with the whole profile', async () => {
+        const file = fileOf(ggufBytes(), 'text.gguf');
+        await saveProfile('text', { file, name: file.name, size: file.size });
+        await clearProfile();
+
+        expect(await loadFileBlob('text')).toBe(null);
+    });
+});
+
 describe('the composite profile', () => {
     it('still saves the shape the runner reads', async () => {
         const profile = profileWith('text', fileOf(ggufBytes(), 'text.gguf'));
@@ -188,6 +241,22 @@ describe('the composite profile', () => {
         next.text = { handle: null, name: 'new.gguf', kind: 'gguf', size: 4, sha256: '' };
         await saveProfile(next);
         expect((await loadProfile()).text.handle).toBe(null);
+    });
+
+    it('stores the optional projector beside the single model', async () => {
+        const model = fileOf(ggufBytes(), 'model.gguf');
+        const projector = fileOf(ggufBytes({ architecture: 'clip' }), 'mmproj-model-f16.gguf');
+        const profile = emptyProfile();
+        profile.mode = 'single';
+        profile.multimodal = { handle: handleOf(model), name: model.name, size: model.size, kind: 'gguf' };
+        profile.mmproj = { handle: handleOf(projector), name: projector.name, size: projector.size, kind: 'gguf' };
+        await saveProfile(profile);
+
+        const loaded = await loadProfile();
+        expect(loaded.multimodal.name).toBe('model.gguf');
+        expect(loaded.mmproj.name).toBe('mmproj-model-f16.gguf');
+        expect(loaded.mmproj.handle).toBeTruthy();
+        expect((await loadProfile('mmproj')).name).toBe('mmproj-model-f16.gguf');
     });
 });
 
@@ -339,5 +408,77 @@ describe('verifyModel', () => {
         expect(result.ok).toBe(true);
         expect(result.support).toBe(true);
         expect((await loadProfile('support')).status).toBe('ready');
+    });
+
+    it('verifies a slot from a stored File without a handle', async () => {
+        const file = fileOf(ggufBytes(), 'text.gguf');
+        await saveProfile('text', { file, name: file.name, size: file.size, mode: 'split' });
+
+        const result = await verifyModel('text', { smokeRender: false });
+        expect(result.ok).toBe(true);
+        expect((await loadProfile('text')).file).toBeTruthy();
+        expect((await loadProfile('text')).handle).toBe(null);
+    });
+
+    it('asks a projector slot to probe in the projector role', async () => {
+        const file = fileOf(ggufBytes({ architecture: 'clip' }), 'mmproj-model-f16.gguf');
+        await saveProfile('mmproj', { file, name: file.name, size: file.size, mode: 'single' });
+
+        let seen = null;
+        const result = await verifyModel('mmproj', {
+            smokeRender: false,
+            probe: async (source, options) => {
+                seen = options;
+                return { ok: false, error: 'MMPROJ_INVALID', detail: 'not a projector' };
+            },
+        });
+
+        expect(seen.role).toBe('projector');
+        expect(result.ok).toBe(false);
+        expect((await loadProfile('mmproj')).errorCode).toBe('MMPROJ_INVALID');
+    });
+
+    it('keeps the probe positions and the runtime label on a refusal', async () => {
+        const file = fileOf(ggufBytes(), 'text.gguf');
+        await saveProfile('text', { file, name: file.name, size: file.size });
+
+        const result = await verifyModel('text', {
+            smokeRender: false,
+            probe: async () => ({
+                ok: false,
+                error: 'GGUF_TRUNCATED',
+                detail: 'the header ends early',
+                params: { read: '1.5 KB', total: '2.0 KB' },
+                bytesConsumed: 1500,
+                fileSize: 2048,
+                runtimeLabel: 'wllama 3.8.1',
+                warnings: ['cut short'],
+            }),
+        });
+
+        expect(result.code).toBe('GGUF_TRUNCATED');
+        expect(result.params).toEqual({ read: '1.5 KB', total: '2.0 KB' });
+        expect(result.bytesConsumed).toBe(1500);
+        expect(result.fileSize).toBe(2048);
+        expect(result.runtimeLabel).toBe('wllama 3.8.1');
+    });
+
+    it('persists an explicitly allowed architecture on the slot', async () => {
+        const file = fileOf(ggufBytes(), 'text.gguf');
+        await saveProfile('text', { file, name: file.name, size: file.size });
+
+        const result = await verifyModel('text', {
+            smokeRender: false,
+            probeOptions: { allowUnsupportedArchitecture: true },
+            probe: async () => ({
+                ok: true,
+                adapter: 'gguf-text',
+                capabilities: { kind: 'gguf', architecture: 'brand-new', architectureSupported: false },
+                warnings: ['the architecture is not on the checked-in support list'],
+            }),
+        });
+
+        expect(result.ok).toBe(true);
+        expect((await loadProfile('text')).allowUnsupportedArchitecture).toBe(true);
     });
 });

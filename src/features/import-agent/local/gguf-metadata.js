@@ -14,6 +14,8 @@
 // A "string" is a u64 byte length followed by UTF-8 bytes; it is not
 // null-terminated.
 
+import architectureManifest from './architectures.json';
+
 const MAGIC = 0x46554747; // "GGUF" read as a little-endian u32
 
 export const GGUF_VALUE_TYPES = Object.freeze({
@@ -221,38 +223,57 @@ const VISION_TENSOR_PREFIXES = ['clip.', 'vision.', 'mmproj.', 'image_'];
  * True when the file carries a vision tower.
  *
  * llama.cpp keeps the vision tower in a separate `.mmproj` file, and a GGUF
- * that holds one is named that way. A GGUF with the vision tower inside it
- * is found by the tensor names.
+ * that holds one is named that way. The conventional name is
+ * `mmproj-model-f16.gguf`, so the test looks for `mmproj` anywhere in the
+ * name, not only as a suffix. A GGUF with the vision tower inside it is
+ * found by the tensor names.
  */
 export function hasVisionTensors(tensors, fileName = '') {
-    if (/\.mmproj$/i.test(String(fileName ?? ''))) return true;
-    return tensors.some((tensor) => VISION_TENSOR_PREFIXES.some(
-        (prefix) => tensor.name.startsWith(prefix),
-    ));
+    if (/mmproj/i.test(String(fileName ?? ''))) return true;
+    return tensors.some((tensor) => /mmproj/i.test(tensor.name)
+        || VISION_TENSOR_PREFIXES.some((prefix) => tensor.name.startsWith(prefix)));
 }
 
 /**
- * The architectures the bundled runtime is known to execute. A GGUF for
- * anything else is refused with a specific code instead of failing inside
- * the wasm module with a stack trace the clinic cannot read.
+ * True when the file is a vision projector (`mmproj.gguf`), not a model.
+ *
+ * llama.cpp's projector reports the `clip` architecture; a third-party
+ * conversion may keep another architecture but still name its tensors with
+ * the `mmproj.` prefix, so both signals count.
  */
-export const SUPPORTED_ARCHITECTURES = Object.freeze([
-    'llama',
-    'qwen2',
-    'qwen3',
-    'minicpm',
-    'phi2',
-    'phi3',
-    'gemma',
-    'gemma2',
-    'gemma3',
-    'mistral',
-    'smollm',
-    'starcoder2',
-    'olmo2',
-    'internlm2',
-    'deepseek2',
-]);
+export function isProjectorGguf(header, fileName = '') {
+    const architecture = String(header?.architecture ?? '').toLowerCase();
+    if (architecture === 'clip') return true;
+    if (/mmproj/i.test(String(fileName ?? ''))) return true;
+    return (header?.tensors ?? []).some((tensor) => /mmproj/i.test(tensor.name));
+}
+
+/**
+ * The architectures the bundled runtime is known to execute.
+ *
+ * The list is generated from the llama.cpp revision the bundled wllama was
+ * built from and checked in as `architectures.json`. It is a policy list, not
+ * a hard capability limit: the wasm module may know an architecture this list
+ * predates, which is why the probe offers an explicit override.
+ */
+export const SUPPORTED_ARCHITECTURES = Object.freeze([...architectureManifest.architectures]);
+
+/** The runtime the model list belongs to, for the readiness row. */
+export const MODEL_RUNTIME = Object.freeze({
+    wllamaVersion: String(architectureManifest.wllamaVersion ?? ''),
+    llamaCppRevision: architectureManifest.llamaCppRevision
+        ? String(architectureManifest.llamaCppRevision)
+        : null,
+    generatedFrom: String(architectureManifest.generatedFrom ?? ''),
+});
+
+/** `wllama 3.8.1` (and the llama.cpp revision when the build exposes one). */
+export function runtimeIdentityLabel() {
+    const version = MODEL_RUNTIME.wllamaVersion || 'unknown';
+    return MODEL_RUNTIME.llamaCppRevision
+        ? `wllama ${version} / llama.cpp ${MODEL_RUNTIME.llamaCppRevision}`
+        : `wllama ${version}`;
+}
 
 /** True when the architecture is on the supported list (or the list is empty). */
 export function isSupportedArchitecture(architecture, supported = SUPPORTED_ARCHITECTURES) {

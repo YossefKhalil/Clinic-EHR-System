@@ -27,13 +27,18 @@ import {
     localProfilePayload,
     pickSupportFiles,
     readDevice,
+    recheckLocalModelSlot,
     resolveConfig,
     restoreLocalState,
     persistLocalState,
     validateLocalConfig,
     verifyLocalModelSlot,
 } from './services/ai-local.js';
-import { deviceSignals } from './features/import-agent/local/manifest.js';
+import { deviceSignals, memorySignal } from './features/import-agent/local/manifest.js';
+import { detectTier } from './features/import-agent/local/local-config.js';
+import { runtimeIdentityLabel } from './features/import-agent/local/gguf-metadata.js';
+import { formatProbeMessage } from './features/import-agent/local/probe-messages.js';
+import { threadsAvailable } from './features/import-agent/local/wllama-provider.js';
 import { initCloudinary, getImageUrl, isImageAttachment } from './services/cloudinary.js';
 import { getDashboardStats, getRecentPatients } from './services/dashboard.js';
 import { getPatients, getPatientsPage, deletePatient, togglePatientStatus, GOVERNORATES, governorateLabel } from './services/patients.js';
@@ -78,6 +83,9 @@ const LOCAL_OCR_FIELDS = Object.freeze([
     { group: 'ocr', key: 'graphOptimizationLevel', type: 'select', options: ['disabled', 'basic', 'extended', 'all'], labelKey: 'aiSettings.local.graphOptimization' },
 ]);
 const LOCAL_RUNTIME_FIELDS = Object.freeze([
+    // Firefox and Safari do not report RAM. The entered value wins over the
+    // browser-reported one when the tier is suggested (0 = not entered).
+    { group: 'runtime', key: 'systemMemoryGb', type: 'number', min: 0, max: 1024, labelKey: 'aiSettings.local.systemMemory', hintKey: 'aiSettings.local.systemMemoryHint' },
     { group: 'runtime', key: 'leaseSeconds', type: 'number', min: 60, max: 3600, labelKey: 'aiSettings.local.lease' },
     { group: 'runtime', key: 'heartbeatSeconds', type: 'number', min: 10, max: 1800, labelKey: 'aiSettings.local.heartbeat' },
     { group: 'runtime', key: 'maxAttempts', type: 'number', min: 1, max: 10, labelKey: 'aiSettings.local.attempts' },
@@ -1526,6 +1534,12 @@ function app() {
                     message: current.message ?? '',
                     params: current.params ?? {},
                     code: current.code ?? null,
+                    capabilities: current.capabilities ?? null,
+                    warnings: current.warnings ?? [],
+                    runtimeLabel: current.runtimeLabel ?? '',
+                    bytesConsumed: current.bytesConsumed ?? 0,
+                    fileSize: current.fileSize ?? 0,
+                    allowUnsupportedArchitecture: current.allowUnsupportedArchitecture === true,
                 };
             };
             state.multimodal = {
@@ -1536,6 +1550,19 @@ function app() {
                 sha256: profile.sha256 ?? '',
                 kind: 'gguf',
             };
+            // The optional projector for the single layout travels with the
+            // server profile as name/size/hash. Its bytes stay in the browser.
+            state.mmproj = {
+                ...emptySlot(),
+                ...keepSlot('mmproj', profile.mmprojName),
+                name: profile.mmprojName ?? '',
+                size: profile.mmprojSize ?? 0,
+                sha256: profile.mmprojSha256 ?? '',
+                kind: 'gguf',
+            };
+            // The projector is optional: no file is "Not configured", not
+            // "Not verified".
+            if (!state.mmproj.name) state.mmproj.status = 'none';
             state.text = {
                 ...emptySlot(),
                 ...keepSlot('text', profile.textName),
@@ -1652,38 +1679,70 @@ function app() {
          * Step two: verify the picked file. The SHA-256 and the header probe
          * run here, so the slow work is a separate, deliberate click.
          */
-        async aiLocalVerify(slot) {
+        async aiLocalVerify(slot, options = {}) {
             this.aiLocalMessage = null;
             this.aiLocalVerifying = slot;
             try {
-                const result = await verifyLocalModelSlot(this.aiLocal, slot);
+                const result = await verifyLocalModelSlot(this.aiLocal, slot, options);
                 if (!result.ok) {
-                    this.aiLocalMessage = {
-                        type: 'danger',
-                        key: 'aiSettings.local.modelRejected',
-                        params: { detail: this.aiLocalErrorDetail(result) },
-                    };
+                    this.aiLocalRejected(result, slot);
                     return;
                 }
                 this.aiLocalMessage = { type: 'success', key: 'aiSettings.local.modelAccepted' };
             } catch (error) {
                 console.error('Local model verification failed:', error);
-                this.aiLocalMessage = {
-                    type: 'danger',
-                    key: 'aiSettings.local.modelRejected',
-                    params: { detail: error?.message || this.t('aiSettings.local.pickFailed') },
-                };
+                this.aiLocalRejected(error, slot);
             } finally {
                 this.aiLocalVerifying = null;
             }
         },
 
-        /** The error code and the detail, when the probe supplied both. */
+        /**
+         * Check the header again without re-reading the hash.
+         *
+         * A truncated download is the usual reason a model stopped working;
+         * re-probing is cheap, while hashing a 700 MB file is not.
+         */
+        async aiLocalRecheck(slot) {
+            this.aiLocalMessage = null;
+            this.aiLocalVerifying = slot;
+            try {
+                const result = await recheckLocalModelSlot(this.aiLocal, slot);
+                if (!result.ok) {
+                    this.aiLocalRejected(result, slot);
+                    return;
+                }
+                this.aiLocalMessage = { type: 'success', key: 'aiSettings.local.recheckDone' };
+            } catch (error) {
+                console.error('Local model re-check failed:', error);
+                this.aiLocalRejected(error, slot);
+            } finally {
+                this.aiLocalVerifying = null;
+            }
+        },
+
+        /** The clinic chose to load an architecture outside the support list. */
+        aiLocalLoadAnyway() {
+            const slot = this.aiLocalMessage?.slot;
+            if (!slot) return;
+            return this.aiLocalVerify(slot, { allowUnsupportedArchitecture: true });
+        },
+
+        /** Show a refusal in the clinic's language, keeping the code too. */
+        aiLocalRejected(result, slot) {
+            this.aiLocalMessage = {
+                type: 'danger',
+                key: 'aiSettings.local.modelRejected',
+                params: { detail: this.aiLocalErrorDetail(result) },
+                slot,
+                allowAnyway: result?.code === 'GGUF_ARCH_UNSUPPORTED',
+            };
+        },
+
+        /** The probe error, translated, with the raw detail as a fallback. */
         aiLocalErrorDetail(result) {
-            const code = String(result?.code ?? '');
-            const message = String(result?.message ?? '');
-            if (code && message) return `${code}: ${message}`;
-            return code || message || this.t('aiSettings.local.pickFailed');
+            return formatProbeMessage((key, params) => this.t(key, params), result)
+                || this.t('aiSettings.local.pickFailed');
         },
 
         /** Pick the folder with the tokenizer and the config files. */
@@ -1799,9 +1858,19 @@ function app() {
             return resolveConfig(this.aiLocal).warnings ?? [];
         },
 
+        /** The System RAM the clinic entered, or 0 when it is not entered. */
+        aiLocalSystemMemory() {
+            return Number(this.aiLocal?.config?.runtime?.systemMemoryGb) || 0;
+        },
+
+        /** The device information with the entered RAM laid over it. */
+        aiLocalDeviceInfo() {
+            return { ...(this.aiLocalDevice ?? {}), systemMemoryGb: this.aiLocalSystemMemory() };
+        },
+
         /** The colour of one readiness chip. */
         aiLocalSignals() {
-            return deviceSignals(this.aiLocalDevice ?? {});
+            return deviceSignals(this.aiLocalDeviceInfo());
         },
 
         aiLocalSignal(name) {
@@ -1809,12 +1878,19 @@ function app() {
         },
 
         /** The suggested tier, in the words the card uses (medium, not mid). */
-        aiLocalTierLabel(tier = this.aiLocalDevice?.tier) {
+        aiLocalTierLabel(tier = this.aiLocalSuggestedTier()) {
             const normalized = tier === 'low' || tier === 'high' ? tier : 'medium';
             return this.t(`aiSettings.local.tier.${normalized}`);
         },
 
+        /** The tier the device signals suggest, using the entered RAM first. */
+        aiLocalSuggestedTier() {
+            if (!this.aiLocalDevice) return 'mid';
+            return detectTier(this.aiLocalDeviceInfo());
+        },
+
         aiLocalThreadsLabel() {
+            if (!threadsAvailable()) return this.t('aiSettings.local.chip.threadsForced');
             const count = Number(this.aiLocalDevice?.threads) || 0;
             return count > 0
                 ? this.t('aiSettings.local.chip.threads', { count })
@@ -1822,10 +1898,29 @@ function app() {
         },
 
         aiLocalMemoryLabel() {
-            const count = Number(this.aiLocalDevice?.memory) || 0;
-            return count > 0
-                ? this.t('aiSettings.local.chip.memory', { count })
-                : this.t('aiSettings.local.chip.memoryUnknown');
+            const signal = memorySignal(this.aiLocalDeviceInfo());
+            if (signal.source === 'entered') {
+                return this.t('aiSettings.local.chip.memoryEntered', { count: signal.memory });
+            }
+            if (signal.source === 'reported') {
+                return this.t('aiSettings.local.chip.memory', { count: signal.memory });
+            }
+            return this.t('aiSettings.local.chip.memoryUnknown');
+        },
+
+        /** The runtime build that will load the model. */
+        aiLocalRuntimeLabel() {
+            return runtimeIdentityLabel();
+        },
+
+        /** Multi-thread loading needs COOP/COEP, which the deployment opts into. */
+        aiLocalFieldDisabled(field) {
+            return field?.group === 'text' && field?.key === 'threads' && !threadsAvailable();
+        },
+
+        aiLocalFieldHint(field) {
+            if (this.aiLocalFieldDisabled(field)) return this.t('aiSettings.local.threadsForcedHint');
+            return field?.hintKey ? this.t(field.hintKey) : '';
         },
 
         aiLocalStorageLabel() {
@@ -1860,11 +1955,32 @@ function app() {
             return this.t(this.aiLocalBadgeKey(status));
         },
 
-        /** A slot message is either a translation key or a probe's own text. */
+        /** A slot message is a translation key, or a translated probe code. */
         aiLocalSlotMessage(slot) {
             const message = slot?.message ?? '';
-            if (!message) return '';
-            return this.t(message, slot?.params ?? {});
+            if (message) return this.t(message, slot?.params ?? {});
+            if (slot?.code) {
+                return formatProbeMessage((key, params) => this.t(key, params), slot);
+            }
+            return '';
+        },
+
+        /** The colour of a slot's message line. */
+        aiLocalSlotClass(slot) {
+            if (slot?.status === 'ok') return 'text-success';
+            if (slot?.status === 'error') return 'text-danger';
+            return 'text-warning-emphasis';
+        },
+
+        /** The one-model layout's amber note about photos. */
+        aiLocalSingleVisionWarning() {
+            const slot = this.aiLocal?.multimodal;
+            if (!slot?.name) return '';
+            const capabilities = slot.capabilities;
+            if (!capabilities) return '';
+            if (capabilities.vision !== true) return this.t('aiSettings.local.textOnlyWarning');
+            if (!this.aiLocal?.mmproj?.name) return this.t('aiSettings.local.mmprojMissing');
+            return '';
         },
 
         /** The size and the hash of a model file. */
@@ -2210,9 +2326,17 @@ function app() {
                 // the server call: a rejected server save (for example when
                 // the deployment has turned the local engine off) must not
                 // throw away a file the clinic already picked.
-                const hasLocalFiles = ['multimodal', 'text', 'vision']
+                const hasLocalFiles = ['multimodal', 'mmproj', 'text', 'vision']
                     .some((slot) => Boolean(this.aiLocal?.[slot]?.name));
-                if (hasLocalFiles) await persistLocalState(this.aiLocal);
+                if (hasLocalFiles) {
+                    await persistLocalState(this.aiLocal);
+                    // Firefox/Safari store the File itself. If the browser
+                    // refused to make that storage persistent, say so: the
+                    // model may be evicted when the disk fills up.
+                    if (['denied', 'quota', 'unsupported'].includes(this.aiLocal.fileStorage)) {
+                        this.aiNotify('warning', 'aiSettings.local.fileStorageDenied');
+                    }
+                }
                 const data = await saveAiSettingsApi(this.aiSavePayload());
                 this.applyAiSettings(data);
                 clearImportFlagCache();

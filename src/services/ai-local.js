@@ -26,6 +26,7 @@ import { fileFromHandle, sha256OfFile } from '../features/import-agent/local/mod
 import { probeDevice, OCR_SUPPORT_FILES } from '../features/import-agent/local/manifest.js';
 import {
     DEFAULT_LOCAL_CONFIG,
+    detectTier,
     resolveLocalConfig,
     validateLocalConfig,
 } from '../features/import-agent/local/local-config.js';
@@ -80,7 +81,7 @@ export function emptySlot() {
         status: 'none',
         // The file handle. It never leaves the browser. A browser without the
         // File System Access API leaves this null and keeps the File itself
-        // for the current session (`file`), so a reload asks for a re-pick.
+        // (in IndexedDB and in memory as `file`).
         handle: null,
         file: null,
         name: '',
@@ -91,6 +92,16 @@ export function emptySlot() {
         // A translation key when `message` is one, otherwise an empty object.
         params: {},
         code: null,
+        // What the probe learned. Kept on the slot so the card can say
+        // "this GGUF has no vision tower" without probing again.
+        capabilities: null,
+        warnings: [],
+        runtimeLabel: '',
+        bytesConsumed: 0,
+        fileSize: 0,
+        // The clinic chose to load an architecture that is not on the
+        // checked-in support list. The choice follows the file.
+        allowUnsupportedArchitecture: false,
     };
 }
 
@@ -99,6 +110,8 @@ export function createLocalState() {
     return {
         mode: 'single',
         multimodal: emptySlot(),
+        // The optional `mmproj.gguf` projector for the single layout.
+        mmproj: emptySlot(),
         text: emptySlot(),
         vision: emptySlot(),
         support: {
@@ -112,6 +125,9 @@ export function createLocalState() {
         },
         config: structuredClone(DEFAULT_LOCAL_CONFIG),
         device: null,
+        // 'granted' | 'denied' | 'quota' | 'unsupported' | null. Set when the
+        // card stores a File in IndexedDB (Firefox/Safari).
+        fileStorage: null,
         warnings: [],
     };
 }
@@ -128,6 +144,11 @@ export function localProfilePayload(state) {
         payload.textName = state.text.name;
         payload.textSize = state.text.size;
         if (state.text.sha256) payload.textSha256 = state.text.sha256;
+    }
+    if (state.mmproj?.name) {
+        payload.mmprojName = state.mmproj.name;
+        payload.mmprojSize = state.mmproj.size;
+        if (state.mmproj.sha256) payload.mmprojSha256 = state.mmproj.sha256;
     }
     if (state.vision.name) {
         payload.visionName = state.vision.name;
@@ -147,9 +168,10 @@ export function localProfilePayload(state) {
  *
  * @param {File} file
  * @param {'gguf'|'onnx'|null} expectedKind the kind the slot accepts
+ * @param {{ probeOptions?: object, hash?: boolean, expectedSha256?: string }} [options]
  */
-export async function verifyModelFile(file, expectedKind = null) {
-    const probe = await probeModelFile(file);
+export async function verifyModelFile(file, expectedKind = null, options = {}) {
+    const probe = await probeModelFile(file, options.probeOptions ?? {});
     const kind = probe.capabilities?.kind ?? fileKind(file?.name);
     if (!probe.ok) {
         return {
@@ -157,8 +179,12 @@ export async function verifyModelFile(file, expectedKind = null) {
             code: probe.code,
             kind,
             message: probe.detail,
-            warnings: probe.warnings,
+            warnings: probe.warnings ?? [],
             capabilities: probe.capabilities,
+            params: probe.params ?? {},
+            bytesConsumed: Number(probe.bytesConsumed) || 0,
+            fileSize: Number(probe.fileSize) || 0,
+            runtimeLabel: probe.runtimeLabel ?? '',
         };
     }
     if (expectedKind && kind !== expectedKind) {
@@ -169,25 +195,45 @@ export async function verifyModelFile(file, expectedKind = null) {
             message: expectedKind === 'onnx'
                 ? 'this slot needs an ONNX vision model'
                 : 'this slot needs a GGUF model',
-            warnings: probe.warnings,
+            warnings: probe.warnings ?? [],
             capabilities: probe.capabilities,
+            params: { kind: expectedKind === 'onnx' ? 'ONNX' : 'GGUF' },
         };
     }
     let sha256 = '';
-    try {
-        sha256 = await sha256OfFile(file);
-    } catch {
-        // The hash is a nicety, not a gate: the file is usable without it.
-        sha256 = '';
+    if (options.hash !== false) {
+        try {
+            sha256 = await sha256OfFile(file);
+        } catch {
+            // The hash is a nicety, not a gate: the file is usable without it.
+            sha256 = '';
+        }
+    }
+    const expected = String(options.expectedSha256 ?? '').toUpperCase();
+    if (expected && sha256 && expected !== sha256) {
+        return {
+            ok: false,
+            code: 'MODEL_HASH_MISMATCH',
+            kind,
+            message: 'the file is not the one that was verified before',
+            warnings: probe.warnings ?? [],
+            capabilities: probe.capabilities,
+            params: { expected, actual: sha256 },
+            sha256,
+            hashMatches: false,
+        };
     }
     return {
         ok: true,
         code: null,
         kind,
         message: probe.detail,
-        warnings: probe.warnings,
+        warnings: probe.warnings ?? [],
         sha256,
+        hashMatches: expected && sha256 ? true : null,
         capabilities: probe.capabilities,
+        params: probe.params ?? {},
+        runtimeLabel: probe.runtimeLabel ?? '',
     };
 }
 
@@ -205,7 +251,7 @@ export function slotForKind(state, kind) {
  * clinic may want to pick both models before the slow hash runs).
  *
  * @param {object} state the draft state (mutated)
- * @param {string} slot 'multimodal' | 'text' | 'vision'
+ * @param {string} slot 'multimodal' | 'mmproj' | 'text' | 'vision'
  */
 export async function browseLocalModel(state, slot) {
     const expectedKind = slot === 'vision' ? 'onnx' : 'gguf';
@@ -263,26 +309,38 @@ export async function browseLocalModel(state, slot) {
  * settings card would keep hundreds of megabytes resident while the admin
  * edits unrelated settings.
  *
+ * `options.hash === false` is the Re-check path: it probes the header again
+ * (a truncated download is the usual failure) without reading 700 MB.
+ *
  * @param {object} state the draft state (mutated)
- * @param {string} slot 'multimodal' | 'text' | 'vision'
+ * @param {string} slot 'multimodal' | 'mmproj' | 'text' | 'vision'
+ * @param {{ allowUnsupportedArchitecture?: boolean, hash?: boolean }} [options]
  */
-export async function verifyLocalModelSlot(state, slot) {
+export async function verifyLocalModelSlot(state, slot, options = {}) {
     const entry = state[slot] ?? emptySlot();
     const expectedKind = slot === 'vision' ? 'onnx' : 'gguf';
 
     if (slot === 'vision' && missingSupportFiles(state.support).length > 0) {
+        const missing = missingSupportFiles(state.support);
         const result = {
             ok: false,
             code: 'OCR_SUPPORT_FILES_MISSING',
-            message: `the vision model still needs: ${missingSupportFiles(state.support).join(', ')}`,
+            message: `the vision model still needs: ${missing.join(', ')}`,
+            params: { files: missing.join(', ') },
             warnings: [],
         };
-        state.vision = { ...entry, status: 'error', message: result.message, code: result.code };
+        state.vision = {
+            ...entry,
+            status: 'error',
+            message: '',
+            params: result.params,
+            code: result.code,
+        };
         return result;
     }
 
     // A handle survives a reload in Chromium; the File object is the fallback
-    // for the current session. Both are local to this browser.
+    // for Firefox and Safari (restored from IndexedDB by the profile store).
     const file = entry.file ?? await fileFromHandle(entry.handle);
     if (!file) {
         const result = {
@@ -291,24 +349,99 @@ export async function verifyLocalModelSlot(state, slot) {
             message: 'the file has to be picked again in this browser',
             warnings: [],
         };
-        state[slot] = { ...entry, status: 'error', message: result.message, code: result.code };
+        state[slot] = {
+            ...entry,
+            status: 'error',
+            message: 'aiSettings.local.handleMissing',
+            code: result.code,
+        };
         return result;
     }
 
-    const result = await verifyModelFile(file, expectedKind);
+    const allowUnsupportedArchitecture = options.allowUnsupportedArchitecture === true
+        || entry.allowUnsupportedArchitecture === true;
+    const probeOptions = {
+        mode: state.mode,
+        chatTemplate: state.config?.text?.chatTemplate ?? null,
+        allowUnsupportedArchitecture,
+    };
+    if (slot === 'mmproj') probeOptions.role = 'projector';
+
+    const result = await verifyModelFile(file, expectedKind, {
+        probeOptions,
+        hash: options.hash !== false,
+        expectedSha256: options.hash === false ? '' : entry.sha256,
+    });
+
+    if (!result.ok) {
+        state[slot] = {
+            ...entry,
+            file,
+            name: entry.name || file.name,
+            size: entry.size || file.size,
+            kind: result.kind ?? entry.kind,
+            status: 'error',
+            // The card translates the code; the raw English detail is kept
+            // for diagnostics and is not the visible message.
+            message: '',
+            params: result.params ?? {},
+            code: result.code,
+            sha256: result.sha256 ?? entry.sha256,
+            capabilities: result.capabilities ?? entry.capabilities,
+            warnings: result.warnings ?? [],
+            bytesConsumed: result.bytesConsumed ?? 0,
+            fileSize: result.fileSize ?? 0,
+            runtimeLabel: result.runtimeLabel ?? entry.runtimeLabel,
+            allowUnsupportedArchitecture,
+        };
+        state.warnings = result.warnings ?? [];
+        return result;
+    }
+
+    // A successful probe can still deserve an amber note: a text-only GGUF in
+    // the one-model layout, a missing projector, or an architecture the clinic
+    // explicitly allowed.
+    let status = 'ok';
+    let message = 'aiSettings.local.modelVerified';
+    let params = {};
+    if (allowUnsupportedArchitecture
+        && (result.warnings ?? []).some((warning) => warning.includes('support list'))) {
+        status = 'warn';
+        message = 'aiSettings.local.architectureOverride';
+        params = { architecture: result.capabilities?.architecture ?? '?' };
+    } else if (slot === 'multimodal' && result.capabilities?.multimodal !== true) {
+        status = 'warn';
+        message = 'aiSettings.local.textOnlyWarning';
+    } else if (slot === 'multimodal' && !state.mmproj?.name && result.capabilities?.vision === true) {
+        status = 'warn';
+        message = 'aiSettings.local.mmprojMissing';
+    } else if (slot === 'multimodal') {
+        message = '';
+    }
+
     state[slot] = {
         ...entry,
         file,
         name: entry.name || file.name,
         size: entry.size || file.size,
         kind: result.kind ?? entry.kind,
-        status: result.ok ? 'ok' : 'error',
-        message: result.message,
-        code: result.code,
+        status,
+        message,
+        params,
+        code: null,
         sha256: result.sha256 ?? entry.sha256,
+        capabilities: result.capabilities ?? entry.capabilities,
+        warnings: result.warnings ?? [],
+        runtimeLabel: result.runtimeLabel ?? entry.runtimeLabel,
+        allowUnsupportedArchitecture,
     };
     state.warnings = result.warnings ?? [];
-    return result;
+    return { ...result, status };
+}
+
+/** Probe the header again, without re-reading a large file's SHA-256. */
+export async function recheckLocalModelSlot(state, slot) {
+    return verifyLocalModelSlot(state, slot, { hash: false });
 }
 
 /**
@@ -373,29 +506,44 @@ export async function restoreLocalState(state) {
     const stored = await loadProfile();
     if (!stored) return state;
     state.mode = stored.mode === 'split' ? 'split' : 'single';
-    const slots = { multimodal: stored.multimodal, text: stored.text, vision: stored.vision };
+    const slots = {
+        multimodal: stored.multimodal,
+        mmproj: stored.mmproj,
+        text: stored.text,
+        vision: stored.vision,
+    };
     for (const [slot, entry] of Object.entries(slots)) {
         if (!entry) continue;
         const handle = entry.handle ?? null;
+        const file = entry.file ?? null;
         const needsRepair = profileNeedsRepair(entry);
+        const usable = Boolean(handle || file);
         state[slot] = {
             ...emptySlot(),
-            // The handle comes back with the profile, so a model the clinic
-            // picked earlier can still be loaded. A page reload does not
-            // restore the browser's permission for it, though: the card must
-            // show "Not verified" until a click re-grants the permission.
+            // The handle (Chromium) or the stored File (Firefox/Safari) comes
+            // back with the profile, so a model the clinic picked earlier can
+            // still be loaded. A page reload does not restore the browser's
+            // permission for a handle, though: the card must show "Not
+            // verified" until a click re-grants the permission.
             handle,
+            file,
             name: entry.name ?? '',
             size: entry.size ?? 0,
             sha256: entry.sha256 ?? '',
             kind: entry.kind ?? fileKind(entry.name),
-            // A profile with a name but no handle came from another browser
-            // (or was saved before handles were kept). It cannot load until
-            // the clinic picks the file again on this computer.
-            status: !handle || needsRepair ? 'error' : 'warn',
-            message: !handle || needsRepair ? 'aiSettings.local.handleMissing' : '',
+            capabilities: entry.capabilities ?? null,
+            warnings: entry.warnings ?? [],
+            runtimeLabel: entry.runtimeLabel ?? '',
+            allowUnsupportedArchitecture: entry.allowUnsupportedArchitecture === true,
+            // A profile with a name but no handle and no stored bytes came
+            // from another browser (or was saved before either was kept). It
+            // cannot load until the clinic picks the file again.
+            status: !usable || needsRepair ? 'error' : 'warn',
+            message: !usable || needsRepair
+                ? 'aiSettings.local.handleMissing'
+                : (file && !handle ? 'aiSettings.local.fileRestored' : ''),
             params: {},
-            code: !handle || needsRepair ? 'MODEL_FILE_UNAVAILABLE' : null,
+            code: !usable || needsRepair ? 'MODEL_FILE_UNAVAILABLE' : null,
         };
     }
     if (stored.support?.files || stored.support?.handle) {
@@ -421,15 +569,28 @@ function sameStoredFile(entry, stored) {
     return !size || !storedSize || size === storedSize;
 }
 
+/** Ask the browser not to evict the model files when storage runs low. */
+async function requestPersistentStorage() {
+    try {
+        if (typeof navigator === 'undefined' || typeof navigator.storage?.persist !== 'function') {
+            return 'unsupported';
+        }
+        return (await navigator.storage.persist()) ? 'granted' : 'denied';
+    } catch {
+        return 'denied';
+    }
+}
+
 /**
  * Write the draft into the stored profile.
  *
  * The draft is rebuilt from the server response when the card reloads, and
  * the server never holds the handles. A settings save made after that reload
  * therefore carries `handle: null` for every model. The stored profile is
- * read first so an existing handle (and the support files) is carried
- * forward when the slot still names the same file. Without this, changing
- * only a runtime value silently made a "Ready" model unusable for import.
+ * read first so an existing handle (or a stored File), the capabilities and
+ * the support files are carried forward when the slot still names the same
+ * file. Without this, changing only a runtime value silently made a "Ready"
+ * model unusable for import.
  */
 export async function persistLocalState(state) {
     let stored = null;
@@ -441,20 +602,31 @@ export async function persistLocalState(state) {
         stored = null;
     }
 
+    state.fileStorage = null;
     const profile = emptyProfile();
     profile.mode = state.mode;
-    for (const slot of ['multimodal', 'text', 'vision']) {
+    for (const slot of ['multimodal', 'mmproj', 'text', 'vision']) {
         const entry = state[slot];
-        if (!entry.name) continue;
+        if (!entry?.name) continue;
         const previous = stored?.[slot];
+        const sameFile = sameStoredFile(entry, previous);
         const handle = entry.handle
-            ?? (sameStoredFile(entry, previous) ? previous.handle ?? null : null);
+            ?? (sameFile ? previous.handle ?? null : null);
+        const file = entry.file
+            ?? (sameFile ? previous.file ?? null : null);
         profile[slot] = {
             handle,
+            // A handle is the better storage on Chromium; the File is only
+            // kept when there is no handle.
+            file: handle ? null : file,
             name: entry.name,
             kind: entry.kind,
             size: entry.size,
             sha256: entry.sha256,
+            capabilities: entry.capabilities ?? previous?.capabilities ?? null,
+            warnings: entry.warnings ?? [],
+            runtimeLabel: entry.runtimeLabel ?? '',
+            allowUnsupportedArchitecture: entry.allowUnsupportedArchitecture === true,
         };
     }
     if (state.support.status !== 'none') {
@@ -473,7 +645,26 @@ export async function persistLocalState(state) {
             files,
         };
     }
-    await saveProfile(profile);
+
+    const storesFiles = Object.values(profile).some(
+        (slot) => slot && !slot.handle && slot.file,
+    );
+    if (storesFiles) {
+        state.fileStorage = await requestPersistentStorage();
+    }
+
+    try {
+        await saveProfile(profile);
+    } catch (error) {
+        // A 700 MB model may exceed the origin's quota. Keep the in-memory
+        // File for this session and tell the card that the copy is only
+        // temporary; the settings themselves are still saved.
+        if (error?.name === 'QuotaExceededError' || /quota/i.test(String(error?.message ?? ''))) {
+            state.fileStorage = 'quota';
+            return profile;
+        }
+        throw error;
+    }
     return profile;
 }
 
@@ -488,7 +679,13 @@ export async function readDevice() {
 
 /** The resolved config for the device tier, with the user's choices on top. */
 export function resolveConfig(state) {
-    const tier = state.device?.tier ?? 'mid';
+    const memory = Number(state.config?.runtime?.systemMemoryGb) || 0;
+    // The entered System RAM wins over the browser-reported value, so a
+    // Firefox/Safari user can earn the `high` tier instead of staying on
+    // `mid` forever.
+    const tier = state.device
+        ? detectTier({ ...state.device, systemMemoryGb: memory })
+        : 'mid';
     return resolveLocalConfig(tier, state.config ?? {});
 }
 

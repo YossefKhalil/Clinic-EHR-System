@@ -26,9 +26,25 @@ export const OCR_SUPPORT_FILES = Object.freeze([
  * Callers that speak in `low`/`medium`/`high` may keep using `medium`, which
  * `resolveLocalConfig` treats as `mid`.
  */
+/**
+ * The RAM the tier should use.
+ *
+ * The clinic can enter the PC's memory on browsers that do not report it
+ * (Firefox and Safari). That value wins when it is present; otherwise the
+ * browser-reported value is used. `source` is `entered`, `reported` or
+ * `unknown`, so the settings card never has to guess where a number came
+ * from.
+ */
+export function memorySignal(info = {}) {
+    const entered = Number(info.systemMemoryGb ?? 0) || 0;
+    if (entered > 0) return { memory: entered, source: 'entered' };
+    const reported = Number(info.memory ?? (typeof navigator !== 'undefined' ? navigator.deviceMemory : 0)) || 0;
+    return { memory: reported, source: reported > 0 ? 'reported' : 'unknown' };
+}
+
 export function detectTier(info = {}) {
     const cores = Number(info.threads ?? (typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 0)) || 0;
-    const memory = Number(info.memory ?? (typeof navigator !== 'undefined' ? navigator.deviceMemory : 0)) || 0;
+    const { memory } = memorySignal(info);
     const webgpu = info.webgpu === true;
     const maxBuffer = Number(info.maxBufferSize ?? 0) || 0;
 
@@ -48,7 +64,7 @@ export const deviceTier = detectTier;
  */
 export function deviceSignals(info = {}) {
     const threads = Number(info.threads ?? 0) || 0;
-    const memory = Number(info.memory ?? 0) || 0;
+    const { memory } = memorySignal(info);
     const storage = Number(info.storageFree ?? 0) || 0;
     const GB = 1024 * 1024 * 1024;
 
@@ -109,6 +125,9 @@ export async function probeDevice() {
         }
     }
 
+    const memory = memorySignal(info);
+    info.memory = memory.memory;
+    info.memorySource = memory.source;
     info.tier = deviceTier(info);
     return info;
 }

@@ -33,10 +33,11 @@ export const ONNX_DTYPES = Object.freeze({
 
 /** Raised when the file is not an ONNX model, or the graph cannot be read. */
 export class OnnxError extends Error {
-    constructor(code, message) {
+    constructor(code, message, extra = {}) {
         super(message);
         this.name = 'OnnxError';
         this.code = code;
+        Object.assign(this, extra);
     }
 }
 
@@ -51,17 +52,27 @@ class ProtoReader {
         return this.bytes.byteLength - this.offset;
     }
 
+    /** A truncation error that says where the file ended. */
+    truncated(message, expectedEnd = null) {
+        const extra = {
+            bytesConsumed: this.offset,
+            fileSize: this.bytes.byteLength,
+        };
+        if (expectedEnd !== null) extra.expectedEnd = expectedEnd;
+        return new OnnxError('ONNX_TRUNCATED', message, extra);
+    }
+
     varint() {
         let result = 0;
         let shift = 0;
         for (;;) {
-            if (this.remaining < 1) throw new OnnxError('ONNX_TRUNCATED', 'unexpected end of protobuf');
+            if (this.remaining < 1) throw this.truncated('unexpected end of protobuf');
             const byte = this.view.getUint8(this.offset);
             this.offset += 1;
             result += (byte & 0x7f) * 2 ** shift;
             if ((byte & 0x80) === 0) return result;
             shift += 7;
-            if (shift > 63) throw new OnnxError('ONNX_TRUNCATED', 'varint is too long');
+            if (shift > 63) throw this.truncated('varint is too long');
         }
     }
 
@@ -101,7 +112,9 @@ class ProtoReader {
 
     bytesField() {
         const length = this.varint();
-        if (this.remaining < length) throw new OnnxError('ONNX_TRUNCATED', 'field runs past the end of the buffer');
+        if (this.remaining < length) {
+            throw this.truncated('field runs past the end of the buffer', this.offset + length);
+        }
         // subarray, not new Uint8Array(view, ...): the latter copies the
         // whole buffer and ignores the offset.
         const slice = this.bytes.subarray(this.offset, this.offset + length);
@@ -327,7 +340,10 @@ class BlobProtoReader {
         this.cache = null;
         this.cacheStart = 0;
         if (this.pos < 0 || this.end < this.pos) {
-            throw new OnnxError('ONNX_TRUNCATED', 'the graph runs past the end of the file');
+            throw new OnnxError('ONNX_TRUNCATED', 'the graph runs past the end of the file', {
+                bytesConsumed: this.pos,
+                fileSize: blob.size,
+            });
         }
     }
 
@@ -335,19 +351,29 @@ class BlobProtoReader {
         return this.end - this.pos;
     }
 
+    /** A truncation error that says where the file ended. */
+    truncated(message, expectedEnd = null) {
+        const extra = {
+            bytesConsumed: this.pos,
+            fileSize: this.blob.size,
+        };
+        if (expectedEnd !== null) extra.expectedEnd = expectedEnd;
+        return new OnnxError('ONNX_TRUNCATED', message, extra);
+    }
+
     async fill() {
-        if (this.remaining <= 0) throw new OnnxError('ONNX_TRUNCATED', 'unexpected end of protobuf');
+        if (this.remaining <= 0) throw this.truncated('unexpected end of protobuf');
         const length = Math.min(READ_CHUNK, this.remaining);
         const buffer = await this.blob.slice(this.pos, this.pos + length).arrayBuffer();
         if (buffer.byteLength !== length) {
-            throw new OnnxError('ONNX_TRUNCATED', 'the file ended while it was being read');
+            throw this.truncated('the file ended while it was being read');
         }
         this.cache = new Uint8Array(buffer);
         this.cacheStart = this.pos;
     }
 
     async byte() {
-        if (this.pos >= this.end) throw new OnnxError('ONNX_TRUNCATED', 'unexpected end of protobuf');
+        if (this.pos >= this.end) throw this.truncated('unexpected end of protobuf');
         const offset = this.pos - this.cacheStart;
         if (!this.cache || offset < 0 || offset >= this.cache.length) await this.fill();
         return this.cache[this.pos++ - this.cacheStart];
@@ -361,24 +387,24 @@ class BlobProtoReader {
             result += (byte & 0x7f) * 2 ** shift;
             if ((byte & 0x80) === 0) return result;
             shift += 7;
-            if (shift > 63) throw new OnnxError('ONNX_TRUNCATED', 'varint is too long');
+            if (shift > 63) throw this.truncated('varint is too long');
         }
     }
 
     async skip(length) {
         if (length < 0 || length > this.remaining) {
-            throw new OnnxError('ONNX_TRUNCATED', 'field runs past the end of the file');
+            throw this.truncated('field runs past the end of the file', this.pos + Math.max(0, length));
         }
         this.pos += length;
     }
 
     async bytes(length) {
         if (length < 0 || length > this.remaining) {
-            throw new OnnxError('ONNX_TRUNCATED', 'field runs past the end of the file');
+            throw this.truncated('field runs past the end of the file', this.pos + Math.max(0, length));
         }
         const buffer = await this.blob.slice(this.pos, this.pos + length).arrayBuffer();
         if (buffer.byteLength !== length) {
-            throw new OnnxError('ONNX_TRUNCATED', 'the file ended while it was being read');
+            throw this.truncated('the file ended while it was being read', this.pos + length);
         }
         this.pos += length;
         return new Uint8Array(buffer);
@@ -387,7 +413,7 @@ class BlobProtoReader {
     /** A bounded view over the next `length` bytes; the parent moves past it. */
     async sub(length) {
         if (length < 0 || length > this.remaining) {
-            throw new OnnxError('ONNX_TRUNCATED', 'field runs past the end of the file');
+            throw this.truncated('field runs past the end of the file', this.pos + Math.max(0, length));
         }
         const child = new BlobProtoReader(this.blob, this.pos, this.pos + length);
         this.pos += length;
@@ -425,7 +451,7 @@ async function skipBlobField(reader, wireType) {
 async function readBlobMessage(reader, maxBytes = MAX_METADATA_MESSAGE) {
     const length = await reader.varint();
     if (length > reader.remaining) {
-        throw new OnnxError('ONNX_TRUNCATED', 'field runs past the end of the file');
+        throw reader.truncated('field runs past the end of the file', reader.pos + length);
     }
     if (length > maxBytes) {
         await reader.skip(length);
@@ -489,7 +515,7 @@ async function parseBlobGraph(reader, out) {
         }
         if (field === 5 && wire === WIRE_LENGTH) {
             const length = await reader.varint();
-            if (length > reader.remaining) throw new OnnxError('ONNX_TRUNCATED', 'initializer runs past the end of the file');
+            if (length > reader.remaining) throw reader.truncated('initializer runs past the end of the file', reader.pos + length);
             await parseBlobTensor(await reader.sub(length), out);
             continue;
         }
@@ -517,7 +543,7 @@ async function parseBlobModel(reader, out) {
         }
         if (field === 7 && wire === WIRE_LENGTH) {
             const length = await reader.varint();
-            if (length > reader.remaining) throw new OnnxError('ONNX_TRUNCATED', 'graph runs past the end of the file');
+            if (length > reader.remaining) throw reader.truncated('graph runs past the end of the file', reader.pos + length);
             graphSeen = true;
             await parseBlobGraph(await reader.sub(length), out);
             continue;

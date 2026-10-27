@@ -92,6 +92,15 @@ describe('sniffKind', () => {
         expect(sniffKind(new Uint8Array([0x08, 0x07]))).toBe('onnx');
         expect(sniffKind(new Uint8Array([0x3a, 0x10, 0, 0]))).toBe('onnx');
     });
+
+    it('accepts any plausible first protobuf field', () => {
+        // Exporters do not all start with ir_version. The sniffer must not
+        // refuse a graph because its first key is field 3, 4, 5 or 15.
+        expect(sniffKind(new Uint8Array([0x1a, 0x02, 0x00, 0x00]))).toBe('onnx'); // field 3, wire 2
+        expect(sniffKind(new Uint8Array([0x22, 0x02, 0x00, 0x00]))).toBe('onnx'); // field 4, wire 2
+        expect(sniffKind(new Uint8Array([0x2d, 0, 0, 0, 0]))).toBe('onnx'); // field 5, wire 5
+        expect(sniffKind(new Uint8Array([0x79, 0, 0, 0, 0, 0, 0, 0, 0]))).toBe('onnx'); // field 15, wire 1
+    });
 });
 
 describe('probeModelFile', () => {
@@ -121,6 +130,45 @@ describe('probeModelFile', () => {
         expect(result.ok).toBe(false);
         expect(result.code).toBe(PROBE_CODES.GGUF_ARCH_UNSUPPORTED);
         expect(result.detail).toContain('brand-new-arch');
+        expect(result.params.architecture).toBe('brand-new-arch');
+    });
+
+    it('loads an unsupported architecture when the clinic asks for it', async () => {
+        const file = fakeFile('model.gguf', ggufBytes({ architecture: 'brand-new-arch' }));
+        const result = await probeModelFile(file, { allowUnsupportedArchitecture: true });
+        expect(result.ok).toBe(true);
+        expect(result.capabilities.architectureSupported).toBe(false);
+        expect(result.warnings.join(' ')).toContain('support list');
+    });
+
+    it('accepts a clip projector in the projector role', async () => {
+        const file = fakeFile('mmproj-model-f16.gguf', ggufBytes({
+            architecture: 'clip',
+            chatTemplate: null,
+            tensors: [{ name: 'mmproj.weight', dims: [1024, 1024] }],
+        }));
+        const result = await probeModelFile(file, { role: 'projector' });
+        expect(result.ok).toBe(true);
+        expect(result.capabilities.projector).toBe(true);
+        expect(result.runtimeLabel).toMatch(/^wllama /);
+    });
+
+    it('refuses a text model in the projector role', async () => {
+        const file = fakeFile('model.gguf', ggufBytes({ architecture: 'llama' }));
+        const result = await probeModelFile(file, { role: 'projector' });
+        expect(result.ok).toBe(false);
+        expect(result.code).toBe(PROBE_CODES.MMPROJ_INVALID);
+    });
+
+    it('keeps ONNX_TRUNCATED when the graph is cut short', async () => {
+        // Field 7 (graph) with a 16-byte payload, but only one byte follows.
+        const bytes = new Uint8Array([0x08, 0x07, 0x3a, 0x10, 0x00]);
+        const file = fakeFile('vision.onnx', bytes);
+        const result = await probeModelFile(file);
+        expect(result.ok).toBe(false);
+        expect(result.code).toBe(PROBE_CODES.ONNX_TRUNCATED);
+        expect(result.bytesConsumed).toBeGreaterThan(0);
+        expect(result.fileSize).toBe(bytes.byteLength);
     });
 
     it('warns about a model without a chat template but still accepts it', async () => {

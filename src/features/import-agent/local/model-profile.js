@@ -2,8 +2,9 @@
 //
 // Two layouts:
 //
-//   'single'  one multimodal model (a GGUF with a vision tower). It reads
-//             photos and extracts records.
+//   'single'  one multimodal model (a GGUF with a vision tower) plus an
+//             optional `mmproj.gguf` projector. It reads photos and extracts
+//             records.
 //   'split'   a text model (GGUF) plus a vision model (ONNX). The vision
 //             model turns photos into text; the text model extracts records.
 //
@@ -15,10 +16,15 @@
 //
 //   'profile'   one composite profile (the shape the import engine and the
 //               settings card have always used), key 'current'.
-//   'profiles'  one record per model slot ('text', 'vision', 'support', and
-//               'multimodal' for the single layout), with its own verification
-//               status. The slot records are what the verification state
-//               machine reads and writes.
+//   'profiles'  one record per model slot ('text', 'vision', 'support',
+//               'mmproj', and 'multimodal' for the single layout), with its
+//               own verification status. The slot records are what the
+//               verification state machine reads and writes.
+//   'files'     the file bytes, for browsers without the File System Access
+//               API (Firefox, Safari). A File handle cannot be restored
+//               there, so the File itself is kept and re-hashed on first use.
+//               The store is the difference between "pick the model again
+//               after every reload" and "pick it once".
 //
 // The composite and the slot records are kept in step by saveProfile(), so a
 // caller that still saves the whole profile and a caller that saves one slot
@@ -56,8 +62,8 @@ export const PROFILE_STATUSES = Object.freeze({
 export const VERIFICATION_STATUSES = PROFILE_STATUSES;
 
 /** The per-slot record ids. 'multimodal' is the single layout's text slot. */
-export const PROFILE_IDS = Object.freeze(['text', 'vision', 'support']);
-export const PROFILE_SLOTS = Object.freeze(['multimodal', 'text', 'vision', 'support']);
+export const PROFILE_IDS = Object.freeze(['text', 'vision', 'support', 'mmproj']);
+export const PROFILE_SLOTS = Object.freeze(['multimodal', 'mmproj', 'text', 'vision', 'support']);
 
 const STATUS_VALUES = new Set(Object.values(PROFILE_STATUSES));
 
@@ -121,10 +127,11 @@ export function emptyProfile() {
     return {
         mode: 'single',
         // single mode
-        multimodal: null, // { handle, name, kind, size, sha256, status }
+        multimodal: null, // { handle, file, name, kind, size, sha256, status }
+        mmproj: null,     // the optional vision projector for 'multimodal'
         // split mode
-        text: null,       // { handle, name, kind, size, sha256, status }
-        vision: null,     // { handle, name, kind, size, sha256, status }
+        text: null,       // { handle, file, name, kind, size, sha256, status }
+        vision: null,     // { handle, file, name, kind, size, sha256, status }
         // the files a vision model needs beside the graph
         support: null,    // { name, handle, files: { fileName: File }, status }
     };
@@ -165,9 +172,10 @@ export function fileKind(name) {
 // ---------------------------------------------------------------------------
 
 const DB = 'clinic-local-profile';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE = 'profile';       // the composite profile, key 'current'
 const PROFILES = 'profiles';   // one record per slot, key 'id'
+const FILES = 'files';         // the File bytes for browsers without handles, key 'id'
 
 function storageAvailable() {
     return typeof indexedDB !== 'undefined' && indexedDB !== null;
@@ -184,6 +192,7 @@ function openDb() {
             const db = request.result;
             if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
             if (!db.objectStoreNames.contains(PROFILES)) db.createObjectStore(PROFILES, { keyPath: 'id' });
+            if (!db.objectStoreNames.contains(FILES)) db.createObjectStore(FILES);
         };
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error || profileError('INDEXEDDB_OPEN_FAILED', 'the profile store did not open'));
@@ -278,6 +287,85 @@ async function clearValues(storeName) {
     } finally {
         db.close?.();
     }
+}
+
+// ---------------------------------------------------------------------------
+// File blobs
+// ---------------------------------------------------------------------------
+
+function isBlobLike(value) {
+    return Boolean(value) && typeof value === 'object'
+        && typeof value.size === 'number'
+        && typeof value.slice === 'function';
+}
+
+/**
+ * Keep the bytes of one model file.
+ *
+ * Chromium stores a FileSystemFileHandle instead; this is the fallback for
+ * Firefox and Safari, where a picked File is the only thing that survives a
+ * reload. The record keeps the name, the size and the modification time
+ * beside the bytes, because a Blob alone has none of them.
+ */
+export async function saveFileBlob(profileId, file) {
+    if (!isBlobLike(file) || !storageAvailable()) return false;
+    await writeValue(FILES, {
+        name: String(file.name ?? ''),
+        type: String(file.type ?? ''),
+        lastModified: Number(file.lastModified ?? 0) || 0,
+        size: Number(file.size ?? 0) || 0,
+        blob: file,
+    }, profileId);
+    return true;
+}
+
+/** The stored file for a slot, or null when there is none (or no storage). */
+export async function loadFileBlob(profileId) {
+    if (!storageAvailable()) return null;
+    try {
+        const record = await readValue(FILES, profileId);
+        if (!record?.blob) return null;
+        const blob = record.blob;
+        if (typeof File !== 'undefined' && blob instanceof File) return blob;
+        if (typeof File !== 'undefined') {
+            return new File([blob], record.name || `${profileId}.bin`, {
+                type: record.type || '',
+                lastModified: record.lastModified || Date.now(),
+            });
+        }
+        return blob;
+    } catch (error) {
+        if (error?.code === 'INDEXEDDB_UNAVAILABLE') return null;
+        throw error;
+    }
+}
+
+/** Drop the stored bytes of one slot. */
+export async function deleteFileBlob(profileId) {
+    if (!storageAvailable()) return;
+    try {
+        await deleteValue(FILES, profileId);
+    } catch (error) {
+        if (error?.code !== 'INDEXEDDB_UNAVAILABLE') throw error;
+    }
+}
+
+/**
+ * Attach the stored bytes to a slot record that has no handle.
+ *
+ * The slot record itself never carries the bytes: they would be cloned into
+ * the composite profile as well, and a 700 MB model would be stored twice.
+ */
+async function hydrateEntry(profileId, entry) {
+    if (!entry || entry.handle || entry.file) return entry;
+    const file = await loadFileBlob(profileId);
+    if (!file) return entry;
+    return {
+        ...entry,
+        file,
+        name: entry.name || file.name || '',
+        size: entry.size || file.size || 0,
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -381,7 +469,13 @@ async function writeSlot(profileId, data, options = {}) {
     if (options.preserveHandle !== false) incoming = carryStoredHandle(incoming, existing);
     const merged = existing ? { ...existing, ...incoming } : incoming;
     const entry = normalizeProfileEntry(profileId, merged);
-    await writeValue(PROFILES, entry);
+    // The bytes go to the file store, never into the slot record: a record
+    // is cloned into the composite profile too, so a File here would store a
+    // 700 MB model twice.
+    if (entry.file) await saveFileBlob(profileId, entry.file);
+    if (entry.handle) await deleteFileBlob(profileId);
+    const { file: _file, ...stored } = entry;
+    await writeValue(PROFILES, stored);
     return entry;
 }
 
@@ -417,7 +511,14 @@ async function patchComposite(profileId, entry) {
     if (!storageAvailable()) return;
     const profile = await readComposite();
     if (!profile) return;
-    profile[profileId] = entry ? { ...entry } : null;
+    if (!entry) {
+        profile[profileId] = null;
+    } else {
+        // The composite is a small record by design. The bytes live in the
+        // file store and are attached again on load.
+        const { file: _file, ...stored } = entry;
+        profile[profileId] = stored;
+    }
     await writeValue(STORE, profile, 'current');
 }
 
@@ -456,20 +557,37 @@ export async function saveProfile(profileOrId, data) {
     for (const profileId of PROFILE_SLOTS) {
         const slot = composite[profileId];
         if (!slot) {
-            if (storageAvailable()) await deleteValue(PROFILES, profileId);
+            composite[profileId] = null;
+            if (storageAvailable()) {
+                await deleteValue(PROFILES, profileId);
+                await deleteFileBlob(profileId);
+            }
             continue;
         }
         const existing = (await readSlot(profileId)) ?? slotFromComposite(storedComposite, profileId);
         const carried = carryStoredHandle(slot, existing);
         composite[profileId] = carried;
+        // The bytes live in the file store; the composite and the slot
+        // records keep only the small metadata.
+        if (carried.file) await saveFileBlob(profileId, carried.file);
+        if (carried.handle) await deleteFileBlob(profileId);
         const merged = existing ? { ...existing, ...carried } : carried;
         const entry = normalizeProfileEntry(profileId, {
             ...merged,
             mode: composite.mode === 'split' ? 'split' : 'single',
         });
-        await writeValue(PROFILES, entry);
+        const { file: _file, ...stored } = entry;
+        await writeValue(PROFILES, stored);
     }
-    await writeValue(STORE, composite, 'current');
+
+    const compositeRecord = { ...composite };
+    for (const profileId of PROFILE_SLOTS) {
+        const slot = compositeRecord[profileId];
+        if (!slot) continue;
+        const { file: _file, ...stored } = slot;
+        compositeRecord[profileId] = stored;
+    }
+    await writeValue(STORE, compositeRecord, 'current');
     return composite;
 }
 
@@ -485,15 +603,31 @@ export async function loadProfile(profileId = undefined) {
             throw profileError('INVALID_PROFILE_ID', 'a profile id is a string');
         }
         const existing = await readSlot(profileId);
-        if (existing) return normalizeProfileEntry(profileId, existing);
-        const composite = await readComposite();
-        return slotFromComposite(composite, profileId);
+        const entry = existing
+            ? normalizeProfileEntry(profileId, existing)
+            : slotFromComposite(await readComposite(), profileId);
+        return hydrateEntry(profileId, entry);
     }
 
     const composite = await readComposite();
-    if (composite) return composite;
+    if (composite) return hydrateComposite(composite);
     const records = await readSlots();
-    return compositeFromRecords(records.map((record) => normalizeProfileEntry(record.id, record)));
+    return hydrateComposite(compositeFromRecords(
+        records.map((record) => normalizeProfileEntry(record.id, record)),
+    ));
+}
+
+/** Attach the stored Firefox/Safari files to every slot of a profile. */
+async function hydrateComposite(profile) {
+    if (!profile) return profile;
+    const entries = await Promise.all(
+        PROFILE_SLOTS.map((profileId) => hydrateEntry(profileId, profile[profileId] ?? null)),
+    );
+    const hydrated = { ...profile };
+    for (const [index, profileId] of PROFILE_SLOTS.entries()) {
+        hydrated[profileId] = entries[index];
+    }
+    return hydrated;
 }
 
 /** Remove one slot record. Returns true when something was removed. */
@@ -505,6 +639,7 @@ export async function deleteProfile(profileId) {
     if (storageAvailable()) {
         try {
             await deleteValue(PROFILES, profileId);
+            await deleteFileBlob(profileId);
             await patchComposite(profileId, null);
         } catch (error) {
             if (error?.code !== 'INDEXEDDB_UNAVAILABLE') throw error;
@@ -527,7 +662,10 @@ export async function getAllProfiles() {
         if (!record || !PROFILE_SLOTS.includes(record.id)) continue;
         byId.set(record.id, normalizeProfileEntry(record.id, record));
     }
-    return [...byId.values()].sort(
+    const hydrated = await Promise.all(
+        [...byId.values()].map((entry) => hydrateEntry(entry.id, entry)),
+    );
+    return hydrated.sort(
         (left, right) => PROFILE_SLOTS.indexOf(left.id) - PROFILE_SLOTS.indexOf(right.id),
     );
 }
@@ -535,7 +673,7 @@ export async function getAllProfiles() {
 /** Remove the whole profile (every slot and the composite record). */
 export async function clearProfile() {
     if (!storageAvailable()) return;
-    await Promise.all([deleteValue(STORE, 'current'), clearValues(PROFILES)]);
+    await Promise.all([deleteValue(STORE, 'current'), clearValues(PROFILES), clearValues(FILES)]);
 }
 
 /**
@@ -580,7 +718,8 @@ export async function updateVerificationStatus(profileId, status, errorCode) {
 export function profileNeedsRepair(entry) {
     if (!entry) return false;
     if (entry.status === PROFILE_STATUSES.READY) return false;
-    if (!entry.handle) return true;
+    // A stored File (Firefox/Safari) is as usable as a Chromium handle.
+    if (!entry.handle && !entry.file) return true;
     return entry.status === PROFILE_STATUSES.ERROR && REPAIR_CODES.has(entry.errorCode);
 }
 
@@ -597,11 +736,13 @@ export async function repairProfile(profileId) {
     const cleared = normalizeProfileEntry(profileId, {
         ...entry,
         handle: null,
+        file: null,
         status: PROFILE_STATUSES.NOT_CONFIGURED,
         errorCode: undefined,
         verifiedAt: undefined,
     });
     await writeSlot(profileId, cleared, { preserveHandle: false });
+    await deleteFileBlob(profileId);
     // The composite profile must stop counting this model as configured;
     // otherwise an import would start and fail on the missing handle.
     await patchComposite(profileId, null);
@@ -632,9 +773,20 @@ async function defaultSmokeRender(context) {
     }
 
     const { setupLocalModels } = await import('./setup.js');
-    const profile = context.entry.id === 'multimodal'
-        ? { ...emptyProfile(), mode: 'single', multimodal: context.entry }
-        : { ...emptyProfile(), mode: 'split', text: context.entry };
+    let profile;
+    if (context.entry.id === 'multimodal') {
+        // The projector is part of the same model from the runtime's point
+        // of view: a smoke render without it would test the text half only.
+        const stored = await loadProfile();
+        profile = {
+            ...emptyProfile(),
+            mode: 'single',
+            multimodal: context.entry,
+            mmproj: stored?.mmproj ?? null,
+        };
+    } else {
+        profile = { ...emptyProfile(), mode: 'split', text: context.entry };
+    }
     const setup = await setupLocalModels({
         profile,
         config: context.options.config,
@@ -655,23 +807,29 @@ async function defaultSmokeRender(context) {
 }
 
 function normalizeProbeResult(result) {
-    if (!result) return { ok: false, code: 'PROBE_FAILED', detail: 'the capability probe returned no result', warnings: [] };
-    if (result.ok === true) return result;
-    if (result.error) {
+    if (!result) {
         return {
             ok: false,
-            code: result.error,
-            detail: result.detail ?? result.error,
-            warnings: result.warnings ?? [],
-            capabilities: result.capabilities,
+            code: 'PROBE_FAILED',
+            detail: 'the capability probe returned no result',
+            warnings: [],
+            params: {},
         };
     }
+    if (result.ok === true) return result;
+    const code = result.error ?? result.code ?? 'PROBE_FAILED';
     return {
         ok: false,
-        code: result.code ?? 'PROBE_FAILED',
-        detail: result.detail ?? 'the capability probe refused the file',
+        code,
+        detail: result.detail ?? result.message ?? code,
         warnings: result.warnings ?? [],
         capabilities: result.capabilities,
+        // The card formats these, so they must survive the normalisation.
+        params: result.params ?? {},
+        bytesConsumed: Number(result.bytesConsumed) || 0,
+        fileSize: Number(result.fileSize) || 0,
+        runtime: result.runtime ?? null,
+        runtimeLabel: result.runtimeLabel ?? '',
     };
 }
 
@@ -709,7 +867,7 @@ export async function verifyModel(profileId, options = {}) {
     // A model slot with no file is not something to probe. The support slot
     // is the exception: its small files are persisted, so it can be verified
     // even when the folder handle cannot be re-granted.
-    if (!entry.handle && !supportSlot) {
+    if (!entry.handle && !entry.file && !supportSlot) {
         if (normalizeStatus(entry.status) !== PROFILE_STATUSES.NOT_CONFIGURED) {
             try {
                 await updateVerificationStatus(profileId, PROFILE_STATUSES.NOT_CONFIGURED);
@@ -770,19 +928,29 @@ export async function verifyModel(profileId, options = {}) {
             return { ok: true, status: ready.status, support: true, warnings: [] };
         }
 
-        const file = await fileFromHandle(entry.handle);
+        const file = entry.file ?? await fileFromHandle(entry.handle);
         if (!file) {
             throw profileError('MODEL_FILE_UNAVAILABLE', 'the model file is not reachable; pick it again');
         }
 
         // 1. Capability probe: magic bytes and metadata. This refuses an
-        //    unsupported file before a 700 MB load.
+        //    unsupported file before a 700 MB load. The projector has its own
+        //    role: it is a `clip` GGUF, not a text model.
         const probeFn = options.probe ?? probeModelFile;
-        const probe = normalizeProbeResult(await probeFn(file, options.probeOptions ?? {}));
+        const probeOptions = { ...(options.probeOptions ?? {}) };
+        if (probeOptions.role === undefined && (profileId === 'mmproj' || entry.id === 'mmproj')) {
+            probeOptions.role = 'projector';
+        }
+        if (probeOptions.mode === undefined && entry.mode) probeOptions.mode = entry.mode;
+        const probe = normalizeProbeResult(await probeFn(file, probeOptions));
         if (!probe.ok) {
             throw profileError(probe.code || 'PROBE_FAILED', probe.detail || 'the model file was refused', {
                 warnings: probe.warnings ?? [],
                 capabilities: probe.capabilities,
+                params: probe.params ?? {},
+                bytesConsumed: probe.bytesConsumed ?? 0,
+                fileSize: probe.fileSize ?? 0,
+                runtimeLabel: probe.runtimeLabel ?? '',
             });
         }
 
@@ -824,6 +992,12 @@ export async function verifyModel(profileId, options = {}) {
             adapter: probe.adapter ?? entry.adapter ?? null,
             capabilities: probe.capabilities ?? entry.capabilities ?? null,
             warnings,
+            runtimeLabel: probe.runtimeLabel ?? entry.runtimeLabel ?? '',
+            // The override is a property of the slot: setup must keep allowing
+            // the architecture after a reload, or the import fails where the
+            // card said it was ready.
+            allowUnsupportedArchitecture: entry.allowUnsupportedArchitecture === true
+                || probeOptions.allowUnsupportedArchitecture === true,
             status: PROFILE_STATUSES.NOT_VERIFIED,
         });
         const ready = await updateVerificationStatus(profileId, PROFILE_STATUSES.READY);
@@ -849,6 +1023,11 @@ export async function verifyModel(profileId, options = {}) {
             code,
             message: String(error?.message ?? code),
             warnings: error?.warnings ?? [],
+            capabilities: error?.capabilities,
+            params: error?.params ?? {},
+            bytesConsumed: Number(error?.bytesConsumed) || 0,
+            fileSize: Number(error?.fileSize) || 0,
+            runtimeLabel: error?.runtimeLabel ?? '',
             repair: REPAIR_CODES.has(code),
         };
     }

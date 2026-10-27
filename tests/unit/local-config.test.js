@@ -94,6 +94,13 @@ describe('clampLocalConfig', () => {
         const clamped = clampLocalConfig({ text: { contextTokens: 4096 } });
         expect(clamped.text.contextTokens).toBe(4096);
     });
+
+    it('keeps the entered System RAM inside the shared bounds', () => {
+        expect(clampLocalConfig({ runtime: { systemMemoryGb: 2000 } }).runtime.systemMemoryGb).toBe(1024);
+        expect(clampLocalConfig({ runtime: { systemMemoryGb: -4 } }).runtime.systemMemoryGb).toBe(0);
+        expect(clampLocalConfig({ runtime: { systemMemoryGb: 16 } }).runtime.systemMemoryGb).toBe(16);
+        expect(clampLocalConfig({}).runtime.systemMemoryGb).toBe(0);
+    });
 });
 
 describe('tier detection and defaults', () => {
@@ -124,6 +131,36 @@ describe('tier detection and defaults', () => {
             memory: 'warn',
             storage: 'warn',
         });
+    });
+
+    it('lets the entered RAM replace the value the browser cannot report', () => {
+        // Firefox reports 0 for deviceMemory. A clinic that typed 8 GB must
+        // still be able to earn the high tier.
+        expect(detectTier({
+            webgpu: true,
+            threads: 8,
+            memory: 0,
+            systemMemoryGb: 8,
+            maxBufferSize: 512 * 1024 * 1024,
+        })).toBe('high');
+        expect(deviceSignals({ webgpu: true, threads: 8, memory: 0, systemMemoryGb: 8 }).memory).toBe('ok');
+    });
+
+    it('prefers the entered RAM over a smaller reported value', () => {
+        expect(detectTier({
+            webgpu: true,
+            threads: 8,
+            memory: 4,
+            systemMemoryGb: 16,
+            maxBufferSize: 512 * 1024 * 1024,
+        })).toBe('high');
+        expect(detectTier({
+            webgpu: true,
+            threads: 8,
+            memory: 16,
+            systemMemoryGb: 4,
+            maxBufferSize: 512 * 1024 * 1024,
+        })).toBe('mid');
     });
 });
 

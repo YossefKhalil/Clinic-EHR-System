@@ -143,6 +143,59 @@ describe('restoring the card after a reload', () => {
         expect(restored.text.sha256).toBe('A'.repeat(64));
     });
 
+    it('keeps the stored File for browsers without a handle', async () => {
+        const file = new File(['model bytes'], 'text.gguf', { lastModified: 1 });
+        const first = createLocalState();
+        first.mode = 'split';
+        first.text = {
+            ...emptySlot(),
+            file,
+            name: file.name,
+            size: file.size,
+            status: 'warn',
+        };
+        await persistLocalState(first);
+
+        const loaded = await loadProfile();
+        expect(loaded.text.handle).toBe(null);
+        expect(loaded.text.file).toBeTruthy();
+        expect(loaded.text.file.name).toBe('text.gguf');
+
+        const restored = await restoreLocalState(createLocalState());
+        expect(restored.text.file).toBeTruthy();
+        expect(restored.text.status).toBe('warn');
+        expect(restored.text.message).toBe('aiSettings.local.fileRestored');
+    });
+
+    it('keeps the optional projector with the single model', async () => {
+        const state = createLocalState();
+        state.mode = 'single';
+        state.multimodal = {
+            ...emptySlot(),
+            handle: handleOf('model.gguf'),
+            name: 'model.gguf',
+            size: 11,
+            status: 'ok',
+        };
+        state.mmproj = {
+            ...emptySlot(),
+            file: new File(['projector bytes'], 'mmproj-model-f16.gguf', { lastModified: 1 }),
+            name: 'mmproj-model-f16.gguf',
+            size: 15,
+            status: 'ok',
+        };
+        await persistLocalState(state);
+
+        const loaded = await loadProfile();
+        expect(loaded.mode).toBe('single');
+        expect(loaded.mmproj.name).toBe('mmproj-model-f16.gguf');
+        expect(loaded.mmproj.file).toBeTruthy();
+
+        const restored = await restoreLocalState(createLocalState());
+        expect(restored.mmproj.name).toBe('mmproj-model-f16.gguf');
+        expect(restored.mmproj.file).toBeTruthy();
+    });
+
     it('explains how to repair a profile whose handle is missing', async () => {
         const profile = emptyProfile();
         profile.mode = 'split';

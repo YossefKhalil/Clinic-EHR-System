@@ -116,12 +116,13 @@ Files are identified by content signature, not by extension. Oversized files, en
 
 When `LOCAL_INFERENCE_ENABLED=1`, the clinic can run models entirely on the clinic PC:
 
-- **Text models**: GGUF (llama.cpp via wllama), single or split layout
-- **Vision/OCR**: ONNX Runtime Web (Falcon OCR), WebGPU → WASM fallback
-- **Settings card**: Engine Off/Cloud/Local, model pickers, Browse→Verify flow, config accordions with tier-aware defaults, device capability chips, cloud consent modal
-- **Verification**: Header probe + SHA-256, per-slot Ready/Error badges with codes
-- **Persistence**: Model handles in IndexedDB, resolved config written to job at import start
-- **Pipeline integration**: `local_claim`/`local_submit`/`local_heartbeat`/`local_fail`/`local_release` with lease tokens, CONFIG_DRIFT detection, model identity (SHA-256) audit
+- **Text models**: GGUF (llama.cpp via wllama), single or split layout. The single layout may add a vision **mmproj** projector so the model can read photos; without it the model extracts text only.
+- **Vision/OCR**: ONNX Runtime Web (Falcon OCR), WebGPU → WASM fallback (split layout)
+- **Settings card**: Engine Off/Cloud/Local, model pickers, Browse→Verify flow, config accordions with tier-aware defaults, device capability chips, runtime identity (`wllama`), cloud consent modal
+- **System RAM**: Firefox and Safari do not report RAM, so the clinic can enter the PC's memory; the entered value wins over `navigator.deviceMemory` when the tier is suggested
+- **Verification**: Header probe + SHA-256, per-slot Ready/Error badges with translated codes, a Re-check action that re-probes without re-hashing, and an explicit "Load anyway" for an architecture outside the checked-in support list
+- **Persistence**: Model handles (Chromium) or stored File blobs (Firefox/Safari) in IndexedDB, with a `navigator.storage.persist()` request; resolved config written to the job at import start
+- **Pipeline integration**: `local_claim`/`local_submit`/`local_heartbeat`/`local_fail`/`local_release` with lease tokens, CONFIG_DRIFT detection, model identity (SHA-256, including the single-layout projector) audit
 
 ### Review workflow
 
@@ -140,7 +141,7 @@ When `LOCAL_INFERENCE_ENABLED=1`, the clinic can run models entirely on the clin
 
 - **Cloud**: OpenRouter, Cloudflare Workers AI, and any OpenAI-compatible endpoint (OpenAI, Groq, Ollama, LM Studio).
 - **Local** (when `LOCAL_INFERENCE_ENABLED=1`): GGUF text models via wllama, ONNX vision/OCR models via ONNX Runtime Web.
-- Providers can be mixed in an ordered chain of up to eight model entries (cloud). Local uses one text slot and one vision+OCR slot.
+- Providers can be mixed in an ordered chain of up to eight model entries (cloud). Local uses one text slot and one vision+OCR slot; the one-model layout can add an optional `mmproj` projector.
 - Provider keys are stored AES-GCM encrypted, decrypted only inside Edge Functions, and never returned to the browser.
 - OpenRouter requests are sent with `data_collection: deny`. Other providers have their own retention and training policies.
 - Local models never leave the clinic PC. The server only learns the model name, size, and SHA-256.
@@ -329,6 +330,11 @@ be set on both:
 ```bash
 supabase secrets set LOCAL_INFERENCE_ENABLED=1 --project-ref <project-ref>
 ```
+
+Multi-thread loading is an explicit opt-in: the app does not set COOP/COEP
+headers by default, so the local runtime uses one thread and the settings card
+disables the Threads field. A deployment that serves the app from its own LAN
+server can enable those headers to unlock more threads.
 
 See [docs/import-agent/local-ai-engine.md](docs/import-agent/local-ai-engine.md)
 for what the engine does and what it needs.
