@@ -250,14 +250,37 @@ async function readAllValues(storeName) {
     }
 }
 
+/**
+ * A structured-clone-safe copy of a value.
+ *
+ * Alpine.js wraps the settings state in reactive Proxies, and a Proxy cannot be
+ * written to IndexedDB (`DataCloneError: could not be cloned`). Plain objects
+ * and arrays are therefore copied by value before the write. Everything else -
+ * File, Blob, FileSystemHandle, Date, typed arrays - keeps its identity,
+ * because it is cloneable exactly as it is.
+ */
+export function toStorable(value) {
+    if (Array.isArray(value)) return value.map(toStorable);
+    if (value && typeof value === 'object') {
+        const proto = Object.getPrototypeOf(value);
+        if (proto === Object.prototype || proto === null) {
+            const copy = {};
+            for (const [key, entry] of Object.entries(value)) copy[key] = toStorable(entry);
+            return copy;
+        }
+    }
+    return value;
+}
+
 async function writeValue(storeName, value, key = undefined) {
     const db = await openDb();
     try {
         const transaction = db.transaction(storeName, 'readwrite');
         const done = transactionDone(transaction);
+        const storable = toStorable(value);
         const request = key === undefined
-            ? transaction.objectStore(storeName).put(value)
-            : transaction.objectStore(storeName).put(value, key);
+            ? transaction.objectStore(storeName).put(storable)
+            : transaction.objectStore(storeName).put(storable, key);
         request.onerror = () => { /* the transaction error carries the reason */ };
         await done;
     } finally {

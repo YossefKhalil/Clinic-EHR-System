@@ -21,6 +21,7 @@ import {
     repairProfile,
     profileNeedsRepair,
     loadFileBlob,
+    toStorable,
     PROFILE_STATUSES,
 } from '../../src/features/import-agent/local/model-profile.js';
 
@@ -138,6 +139,25 @@ describe('per-slot storage', () => {
         expect(await loadProfile('text')).toBe(null);
         expect((await loadProfile('vision')).name).toBe('vision.onnx');
         expect(await deleteProfile('text')).toBe(false);
+    });
+});
+
+describe('IndexedDB-safe records', () => {
+    it('copies reactive Proxies so IndexedDB can clone them', () => {
+        const proxied = new Proxy({ kind: 'gguf', graph: new Proxy({ inputs: ['a'] }, {}) }, {});
+        const copy = toStorable({ capabilities: proxied, warnings: new Proxy(['w'], {}) });
+
+        expect(copy.capabilities).toEqual({ kind: 'gguf', graph: { inputs: ['a'] } });
+        expect(copy.warnings).toEqual(['w']);
+        expect(copy.capabilities).not.toBe(proxied);
+        expect(copy.capabilities.graph).not.toBe(proxied.graph);
+    });
+
+    it('keeps a File (and other cloneable objects) as they are', async () => {
+        const file = fileOf(ggufBytes(), 'model.gguf');
+        const copy = toStorable({ file, when: new Date(0) });
+        expect(copy.file).toBe(file);
+        expect(copy.when).toBeInstanceOf(Date);
     });
 });
 
