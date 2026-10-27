@@ -256,6 +256,20 @@ flowchart LR
 - A **Cloudflare Pages** account for deployment. Optional for local development.
 - The **Supabase CLI** for deploying Edge Functions or applying the schema from a terminal.
 
+### Local-only testing (no hosted data)
+
+To run the whole app against a **local Supabase stack** (its own Postgres,
+Auth, REST and Edge Functions) and keep the hosted project untouched, use the
+scripts in [`docs/local-host-testing`](docs/local-host-testing/README.md):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File docs/local-host-testing/setup.ps1
+powershell -ExecutionPolicy Bypass -File docs/local-host-testing/start.ps1
+```
+
+That creates a throwaway local login (`yossef` / `123`, Super Admin) and writes
+`.env.local`. Docker Desktop with WSL2 is required.
+
 ### 1. Clone and install
 
 ```bash
