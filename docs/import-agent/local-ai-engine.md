@@ -3,6 +3,16 @@
 This is the working note for issue #18. The plan itself is
 [`local-mode.md`](local-mode.md) (the issue body, verbatim).
 
+See also:
+
+- [`local-ai-runtime-issue.md`](local-ai-runtime-issue.md) — the stubborn
+  "chunks failed to extract" class of failures: evidence, fixes, and the
+  near-term fix list.
+- [`mlc-runtime-plan.md`](mlc-runtime-plan.md) — plan for a WebGPU (MLC/WebLLM)
+  runtime beside wllama.
+- [`ai-import-ui-redesign.md`](ai-import-ui-redesign.md) — plan for a calmer,
+  progressive-disclosure settings and import UI.
+
 ## What the local engine is
 
 A per-import engine. With it on, no prompt, no image and no extracted text
