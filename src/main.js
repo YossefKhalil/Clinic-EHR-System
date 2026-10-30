@@ -50,6 +50,7 @@ import { getPriceStats } from './services/prices.js';
 import { loadOptions as fetchOptions, allOptions, createOption, updateOption, countOptionUsage, deleteOption, optionLabel as lookupOptionLabel } from './services/options.js';
 import { buildSearchDictionary, searchTermVariants, maritalStatusLabel } from './services/search-terms.js';
 import { importAgentWizard, importAgentEnter } from './features/import-agent/ui.js';
+import { localAiV2 } from './features/import-agent/local-v2/settings.js';
 import { GOVERNORATE_BY_ID_CODE, BORN_ABROAD_ID_CODE } from '@import-core/enums.js';
 
 // The local runtime fields that hold text rather than a number. Reading a
@@ -3753,6 +3754,9 @@ window.app = app;
 // The wizard mounts as a nested Alpine scope on its own page; this global is
 // what the page markup references (mirrors `window.app`).
 window.importAgentWizard = importAgentWizard;
+
+// The v2 local-AI card, mounted in Settings -> AI when the flag is on.
+window.localAiV2 = localAiV2;
 
 document.addEventListener('DOMContentLoaded', () => {
     Alpine.start();

@@ -2755,6 +2755,72 @@
                                      LOCAL
                                      ============================================================ -->
                                 <div x-show="aiEngine === 'local'" x-cloak>
+                                    <!-- ------------------------------------------------------------
+                                         LOCAL AI v2 (WebGPU / MLC): text only, one model, one button.
+                                         Hidden unless the flag is on (VITE_LOCAL_AI_V2=1).
+                                         ------------------------------------------------------------ -->
+                                    <div x-data="localAiV2()" x-show="enabled" x-cloak class="border rounded-3 p-3 mb-3 bg-white">
+                                        <div class="d-flex align-items-center gap-2 mb-1">
+                                            <i class="bi bi-gpu-card text-secondary"></i>
+                                            <span class="fw-semibold" x-text="label('aiSettings.localV2.title')"></span>
+                                            <span class="badge rounded-pill ms-auto border"
+                                                  :class="status === 'ready' ? 'text-bg-success' : (status === 'blocked' || status === 'error' ? 'text-bg-danger' : 'text-bg-light')"
+                                                  x-text="statusText"></span>
+                                        </div>
+                                        <div class="small text-secondary" x-text="label('aiSettings.localV2.subtitle')"></div>
+                                        <div class="small mt-2" x-show="model">
+                                            <span class="fw-semibold" x-text="model?.name"></span>
+                                            <span class="text-secondary" x-text="' · ' + sizeLabel"></span>
+                                            <span class="text-secondary" x-text="' · ' + label('aiSettings.localV2.context', { count: contextLabel })"></span>
+                                        </div>
+                                        <div class="alert alert-warning py-2 px-3 small mt-2 mb-0" x-show="errorText" x-text="errorText"></div>
+                                        <div class="progress mt-2" x-show="status === 'downloading'" style="height: .5rem;">
+                                            <div class="progress-bar" role="progressbar" :style="'width: ' + progress + '%'" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100"></div>
+                                        </div>
+                                        <div class="small text-secondary mt-1" x-show="status === 'downloading'" dir="ltr" x-text="progressText"></div>
+                                        <div class="d-flex flex-wrap gap-2 mt-2">
+                                            <button type="button" class="btn btn-sm btn-primary" x-show="status === 'idle'" @click="download()" :disabled="busy">
+                                                <span class="spinner-border spinner-border-sm me-1" x-show="busy" x-cloak></span>
+                                                <i class="bi bi-download me-1"></i><span x-text="label('aiSettings.localV2.download')"></span>
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-primary" x-show="status === 'error'" @click="retry()" :disabled="busy">
+                                                <i class="bi bi-arrow-clockwise me-1"></i><span x-text="label('aiSettings.localV2.retry')"></span>
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-danger" x-show="status === 'ready'" @click="remove()" :disabled="busy">
+                                                <i class="bi bi-trash me-1"></i><span x-text="label('aiSettings.localV2.remove')"></span>
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-link text-secondary text-decoration-none" x-show="status === 'ready' || status === 'idle'" @click="toggleAdvanced()" :aria-expanded="advancedOpen ? 'true' : 'false'">
+                                                <i class="bi bi-sliders me-1"></i><span x-text="label('aiSettings.localV2.advanced')"></span>
+                                                <i class="bi ms-1" :class="advancedOpen ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+                                            </button>
+                                        </div>
+                                        <div class="small text-secondary mt-2" x-text="label('aiSettings.localV2.textOnly')"></div>
+                                        <div class="small text-secondary" x-show="storageLabel" x-text="label('aiSettings.localV2.storageFree', { size: storageLabel })"></div>
+                                        <div class="small text-secondary" x-show="status === 'ready'" x-text="label('aiSettings.localV2.cacheNote')"></div>
+                                        <div class="border-top mt-3 pt-2" x-show="advancedOpen" x-cloak>
+                                            <div class="small text-secondary mb-2" x-text="label('aiSettings.localV2.advancedHint')"></div>
+                                            <div class="row g-2">
+                                                <div class="col-6 col-md-3">
+                                                    <label class="form-label small fw-semibold mb-0" for="ai-v2-context" x-text="label('aiSettings.localV2.contextTokens')"></label>
+                                                    <input type="number" class="form-control form-control-sm" id="ai-v2-context" min="512" step="512" :value="profile?.contextWindow" @change="updateContext($event.target.value)" dir="ltr">
+                                                </div>
+                                                <div class="col-6 col-md-3">
+                                                    <label class="form-label small fw-semibold mb-0" x-text="label('aiSettings.localV2.temperature')"></label>
+                                                    <input type="number" class="form-control form-control-sm" min="0" max="2" step="0.1" :value="profile?.sampling?.temperature" @change="updateSampling('temperature', $event.target.value)" dir="ltr">
+                                                </div>
+                                                <div class="col-6 col-md-3">
+                                                    <label class="form-label small fw-semibold mb-0" x-text="label('aiSettings.localV2.topP')"></label>
+                                                    <input type="number" class="form-control form-control-sm" min="0.05" max="1" step="0.05" :value="profile?.sampling?.topP" @change="updateSampling('topP', $event.target.value)" dir="ltr">
+                                                </div>
+                                                <div class="col-6 col-md-3">
+                                                    <label class="form-label small fw-semibold mb-0" x-text="label('aiSettings.localV2.frequencyPenalty')"></label>
+                                                    <input type="number" class="form-control form-control-sm" min="-2" max="2" step="0.1" :value="profile?.sampling?.frequencyPenalty" @change="updateSampling('frequencyPenalty', $event.target.value)" dir="ltr">
+                                                </div>
+                                            </div>
+                                            <div class="small text-secondary mt-2" x-text="label('aiSettings.localV2.license')"></div>
+                                        </div>
+                                    </div>
+
                                     <div class="d-flex flex-wrap gap-2 mb-1" role="group" :aria-label="t('aiSettings.local.readiness')">
                                         <span class="dev-chip" x-show="aiLocalDevice"><span class="dot" :class="'dot-' + aiLocalSignal('webgpu')"></span><span x-text="t('aiSettings.local.chip.webgpu')"></span></span>
                                         <span class="dev-chip" x-show="aiLocalDevice"><span class="dot" :class="'dot-' + aiLocalSignal('threads')"></span><span x-text="aiLocalThreadsLabel()"></span></span>
