@@ -3,29 +3,80 @@
 // v2 runs models on WebGPU through MLC/WebLLM. Unlike the v1 engine (which
 // loads GGUF files the clinic picked), v2 downloads a build that was compiled
 // for WebLLM, so the app has to know what exists before it offers anything:
-// the address, the size, the context window and the licence all live here.
+// the size, the context window and the licence all live here.
 //
-// This file is the checked-in list (like `local/architectures.json`), not a
-// live query. Upgrading the WebLLM package is a reviewed diff of this JSON
-// plus the dependency, because a model build only loads on a runtime whose
-// tvmjs release matches the one it was compiled with.
+// Two kinds of entry:
+//
+//   1. `webllm` — a build that ships inside the pinned WebLLM release. Only
+//      the id and the human metadata are stored; the download address, the
+//      wasm library and the exact overrides are read from the installed
+//      package at load time (see engine.js). That is what makes them safe:
+//      a hand-copied `model_lib` URL is one release behind the runtime, and
+//      the pair has to match.
+//   2. `link` — a build the project links to directly, with its own two
+//      addresses (the reference model is one).
+//
+// Anything else the clinic wants to try is a *custom* entry: it is not
+// checked in, it lives in this browser's storage, and it carries its own two
+// addresses. That is how a MiniCPM conversion — or any future MLC repo — is
+// used without waiting for an app release.
 
 import catalog from './catalog.json';
 
 export const CATALOG_VERSION = catalog.catalogVersion;
 export const WEBLLM_VERSION = catalog.webllmVersion;
 
-/** Every model the app knows about. */
+/** Where the clinic's own entries are kept (this browser only). */
+export const CUSTOM_KEY = 'clinic.localAi.v2.customModels';
+
+function storage(store) {
+    if (store) return store;
+    try {
+        if (typeof localStorage === 'undefined') return null;
+        return localStorage;
+    } catch {
+        // A browser with storage disabled throws on access, not on use.
+        return null;
+    }
+}
+
+/** Every model the app ships with, in the order the card offers them. */
 export function models() {
     return catalog.models.slice();
 }
 
-/** One model by its MLC model id, or null. */
-export function modelById(id) {
-    return catalog.models.find((model) => model.id === id) ?? null;
+/** The clinic's own entries, as saved (never throws on a bad value). */
+export function loadCustomModels(store) {
+    const raw = storage(store)?.getItem?.(CUSTOM_KEY);
+    if (!raw) return [];
+    try {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+        return parsed.filter((model) => model && typeof model.id === 'string');
+    } catch {
+        return [];
+    }
 }
 
-/** The entry the download card offers first. */
+function writeCustomModels(list, store) {
+    storage(store)?.setItem?.(CUSTOM_KEY, JSON.stringify(list));
+    return list;
+}
+
+/** Built-in entries first, then the clinic's own. */
+export function allModels(store) {
+    return models().concat(loadCustomModels(store));
+}
+
+/** One model by its MLC model id, or null. Built-in, then custom. */
+export function modelById(id, store) {
+    if (!id) return null;
+    return models().find((model) => model.id === id)
+        ?? loadCustomModels(store).find((model) => model.id === id)
+        ?? null;
+}
+
+/** The entry the card offers first. */
 export function defaultModel() {
     return catalog.models[0] ?? null;
 }
@@ -46,11 +97,97 @@ export function formatGb(bytes) {
  * Does this quantisation need the `shader-f16` WebGPU feature?
  *
  * A q4f16_1 build stores weights in float16 and refuses to load without it.
- * The catalog can carry a q4f32_1 alternative later; until then the refusal
- * has to be honest and early.
+ * The catalog can pin the answer (`requiresShaderF16`) for entries whose
+ * runtime entry says so; otherwise the quant name decides.
  */
 export function needsShaderF16(model) {
+    if (typeof model?.requiresShaderF16 === 'boolean') return model.requiresShaderF16;
     return /f16/i.test(String(model?.quant ?? ''));
+}
+
+/**
+ * Check and normalise an entry the clinic typed in.
+ *
+ * The two addresses are the whole contract: WebLLM appends
+ * `/resolve/main/...` to the model address and fetches the wasm library
+ * verbatim, so both have to be real URLs the browser may fetch. A value that
+ * fails here is never stored, which keeps the engine from meeting a typo as
+ * a 4 GB download that dies at the end.
+ *
+ * @returns {{ ok: boolean, model?: object, errors?: object }}
+ */
+export function validateCustomModel(input, store) {
+    const errors = {};
+    const id = String(input?.id ?? '').trim();
+    const baseUrl = String(input?.baseUrl ?? '').trim().replace(/\/+$/, '');
+    const modelLib = String(input?.modelLib ?? '').trim();
+    const contextWindow = Number(input?.contextWindow);
+    const downloadGb = input?.downloadGb === '' || input?.downloadGb == null ? 0 : Number(input.downloadGb);
+
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$/.test(id)) {
+        errors.id = 'aiSettings.localV2.custom.error.id';
+    } else if (models().some((model) => model.id === id)) {
+        errors.id = 'aiSettings.localV2.custom.error.duplicate';
+    }
+
+    if (!/^https?:\/\/[^\s]+$/.test(baseUrl)) {
+        errors.baseUrl = 'aiSettings.localV2.custom.error.repo';
+    }
+    if (!/^https?:\/\/[^\s]+\.wasm(\?.*)?$/.test(modelLib)) {
+        errors.modelLib = 'aiSettings.localV2.custom.error.lib';
+    }
+    if (!Number.isFinite(contextWindow) || contextWindow < 512 || contextWindow > 1_048_576) {
+        errors.contextWindow = 'aiSettings.localV2.custom.error.context';
+    }
+    if (!Number.isFinite(downloadGb) || downloadGb < 0) {
+        errors.downloadGb = 'aiSettings.localV2.custom.error.size';
+    }
+
+    if (Object.keys(errors).length > 0) return { ok: false, errors };
+
+    const name = String(input?.name ?? '').trim() || id;
+    return {
+        ok: true,
+        model: {
+            id,
+            name,
+            publisher: String(input?.publisher ?? '').trim() || 'Custom',
+            license: 'Check the model card',
+            source: 'custom',
+            custom: true,
+            baseUrl,
+            modelLib,
+            quant: String(input?.quant ?? '').trim() || guessQuant(id),
+            contextWindow: Math.round(contextWindow),
+            downloadGb: Number(downloadGb.toFixed(2)),
+            vramEstimateMb: Math.round(Number(input?.vramEstimateMb) || 0),
+            modalities: ['text'],
+            reasoning: false,
+            tier: 'custom',
+            sampling: { temperature: 0.3, topP: 0.9, frequencyPenalty: 0.3 },
+            notes: '',
+        },
+    };
+}
+
+function guessQuant(id) {
+    const match = /-(q\d[a-z0-9_]*)-MLC$/i.exec(id);
+    return match ? match[1] : 'q4f16_1';
+}
+
+/** Save a validated entry, replacing one with the same id. */
+export function addCustomModel(model, store) {
+    const list = loadCustomModels(store).filter((entry) => entry.id !== model.id);
+    list.push(model);
+    writeCustomModels(list, store);
+    return model;
+}
+
+/** Forget one of the clinic's entries. */
+export function removeCustomModel(id, store) {
+    const list = loadCustomModels(store).filter((entry) => entry.id !== id);
+    writeCustomModels(list, store);
+    return list;
 }
 
 /**
@@ -150,7 +287,7 @@ export function assessFit(model, device, capacity = null) {
     const freeBytes = capacity?.freeBytes;
     if (typeof freeBytes === 'number' && Number.isFinite(freeBytes)) {
         const needed = modelBytes(model) * 1.2;
-        if (freeBytes < needed) {
+        if (needed > 0 && freeBytes < needed) {
             return {
                 ok: false,
                 code: 'STORAGE_SHORT',

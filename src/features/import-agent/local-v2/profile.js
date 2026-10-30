@@ -11,6 +11,9 @@ import { defaultModel, modelById } from './catalog.js';
 
 export const PROFILE_KEY = 'clinic.localAi.v2.profile';
 
+/** The model the card last picked, which is not necessarily the proven one. */
+export const SELECTED_KEY = 'clinic.localAi.v2.selectedModel';
+
 function storage() {
     try {
         if (typeof localStorage === 'undefined') return null;
@@ -90,6 +93,22 @@ export function saveV2Profile(profile, store = storage()) {
 
 export function clearV2Profile(store = storage()) {
     store?.removeItem?.(PROFILE_KEY);
+}
+
+/**
+ * The picked model id.
+ *
+ * Kept apart from the profile because picking a model must not claim it has
+ * been tested: the profile's `savedAt` is the proof, and only a load sets it.
+ */
+export function loadSelectedModelId(store = storage()) {
+    return store?.getItem?.(SELECTED_KEY) || null;
+}
+
+export function saveSelectedModelId(id, store = storage()) {
+    if (id) store?.setItem?.(SELECTED_KEY, String(id));
+    else store?.removeItem?.(SELECTED_KEY);
+    return id ?? null;
 }
 
 /**

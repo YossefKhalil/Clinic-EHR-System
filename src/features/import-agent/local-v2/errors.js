@@ -19,6 +19,7 @@ export const V2_ERROR_KEYS = Object.freeze({
     MODEL_LIBRARY_MISMATCH: 'aiSettings.localV2.error.libraryMismatch',
     MODEL_NOT_MULTIMODAL: 'aiSettings.localV2.error.textOnly',
     MODEL_UNKNOWN: 'aiSettings.localV2.error.modelUnknown',
+    MODEL_NOT_IN_RUNTIME: 'aiSettings.localV2.error.modelNotInRuntime',
     WEBLLM_PACKAGE_MISSING: 'aiSettings.localV2.error.packageMissing',
     LOCAL_ENGINE_ERROR: 'aiSettings.localV2.error.generic',
 });

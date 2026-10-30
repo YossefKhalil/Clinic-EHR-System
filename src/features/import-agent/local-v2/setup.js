@@ -2,7 +2,7 @@
 //
 // The order matters: check the device, then the fit, then download. A clinic
 // on a laptop without WebGPU finds out in a second, and one without the disk
-// space is told the two numbers before 4 GB start moving.
+// space is told the two numbers before gigabytes start moving.
 //
 // No OCR, no projector, no file picking — v2 reads text documents only.
 
@@ -13,7 +13,7 @@ import { createWebLlmProvider } from './provider.js';
 import { loadV2Profile, normalizeV2Profile } from './profile.js';
 
 /**
- * What this device can do with the catalog.
+ * What this device can do with a model.
  *
  * Used by the settings card before anything is downloaded, so the refusal is
  * a sentence with numbers instead of an engine error later.
@@ -25,15 +25,21 @@ export async function probeV2Device(model = defaultModel(), options = {}) {
 }
 
 /**
- * Load the model the profile names and wrap it in the provider the extractor
- * already talks to.
+ * Load one model and wrap it in the provider the extractor already talks to.
  *
- * @param {{ profile?: object, onProgress?: Function, loader?: Function }} [input]
+ * `model` overrides the profile's model so the card can test a candidate
+ * before saving it; the profile still decides what an import would use.
+ *
+ * @param {{ model?: object, profile?: object, onProgress?: Function, loader?: Function }} [input]
  */
 export async function setupLocalV2(input = {}) {
-    const profile = normalizeV2Profile(input.profile ?? loadV2Profile());
-    const model = modelById(profile.modelId) ?? defaultModel();
+    const requested = normalizeV2Profile(input.profile ?? loadV2Profile());
+    const model = input.model ?? modelById(requested.modelId) ?? defaultModel();
     if (!model) throw v2Error('MODEL_UNKNOWN', 'the catalog is empty');
+
+    // Normalise onto the model actually being loaded, so a candidate tested
+    // from the card gets that model's defaults and limits, not the saved one's.
+    const profile = normalizeV2Profile({ ...requested, modelId: model.id });
 
     const { device, capacity, fit } = await probeV2Device(model);
     if (!fit.ok) {
@@ -45,6 +51,7 @@ export async function setupLocalV2(input = {}) {
     input.onProgress?.({ phase: 'loading', model: model.id });
     const engine = await createEngine({
         model,
+        contextWindow: profile.contextWindow,
         loader: input.loader,
         onProgress: (report) => input.onProgress?.(report),
     });

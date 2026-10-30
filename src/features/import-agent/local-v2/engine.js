@@ -5,9 +5,9 @@
 // engine on never downloads the package.
 //
 // Everything the rest of v2 uses comes back through this small surface:
-// load a catalog model, ask it for one chat completion, unload. Engine
-// failures are mapped to codes here — once — so the settings card and the
-// wizard translate a sentence instead of pattern-matching error text.
+// load a model, ask it for one chat completion, unload. Engine failures are
+// mapped to codes here — once — so the settings card and the wizard
+// translate a sentence instead of pattern-matching error text.
 
 const PACKAGE = '@mlc-ai/web-llm';
 
@@ -31,20 +31,48 @@ function engineError(code, message, cause) {
 }
 
 /**
- * The app config WebLLM needs for one catalog entry.
+ * The app config WebLLM needs for one model.
  *
- * The addresses come from the catalog, never from the user: a model build
- * only loads on the runtime it was compiled for, so this mapping is a
- * reviewed decision, not a setting.
+ * Two sources, in this order:
+ *
+ *   - the entry carries its own addresses (`link` and `custom` entries), so
+ *     they are used as given;
+ *   - otherwise the model id is looked up in the installed package's own
+ *     prebuilt list, and that entry is copied wholesale — download address,
+ *     wasm library, buffer sizes, required features and the overrides the
+ *     build needs (stop tokens, history depth). A hand-written copy of those
+ *     URLs drifts one release behind the runtime; this cannot.
+ *
+ * The context window is the one thing the app overrides, because the clinic
+ * can lower it in the card.
+ *
+ * @throws when a built-in id is not in the installed WebLLM release.
  */
-export function buildAppConfig(model) {
+export function buildAppConfig(model, prebuiltList = [], contextWindow) {
+    const context = Math.round(Number(contextWindow) || Number(model?.contextWindow) || 4096);
+
+    if (model?.baseUrl && model?.modelLib) {
+        return {
+            model_list: [
+                {
+                    model: model.baseUrl,
+                    model_id: model.id,
+                    model_lib: model.modelLib,
+                    overrides: { context_window_size: context },
+                },
+            ],
+        };
+    }
+
+    const entry = (prebuiltList ?? []).find((candidate) => candidate?.model_id === model?.id);
+    if (!entry) {
+        throw engineError('MODEL_NOT_IN_RUNTIME', `${model?.id ?? 'model'} is not in WebLLM ${PACKAGE}`);
+    }
     return {
         model_list: [
             {
-                model: model.baseUrl,
-                model_id: model.id,
-                model_lib: model.modelLib,
-                overrides: { context_window_size: model.contextWindow },
+                ...entry,
+                overrides: { ...(entry.overrides ?? {}), context_window_size: context },
             },
         ],
     };
@@ -80,12 +108,12 @@ export function mapEngineError(error) {
 }
 
 /**
- * Load a catalog model into a WebLLM engine.
+ * Load a model into a WebLLM engine.
  *
  * `onProgress` receives the engine's own progress reports (download and
- * shader compilation), which is what the card shows while 4 GB arrive.
+ * shader compilation), which is what the card shows while gigabytes arrive.
  *
- * @param {{ model: object, onProgress?: Function, loader?: Function }} input
+ * @param {{ model: object, contextWindow?: number, onProgress?: Function, loader?: Function }} input
  */
 export async function createEngine(input) {
     const { model, onProgress } = input;
@@ -103,10 +131,23 @@ export async function createEngine(input) {
         throw engineError('WEBLLM_PACKAGE_MISSING', `${PACKAGE} does not export CreateMLCEngine`);
     }
 
+    const prebuilt = module?.prebuiltAppConfig?.model_list
+        ?? module?.default?.prebuiltAppConfig?.model_list
+        ?? [];
+
+    let appConfig;
+    try {
+        appConfig = buildAppConfig(model, prebuilt, input.contextWindow);
+    } catch (error) {
+        // A built-in entry that the pinned release no longer ships is a
+        // mismatch, not a download problem: say so before any traffic.
+        throw error?.code === 'MODEL_NOT_IN_RUNTIME' ? error : mapEngineError(error);
+    }
+
     let raw;
     try {
         raw = await CreateMLCEngine(model.id, {
-            appConfig: buildAppConfig(model),
+            appConfig,
             initProgressCallback: (report) => {
                 onProgress?.({
                     phase: 'download',
