@@ -1,31 +1,20 @@
 // The Settings -> AI card for the v2 engine.
 //
-// A separate Alpine component on purpose: the v1 card is a large state
-// machine and v2 must not inherit it. This one knows what the device can do,
-// which models are on offer, which one is saved, and one button.
+// A separate Alpine component on purpose: the v1 card was a large state
+// machine and v2 must not inherit it. This one knows what the GPU can do,
+// which folder was picked, which model is saved, and two buttons.
 //
-// The list is not fixed: the clinic can pick any of the checked-in builds or
-// add an MLC repo of its own (MiniCPM, or whatever is converted next). The
-// card never runs an import — it loads a model once to prove it works, frees
-// it, and leaves the weights in the browser cache for the run.
+// There is no download and no model list: the clinic picks the folder it
+// already has. The card checks the folder before loading it, so a folder
+// missing its tokenizer is a sentence rather than a failed load, and it loads
+// once to prove the model runs before saving it as this computer's model.
 
-import {
-    addCustomModel,
-    allModels,
-    assessFit,
-    defaultModel,
-    formatGb,
-    modelById,
-    modelBytes,
-    removeCustomModel,
-    validateCustomModel,
-} from './catalog.js';
+import { formatGb } from './device.js';
+import { pickLibraryFile, pickModelFolder, readModelFolder } from './folder.js';
 import { v2ErrorKey } from './errors.js';
 import {
     clearV2Profile,
-    loadSelectedModelId,
     loadV2Profile,
-    saveSelectedModelId,
     saveV2Profile,
 } from './profile.js';
 import { probeV2Device, setupLocalV2 } from './setup.js';
@@ -36,93 +25,30 @@ function translate(key, params) {
     return typeof t === 'function' ? t(key, params) : key;
 }
 
-function blankDraft() {
-    return { id: '', name: '', baseUrl: '', modelLib: '', contextWindow: 4096, downloadGb: '' };
-}
-
 export function localAiV2() {
     return {
         profile: null,
+        // { files, folderName, library }
+        folder: null,
+        // what the folder turned out to be: id, name, quant, window, bytes…
+        model: null,
         device: null,
         capacity: null,
-        // 'idle' | 'checking' | 'blocked' | 'downloading' | 'ready' | 'error'
+        // 'idle' | 'checking' | 'loading' | 'ready' | 'blocked' | 'error'
         status: 'idle',
         error: null,
         progress: 0,
         progressText: '',
         advancedOpen: false,
-        customOpen: false,
-        customError: null,
         busy: false,
-        models: [],
-        selectedId: null,
         contextWindow: 4096,
         sampling: { temperature: 0.3, topP: 0.9, frequencyPenalty: 0.3 },
-        draft: blankDraft(),
 
         async init() {
-            this.refresh();
             this.profile = loadV2Profile();
-            this.selectedId = loadSelectedModelId() ?? this.profile?.modelId ?? this.models[0]?.id ?? null;
-            this.seedFromProfile();
+            this.contextWindow = this.profile.contextWindow;
+            this.sampling = { ...this.profile.sampling };
             await this.check();
-        },
-
-        /** Built-ins plus whatever the clinic added on this device. */
-        refresh() {
-            this.models = allModels();
-        },
-
-        /**
-         * Seed the drawer from the profile only when the profile belongs to
-         * the model on screen: a candidate model starts from its own numbers.
-         */
-        seedFromProfile() {
-            const model = this.model;
-            if (!model) return;
-            const proven = this.isVerified;
-            this.contextWindow = proven ? this.profile.contextWindow : model.contextWindow;
-            this.sampling = proven
-                ? { ...this.profile.sampling }
-                : { ...model.sampling };
-        },
-
-        get model() {
-            return modelById(this.selectedId);
-        },
-
-        get isVerified() {
-            return Boolean(this.profile?.savedAt && this.profile.modelId === this.selectedId);
-        },
-
-        get fit() {
-            return assessFit(this.model, this.device, this.capacity);
-        },
-
-        /** One row per model: what it costs, whether it fits, whether it is picked. */
-        get rows() {
-            return this.models.map((model) => {
-                const fit = assessFit(model, this.device, this.capacity);
-                return {
-                    id: model.id,
-                    name: model.name,
-                    custom: Boolean(model.custom),
-                    tier: model.tier,
-                    tierLabel: model.tier && model.tier !== 'custom'
-                        ? translate(`aiSettings.localV2.tier.${model.tier}`)
-                        : '',
-                    sizeLabel: formatGb(modelBytes(model)),
-                    meta: this.modelMeta(model),
-                    active: model.id === this.selectedId,
-                    ok: fit.ok,
-                    fitText: fit.ok ? '' : translate(v2ErrorKey(fit.code), fit.params),
-                };
-            });
-        },
-
-        modelMeta(model) {
-            const context = translate('aiSettings.localV2.context', { count: model.contextWindow });
-            return [model.publisher, model.quant, context].filter(Boolean).join(' · ');
         },
 
         get deviceLabel() {
@@ -131,110 +57,170 @@ export function localAiV2() {
             return translate('aiSettings.localV2.device.gpu', { gpu });
         },
 
-        get sizeLabel() {
-            return formatGb(modelBytes(this.model));
+        get statusText() {
+            return translate(`aiSettings.localV2.status.${this.status}`, { percent: this.progress });
         },
 
-        get storageLabel() {
-            const free = Number(this.capacity?.freeBytes);
-            return Number.isFinite(free) ? formatGb(free) : '';
+        get errorText() {
+            return this.error?.key ? translate(this.error.key, this.error.params) : '';
+        },
+
+        get errorDetail() {
+            return this.error?.detail ?? '';
+        },
+
+        get sizeLabel() {
+            return this.model ? formatGb(this.model.bytes) : '';
+        },
+
+        get folderSummary() {
+            if (!this.model) return '';
+            return translate('aiSettings.localV2.folder.summary', {
+                count: this.model.fileCount,
+                size: formatGb(this.model.bytes),
+            });
+        },
+
+        get quantLabel() {
+            if (!this.model?.quant) return '';
+            return translate('aiSettings.localV2.quant', { quant: this.model.quant });
         },
 
         get contextLabel() {
             return String(this.contextWindow ?? this.model?.contextWindow ?? '');
         },
 
-        get licenseText() {
-            if (!this.model) return '';
-            return translate('aiSettings.localV2.license', {
-                name: this.model.name,
-                publisher: this.model.publisher,
-                license: this.model.license,
-            });
+        /** The folder holds weights but no library: ask for the wasm alone. */
+        get needsLibrary() {
+            return Boolean(this.model) && !this.model.hasLibrary;
         },
 
-        get statusKey() {
-            return `aiSettings.localV2.status.${this.status}`;
+        get canLoad() {
+            return Boolean(this.model?.hasLibrary) && !this.busy && this.status !== 'loading';
         },
 
-        get statusText() {
-            return translate(this.statusKey, { percent: this.progress });
+        get isSaved() {
+            return Boolean(this.profile?.savedAt && this.profile.modelId === this.model?.id);
         },
 
-        get errorText() {
-            if (!this.error) return '';
-            return translate(this.error.key, this.error.params);
-        },
-
-        get errorDetailKey() {
-            return 'aiSettings.localV2.error.details';
-        },
-
-        get customErrorText() {
-            return this.customError ? translate(this.customError) : '';
-        },
-
-        get showDownload() {
-            return this.status === 'idle' && this.fit.ok;
-        },
-
-        get showRetry() {
-            return this.status === 'error';
-        },
-
-        get showRemove() {
-            return this.status === 'ready';
-        },
-
-        /** Ask the device, then settle on the status the card shows. */
+        /** Ask the GPU, then settle on the status the card shows. */
         async check() {
-            if (!this.model) return;
+            const probed = await probeV2Device(this.model);
+            this.device = probed.device;
+            this.capacity = probed.capacity;
+
+            if (!probed.fit.ok) {
+                // The refusal is a sentence with numbers, not a code.
+                this.status = 'blocked';
+                this.error = {
+                    key: v2ErrorKey(probed.fit.code),
+                    params: probed.fit.params ?? {},
+                    detail: probed.fit.code,
+                };
+                return probed;
+            }
+
+            if (this.status !== 'loading' && this.status !== 'error') {
+                this.status = this.isSaved ? 'ready' : 'idle';
+            }
+            if (!this.model || this.status !== 'error') this.error = null;
+            return probed;
+        },
+
+        /** Pick a folder. Nothing loads until the button is pressed. */
+        async choose() {
+            if (this.busy) return;
             this.busy = true;
+            this.error = null;
+            this.progress = 0;
+            this.progressText = '';
             try {
-                const probed = await probeV2Device(this.model);
-                this.device = probed.device;
-                this.capacity = probed.capacity;
-                if (!probed.fit.ok) {
-                    // The refusal is a sentence with numbers, not a code.
-                    this.status = 'blocked';
-                    this.error = {
-                        key: v2ErrorKey(probed.fit.code),
-                        params: probed.fit.params,
-                        detail: probed.fit.code,
-                    };
-                } else {
-                    this.error = null;
-                    if (this.status !== 'error') {
-                        this.status = this.isVerified ? 'ready' : 'idle';
+                const picked = await pickModelFolder();
+                if (!picked.ok) {
+                    // A cancel is not a failure: keep whatever was loaded.
+                    if (picked.code !== 'aiSettings.localV2.folder.error.cancelled') {
+                        this.status = 'error';
+                        this.error = { key: picked.code };
                     }
+                    return;
                 }
+
+                const read = await readModelFolder(picked.files, { folderName: picked.folderName });
+                if (!read.ok) {
+                    this.folder = null;
+                    this.model = null;
+                    this.status = 'error';
+                    this.error = { key: read.errors[0] };
+                    return;
+                }
+
+                this.adopt(read.model, { files: picked.files, folderName: picked.folderName, library: null });
+                this.status = 'checking';
+                await this.check();
+            } catch (failure) {
+                this.status = 'error';
+                this.error = {
+                    key: failure?.key ?? 'aiSettings.localV2.error.generic',
+                    detail: String(failure?.message ?? ''),
+                };
             } finally {
                 this.busy = false;
             }
         },
 
-        /** Pick a model. Nothing downloads until the button is pressed. */
-        async select(id) {
-            if (this.busy || id === this.selectedId) return;
-            this.selectedId = id;
-            saveSelectedModelId(id);
+        /** Pick the .wasm library for a folder that does not hold one. */
+        async chooseLibrary() {
+            if (this.busy || !this.folder) return;
+            this.busy = true;
             this.error = null;
-            this.progress = 0;
-            this.progressText = '';
-            this.seedFromProfile();
-            await this.check();
+            try {
+                const picked = await pickLibraryFile();
+                if (!picked.ok) {
+                    if (picked.code !== 'aiSettings.localV2.folder.error.cancelled') {
+                        this.error = { key: picked.code };
+                    }
+                    return;
+                }
+
+                const read = await readModelFolder(this.folder.files, {
+                    folderName: this.folder.folderName,
+                    modelLib: picked.file,
+                });
+                if (!read.ok) {
+                    this.error = { key: read.errors[0] };
+                    return;
+                }
+
+                this.folder = { ...this.folder, library: picked.file };
+                this.adopt(read.model, this.folder);
+                await this.check();
+            } finally {
+                this.busy = false;
+            }
         },
 
-        /** Download and load once, then free the GPU memory. */
-        async download() {
-            if (this.busy || !this.model) return;
+        /** Take a folder's model as the one on screen. */
+        adopt(model, folder) {
+            this.folder = folder;
+            this.model = model;
+            const same = this.profile?.modelId === model.id;
+            this.contextWindow = same
+                ? Math.min(this.profile.contextWindow, model.contextWindow)
+                : model.contextWindow;
+            if (same) this.sampling = { ...this.profile.sampling };
+        },
+
+        /** Load once to prove the folder works, then free the GPU memory. */
+        async load() {
+            if (!this.canLoad) return;
             this.busy = true;
             this.error = null;
             this.progress = 0;
             this.progressText = '';
-            this.status = 'downloading';
+            this.status = 'loading';
             try {
                 const loaded = await setupLocalV2({
+                    folder: this.folder,
                     model: this.model,
                     profile: {
                         modelId: this.model.id,
@@ -242,14 +228,15 @@ export function localAiV2() {
                         sampling: this.sampling,
                     },
                     onProgress: (report) => {
-                        if (report?.phase !== 'download') return;
-                        this.progress = Math.round((Number(report.progress) || 0) * 100);
-                        this.progressText = String(report.text ?? '');
+                        this.progressText = String(report?.text ?? '');
+                        if (Number.isFinite(Number(report?.progress))) {
+                            this.progress = Math.round(Number(report.progress) * 100);
+                        }
                     },
                 });
                 this.profile = saveV2Profile({
                     ...loaded.profile,
-                    modelId: loaded.model.id,
+                    modelId: this.model.id,
                     savedAt: Date.now(),
                 });
                 this.contextWindow = this.profile.contextWindow;
@@ -257,91 +244,60 @@ export function localAiV2() {
                 this.progress = 100;
                 this.status = 'ready';
                 await loaded.unload();
-            } catch (error) {
+            } catch (failure) {
                 this.status = 'error';
                 this.error = {
-                    key: error?.key ?? v2ErrorKey(error?.code),
-                    params: error?.params ?? {},
-                    detail: String(error?.message ?? ''),
+                    key: failure?.key ?? v2ErrorKey(failure?.code),
+                    params: failure?.params ?? {},
+                    detail: String(failure?.message ?? ''),
                 };
             } finally {
                 this.busy = false;
             }
         },
 
-        /** Forget the model on this device (the browser cache stays). */
+        async retry() {
+            if (this.model) {
+                await this.check();
+                if (this.canLoad) await this.load();
+                return;
+            }
+            await this.choose();
+        },
+
+        /** Forget this computer's model. The folder is untouched. */
         remove() {
             clearV2Profile();
             this.profile = null;
+            this.model = null;
+            this.folder = null;
             this.error = null;
             this.progress = 0;
-            this.status = this.fit.ok ? 'idle' : 'blocked';
-        },
-
-        async retry() {
-            await this.check();
-            if (this.fit?.ok) await this.download();
+            this.status = 'idle';
         },
 
         toggleAdvanced() {
             this.advancedOpen = !this.advancedOpen;
         },
 
-        toggleCustom() {
-            this.customOpen = !this.customOpen;
-            this.customError = null;
-        },
-
         /**
          * Sampling is stored against the saved model. Before the first load
-         * it stays in the card and travels with the download.
+         * it stays in the card and travels with the load.
          */
         updateSampling(field, value) {
             this.sampling = { ...this.sampling, [field]: Number(value) };
-            if (this.isVerified) {
-                this.profile = saveV2Profile({
-                    ...this.profile,
-                    sampling: this.sampling,
-                });
+            if (this.isSaved) {
+                this.profile = saveV2Profile({ ...this.profile, sampling: this.sampling });
             }
         },
 
         updateContext(value) {
             if (!this.model) return;
             const wanted = Math.round(Number(value) || this.model.contextWindow);
-            const clamped = Math.min(Math.max(512, wanted), this.model.contextWindow);
-            this.contextWindow = clamped;
-            if (this.isVerified) {
-                this.profile = saveV2Profile({
-                    ...this.profile,
-                    contextWindow: clamped,
-                });
+            this.contextWindow = Math.min(Math.max(512, wanted), this.model.contextWindow);
+            if (this.isSaved) {
+                this.profile = saveV2Profile({ ...this.profile, contextWindow: this.contextWindow });
             }
-        },
-
-        /** Store a model the clinic pasted in, then select it. */
-        async saveCustom() {
-            const result = validateCustomModel(this.draft);
-            if (!result.ok) {
-                this.customError = Object.values(result.errors)[0];
-                return;
-            }
-            addCustomModel(result.model);
-            this.refresh();
-            this.draft = blankDraft();
-            this.customError = null;
-            this.customOpen = false;
-            await this.select(result.model.id);
-        },
-
-        removeCustom(id) {
-            removeCustomModel(id);
-            this.refresh();
-            if (this.selectedId !== id) return;
-            this.selectedId = this.models[0]?.id ?? defaultModel()?.id ?? null;
-            saveSelectedModelId(this.selectedId);
-            this.seedFromProfile();
-            this.check();
         },
 
         label(key, params) {

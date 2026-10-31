@@ -2751,7 +2751,7 @@
                                      LOCAL
                                      ============================================================ -->
 
-                            <div x-data="localAiV2()" x-cloak class="border rounded-3 p-3 mb-3 bg-white">
+                                                        <div x-data="localAiV2()" x-cloak class="border rounded-3 p-3 mb-3 bg-white">
                                 <div class="d-flex align-items-center gap-2 mb-1">
                                     <i class="bi bi-gpu-card text-secondary"></i>
                                     <span class="fw-semibold" x-text="label('aiSettings.localV2.title')"></span>
@@ -2762,165 +2762,90 @@
                                 <div class="small text-secondary" x-text="label('aiSettings.localV2.subtitle')"></div>
                                 <div class="small text-secondary mt-1" x-show="deviceLabel" x-text="deviceLabel"></div>
 
-                                <!-- model list -->
-                                <div class="mt-3">
-                                    <div class="d-flex align-items-baseline justify-content-between gap-2">
-                                        <span class="small fw-semibold" x-text="label('aiSettings.localV2.models')"></span>
-                                        <span class="small text-secondary" x-text="label('aiSettings.localV2.modelsHint')"></span>
-                                    </div>
-                                    <div class="mt-1 border rounded-2" style="max-height: 16rem; overflow-y: auto;"
-                                         role="radiogroup" :aria-label="label('aiSettings.localV2.models')">
-                                        <template x-for="row in rows" :key="row.id">
-                                            <div class="d-flex align-items-start gap-2 px-2 py-2 border-bottom"
-                                                 :class="row.active ? 'bg-primary-subtle' : ''">
-                                                <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none"
-                                                        role="radio" :aria-checked="row.active ? 'true' : 'false'"
-                                                        :aria-label="row.name" @click="select(row.id)" :disabled="busy">
-                                                    <i class="bi" :class="row.active ? 'bi-record-circle text-primary' : 'bi-circle text-secondary'"></i>
-                                                </button>
-                                                <button type="button" class="border-0 bg-transparent text-start flex-grow-1 p-0"
-                                                        @click="select(row.id)" :disabled="busy">
-                                                    <span class="d-flex flex-wrap align-items-center gap-1">
-                                                        <span class="small fw-semibold" x-text="row.name"></span>
-                                                        <span class="badge rounded-pill border text-secondary fw-normal" x-show="row.custom"
-                                                              x-text="label('aiSettings.localV2.customTag')"></span>
-                                                        <span class="badge rounded-pill text-bg-light border fw-normal" x-show="row.tierLabel"
-                                                              x-text="row.tierLabel"></span>
-                                                    </span>
-                                                    <span class="d-block small text-secondary" x-text="row.meta"></span>
-                                                    <span class="d-block small text-danger" x-show="!row.ok" x-text="row.fitText"></span>
-                                                </button>
-                                                <div class="text-end">
-                                                    <span class="small text-secondary d-block" dir="ltr" x-text="row.sizeLabel"></span>
-                                                    <button type="button" class="btn btn-sm btn-link text-danger p-0" x-show="row.custom"
-                                                            :aria-label="label('aiSettings.localV2.custom.remove')"
-                                                            @click="removeCustom(row.id)" :disabled="busy">
-                                                        <i class="bi bi-x-lg"></i>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </template>
-                                    </div>
-                                    <div class="mt-1">
-                                        <button type="button" class="btn btn-sm btn-link text-decoration-none px-0"
-                                                @click="toggleCustom()" :aria-expanded="customOpen ? 'true' : 'false'">
-                                            <i class="bi bi-plus-lg me-1"></i><span x-text="label('aiSettings.localV2.custom.add')"></span>
-                                        </button>
-                                    </div>
+                                <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+                                    <button type="button" class="btn btn-sm btn-primary" @click="choose()" :disabled="busy">
+                                        <span class="spinner-border spinner-border-sm me-1" x-show="busy && !model" x-cloak></span>
+                                        <i class="bi bi-folder2-open me-1" x-show="!busy || model"></i>
+                                        <span x-text="model ? label('aiSettings.localV2.folder.pickAnother') : label('aiSettings.localV2.folder.pick')"></span>
+                                    </button>
+                                    <span class="small text-secondary" x-show="!model" x-text="label('aiSettings.localV2.folder.none')"></span>
+                                </div>
+                                <div class="form-text" x-text="label('aiSettings.localV2.folder.hint')"></div>
+
+                                <div class="alert alert-warning py-2 px-3 small mt-2 mb-0" x-show="errorText" x-cloak>
+                                    <span x-text="errorText"></span>
+                                    <div class="small text-secondary mt-1" x-show="errorDetail" dir="ltr" x-text="errorDetail"></div>
                                 </div>
 
-                                <!-- add a model of your own -->
-                                <div class="border rounded-2 p-2 mt-1" x-show="customOpen" x-cloak>
-                                    <div class="small text-secondary mb-2" x-text="label('aiSettings.localV2.custom.hint')"></div>
-                                    <div class="row g-2">
-                                        <div class="col-12 col-md-6">
-                                            <label class="form-label small fw-semibold mb-0" for="ai-v2-custom-id"
-                                                   x-text="label('aiSettings.localV2.custom.id')"></label>
-                                            <input type="text" class="form-control form-control-sm" id="ai-v2-custom-id" dir="ltr"
-                                                   placeholder="MiniCPM2-2B-q4f16_1-MLC" x-model="draft.id">
-                                        </div>
-                                        <div class="col-12 col-md-6">
-                                            <label class="form-label small fw-semibold mb-0" for="ai-v2-custom-name"
-                                                   x-text="label('aiSettings.localV2.custom.name')"></label>
-                                            <input type="text" class="form-control form-control-sm" id="ai-v2-custom-name" x-model="draft.name">
-                                        </div>
-                                        <div class="col-12">
-                                            <label class="form-label small fw-semibold mb-0" for="ai-v2-custom-repo"
-                                                   x-text="label('aiSettings.localV2.custom.repo')"></label>
-                                            <input type="url" class="form-control form-control-sm" id="ai-v2-custom-repo" dir="ltr"
-                                                   placeholder="https://huggingface.co/mlc-ai/...-MLC" x-model="draft.baseUrl">
-                                            <div class="form-text" x-text="label('aiSettings.localV2.custom.repoHint')"></div>
-                                        </div>
-                                        <div class="col-12">
-                                            <label class="form-label small fw-semibold mb-0" for="ai-v2-custom-lib"
-                                                   x-text="label('aiSettings.localV2.custom.lib')"></label>
-                                            <input type="url" class="form-control form-control-sm" id="ai-v2-custom-lib" dir="ltr"
-                                                   placeholder="https://...-webgpu.wasm" x-model="draft.modelLib">
-                                            <div class="form-text" x-text="label('aiSettings.localV2.custom.libHint')"></div>
-                                        </div>
-                                        <div class="col-6 col-md-3">
-                                            <label class="form-label small fw-semibold mb-0" for="ai-v2-custom-context"
-                                                   x-text="label('aiSettings.localV2.contextTokens')"></label>
-                                            <input type="number" class="form-control form-control-sm" id="ai-v2-custom-context"
-                                                   min="512" step="512" dir="ltr" x-model="draft.contextWindow">
-                                        </div>
-                                        <div class="col-6 col-md-3">
-                                            <label class="form-label small fw-semibold mb-0" for="ai-v2-custom-size"
-                                                   x-text="label('aiSettings.localV2.custom.size')"></label>
-                                            <input type="number" class="form-control form-control-sm" id="ai-v2-custom-size"
-                                                   min="0" step="0.1" dir="ltr" placeholder="2.1" x-model="draft.downloadGb">
-                                        </div>
-                                    </div>
-                                    <div class="small text-danger mt-1" x-show="customErrorText" x-text="customErrorText"></div>
-                                    <div class="d-flex flex-wrap gap-2 mt-2">
-                                        <button type="button" class="btn btn-sm btn-primary" @click="saveCustom()" :disabled="busy"
-                                                x-text="label('aiSettings.localV2.custom.save')"></button>
-                                        <button type="button" class="btn btn-sm btn-outline-secondary" @click="toggleCustom()"
-                                                x-text="label('aiSettings.localV2.custom.cancel')"></button>
-                                    </div>
-                                </div>
-
-                                <!-- the picked model -->
-                                <div class="mt-3" x-show="model">
+                                <div class="mt-2" x-show="model">
                                     <div class="small">
-                                        <span class="fw-semibold" x-text="model?.name"></span>
+                                        <span class="fw-semibold" dir="auto" x-text="model?.name"></span>
                                         <span class="text-secondary" x-text="' · ' + sizeLabel"></span>
                                         <span class="text-secondary" x-text="' · ' + label('aiSettings.localV2.context', { count: contextLabel })"></span>
                                     </div>
-                                    <div class="alert alert-warning py-2 px-3 small mt-2 mb-0" x-show="errorText" x-text="errorText"></div>
-                                    <div class="progress mt-2" x-show="status === 'downloading'" style="height: .5rem;">
+                                    <div class="small text-secondary" x-text="folderSummary"></div>
+                                    <div class="small text-secondary" x-show="model?.quant" dir="ltr" x-text="quantLabel"></div>
+
+                                    <div class="progress mt-2" x-show="status === 'loading'" style="height: .5rem;">
                                         <div class="progress-bar" role="progressbar" :style="'width: ' + progress + '%'"
                                              :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100"></div>
                                     </div>
-                                    <div class="small text-secondary mt-1" x-show="status === 'downloading'" dir="ltr" x-text="progressText"></div>
+                                    <div class="small text-secondary mt-1" x-show="status === 'loading'" dir="ltr" x-text="progressText"></div>
+
                                     <div class="d-flex flex-wrap gap-2 mt-2">
-                                        <button type="button" class="btn btn-sm btn-primary" x-show="showDownload" @click="download()" :disabled="busy">
+                                        <button type="button" class="btn btn-sm btn-primary" x-show="canLoad" @click="load()" :disabled="busy">
                                             <span class="spinner-border spinner-border-sm me-1" x-show="busy" x-cloak></span>
-                                            <i class="bi bi-download me-1"></i><span x-text="label('aiSettings.localV2.download')"></span>
+                                            <i class="bi bi-play-fill me-1" x-show="!busy"></i>
+                                            <span x-text="label('aiSettings.localV2.folder.load')"></span>
                                         </button>
-                                        <button type="button" class="btn btn-sm btn-outline-primary" x-show="showRetry" @click="retry()" :disabled="busy">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" x-show="needsLibrary" @click="chooseLibrary()" :disabled="busy">
+                                            <i class="bi bi-filetype-wasm me-1"></i><span x-text="label('aiSettings.localV2.folder.chooseLib')"></span>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-primary" x-show="status === 'error' || status === 'blocked'" @click="retry()" :disabled="busy">
                                             <i class="bi bi-arrow-clockwise me-1"></i><span x-text="label('aiSettings.localV2.retry')"></span>
                                         </button>
-                                        <button type="button" class="btn btn-sm btn-outline-danger" x-show="showRemove" @click="remove()" :disabled="busy">
+                                        <button type="button" class="btn btn-sm btn-outline-danger" x-show="status === 'ready' || profile?.savedAt" @click="remove()" :disabled="busy">
                                             <i class="bi bi-trash me-1"></i><span x-text="label('aiSettings.localV2.remove')"></span>
                                         </button>
                                         <button type="button" class="btn btn-sm btn-link text-secondary text-decoration-none"
-                                                x-show="status === 'ready' || status === 'idle'" @click="toggleAdvanced()"
+                                                x-show="model" @click="toggleAdvanced()"
                                                 :aria-expanded="advancedOpen ? 'true' : 'false'">
                                             <i class="bi bi-sliders me-1"></i><span x-text="label('aiSettings.localV2.advanced')"></span>
                                             <i class="bi ms-1" :class="advancedOpen ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
                                         </button>
                                     </div>
                                     <div class="small text-secondary mt-2" x-text="label('aiSettings.localV2.textOnly')"></div>
-                                    <div class="small text-secondary" x-show="storageLabel" x-text="label('aiSettings.localV2.storageFree', { size: storageLabel })"></div>
-                                    <div class="small text-secondary" x-show="status === 'ready'" x-text="label('aiSettings.localV2.cacheNote')"></div>
+                                    <div class="small text-secondary" x-text="label('aiSettings.localV2.cacheNote')"></div>
+
                                     <div class="border-top mt-3 pt-2" x-show="advancedOpen" x-cloak>
                                         <div class="small text-secondary mb-2" x-text="label('aiSettings.localV2.advancedHint')"></div>
                                         <div class="row g-2">
                                             <div class="col-6 col-md-3">
                                                 <label class="form-label small fw-semibold mb-0" for="ai-v2-context" x-text="label('aiSettings.localV2.contextTokens')"></label>
                                                 <input type="number" class="form-control form-control-sm" id="ai-v2-context" min="512" step="512"
-                                                       :max="model?.contextWindow" :value="contextWindow" @change="updateContext($event.target.value)" dir="ltr">
+                                                       :max="model?.contextWindow" :value="contextWindow"
+                                                       @change="updateContext($event.target.value)">
                                             </div>
                                             <div class="col-6 col-md-3">
-                                                <label class="form-label small fw-semibold mb-0" x-text="label('aiSettings.localV2.temperature')"></label>
-                                                <input type="number" class="form-control form-control-sm" min="0" max="2" step="0.1"
-                                                       :value="sampling.temperature" @change="updateSampling('temperature', $event.target.value)" dir="ltr">
+                                                <label class="form-label small fw-semibold mb-0" for="ai-v2-temperature" x-text="label('aiSettings.localV2.temperature')"></label>
+                                                <input type="number" class="form-control form-control-sm" id="ai-v2-temperature" min="0" max="2" step="0.05"
+                                                       dir="ltr" :value="sampling.temperature"
+                                                       @change="updateSampling('temperature', $event.target.value)">
                                             </div>
                                             <div class="col-6 col-md-3">
-                                                <label class="form-label small fw-semibold mb-0" x-text="label('aiSettings.localV2.topP')"></label>
-                                                <input type="number" class="form-control form-control-sm" min="0.05" max="1" step="0.05"
-                                                       :value="sampling.topP" @change="updateSampling('topP', $event.target.value)" dir="ltr">
+                                                <label class="form-label small fw-semibold mb-0" for="ai-v2-topp" x-text="label('aiSettings.localV2.topP')"></label>
+                                                <input type="number" class="form-control form-control-sm" id="ai-v2-topp" min="0.05" max="1" step="0.05"
+                                                       dir="ltr" :value="sampling.topP"
+                                                       @change="updateSampling('topP', $event.target.value)">
                                             </div>
                                             <div class="col-6 col-md-3">
-                                                <label class="form-label small fw-semibold mb-0" x-text="label('aiSettings.localV2.frequencyPenalty')"></label>
-                                                <input type="number" class="form-control form-control-sm" min="-2" max="2" step="0.1"
-                                                       :value="sampling.frequencyPenalty" @change="updateSampling('frequencyPenalty', $event.target.value)" dir="ltr">
+                                                <label class="form-label small fw-semibold mb-0" for="ai-v2-frequency" x-text="label('aiSettings.localV2.frequencyPenalty')"></label>
+                                                <input type="number" class="form-control form-control-sm" id="ai-v2-frequency" min="-2" max="2" step="0.1"
+                                                       dir="ltr" :value="sampling.frequencyPenalty"
+                                                       @change="updateSampling('frequencyPenalty', $event.target.value)">
                                             </div>
                                         </div>
-                                        <div class="small text-secondary mt-2" x-text="licenseText"></div>
                                     </div>
-                                    <div class="small text-secondary mt-1" x-show="model?.notes" x-text="model?.notes"></div>
                                 </div>
                             </div>
 

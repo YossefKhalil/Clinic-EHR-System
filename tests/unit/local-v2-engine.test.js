@@ -7,9 +7,15 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { buildAppConfig, createEngine, mapEngineError } from '../../src/features/import-agent/local-v2/engine.js';
-import { defaultModel } from '../../src/features/import-agent/local-v2/catalog.js';
 
-const model = defaultModel();
+const model = {
+    id: 'qwen3-4b',
+    name: 'Qwen3-4B-q4f16_1-MLC',
+    quant: 'q4f16_1',
+    contextWindow: 8192,
+    baseUrl: 'https://clinic.example/__local-mlc/abc123/',
+    modelLib: 'https://clinic.example/__local-mlc/abc123/Qwen3-4B-q4f16_1_webgpu.wasm',
+};
 
 function fakeEngine(overrides = {}) {
     const create = vi.fn(async () => ({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] }));
@@ -31,19 +37,33 @@ function loaderReturning(raw) {
 }
 
 describe('buildAppConfig', () => {
-    it('points the engine at the catalog entry', () => {
+    it('points the engine at the mounted folder', () => {
         const appConfig = buildAppConfig(model);
         expect(appConfig.model_list).toHaveLength(1);
-        const entry = appConfig.model_list[0];
-        expect(entry.model_id).toBe(model.id);
-        expect(entry.model).toBe(model.baseUrl);
-        expect(entry.model_lib).toBe(model.modelLib);
-        expect(entry.overrides.context_window_size).toBe(model.contextWindow);
+        expect(appConfig.model_list[0]).toEqual({
+            model: model.baseUrl,
+            model_id: model.id,
+            model_lib: model.modelLib,
+            overrides: { context_window_size: 8192 },
+        });
+    });
+
+    it('uses the window the clinic chose', () => {
+        expect(buildAppConfig(model, 2048).model_list[0].overrides.context_window_size).toBe(2048);
+    });
+
+    it('refuses a model that was never mounted', () => {
+        expect(() => buildAppConfig({ id: 'no-folder' })).toThrow(/mounted folder/);
+        try {
+            buildAppConfig({ id: 'no-folder' });
+        } catch (error) {
+            expect(error.code).toBe('MODEL_NOT_LOCAL');
+        }
     });
 });
 
 describe('createEngine', () => {
-    it('loads the catalog model and forwards progress', async () => {
+    it('loads the folder model and forwards progress', async () => {
         const raw = fakeEngine();
         const { loader, CreateMLCEngine, calls } = loaderReturning(raw);
         const reports = [];
@@ -52,10 +72,10 @@ describe('createEngine', () => {
 
         expect(CreateMLCEngine).toHaveBeenCalledTimes(1);
         expect(calls[0].id).toBe(model.id);
-        expect(calls[0].options.appConfig.model_list[0].model_id).toBe(model.id);
+        expect(calls[0].options.appConfig.model_list[0].model).toBe(model.baseUrl);
 
         calls[0].options.initProgressCallback({ text: 'Fetching param cache', progress: 0.5 });
-        expect(reports[0]).toEqual({ phase: 'download', text: 'Fetching param cache', progress: 0.5 });
+        expect(reports[0]).toEqual({ phase: 'loading', text: 'Fetching param cache', progress: 0.5 });
         expect(engine.model.id).toBe(model.id);
     });
 
@@ -105,7 +125,7 @@ describe('mapEngineError', () => {
         ['CUDA error: out of memory', 'GPU_OUT_OF_MEMORY'],
         ['the prompt exceeds the context window', 'CONTEXT_TOO_SMALL'],
         ['Cannot find tensor-cache.json', 'MODEL_LIBRARY_MISMATCH'],
-        ['fetch failed: 404 Not Found', 'MODEL_DOWNLOAD_FAILED'],
+        ['fetch failed: not mounted: params_shard_0.bin', 'MODEL_DOWNLOAD_FAILED'],
         ['navigator.gpu is undefined', 'WEBGPU_MISSING'],
         ['something else entirely', 'LOCAL_ENGINE_ERROR'],
     ];

@@ -1,11 +1,11 @@
-// The v2 profile: plain JSON, no file handles.
+// The v2 profile: plain JSON, no file handles, no paths.
 //
-// v1 had to store handles and blobs, and a profile carrying something
-// non-cloneable threw DataCloneError (1704bd8). v2 stores strings and numbers
-// only, and this test proves that stays true.
+// The folder is picked again each session, so the profile cannot remember
+// where it was — only the name and the numbers a load needs. This test also
+// proves the value stays cloneable: a profile carrying something a worker
+// cannot clone threw DataCloneError in v1 (1704bd8).
 
 import { describe, it, expect } from 'vitest';
-import { defaultModel } from '../../src/features/import-agent/local-v2/catalog.js';
 import {
     PROFILE_KEY,
     clearV2Profile,
@@ -27,70 +27,73 @@ function fakeStore(initial = {}) {
 }
 
 describe('the v2 profile', () => {
-    it('starts on the catalog default with nothing saved', () => {
+    it('starts empty, with no model claimed', () => {
         const profile = loadV2Profile(fakeStore());
-        expect(profile.modelId).toBe(defaultModel().id);
-        expect(profile.contextWindow).toBe(defaultModel().contextWindow);
+        expect(profile.modelId).toBeNull();
+        expect(profile.contextWindow).toBe(4096);
         expect(profile.savedAt).toBeNull();
     });
 
     it('round-trips through storage and stamps savedAt', () => {
         const store = fakeStore();
-        const saved = saveV2Profile({ ...emptyV2Profile(), sampling: { temperature: 0.3 } }, store);
+        const saved = saveV2Profile(
+            { ...emptyV2Profile(), modelId: 'qwen3-4b', sampling: { temperature: 0.3 } },
+            store,
+        );
 
         expect(saved.savedAt).toBeTypeOf('number');
         expect(store.map.has(PROFILE_KEY)).toBe(true);
 
         const loaded = loadV2Profile(store);
         expect(loaded.savedAt).toBe(saved.savedAt);
+        expect(loaded.modelId).toBe('qwen3-4b');
         expect(loaded.sampling.temperature).toBe(0.3);
     });
 
     it('clamps values the browser could not use', () => {
         const profile = normalizeV2Profile({
-            modelId: defaultModel().id,
-            contextWindow: 999_999,
+            modelId: 'qwen3-4b',
+            contextWindow: 2_000_000,
             sampling: { temperature: 99, topP: 0.001, frequencyPenalty: -9 },
         });
-        // The window cannot exceed what the model was built for.
-        expect(profile.contextWindow).toBe(defaultModel().contextWindow);
+        // Without the model's own window, only WebLLM's ceiling applies.
+        expect(profile.contextWindow).toBe(1_048_576);
         expect(profile.sampling.temperature).toBe(2);
         expect(profile.sampling.topP).toBe(0.05);
         expect(profile.sampling.frequencyPenalty).toBe(-2);
+    });
+
+    it('never exceeds the window the compiled model was built for', () => {
+        expect(normalizeV2Profile({ contextWindow: 65_536 }, 8192).contextWindow).toBe(8192);
     });
 
     it('raises a context window that is too small to be useful', () => {
         expect(normalizeV2Profile({ contextWindow: 100 }).contextWindow).toBe(512);
     });
 
-    it('falls back to the default model for an unknown id', () => {
-        expect(normalizeV2Profile({ modelId: 'gone' }).modelId).toBe(defaultModel().id);
-    });
-
     it('survives a corrupt stored value', () => {
         const store = fakeStore({ [PROFILE_KEY]: '{not json' });
-        expect(loadV2Profile(store).modelId).toBe(defaultModel().id);
+        expect(loadV2Profile(store).modelId).toBeNull();
     });
 
     it('clears', () => {
         const store = fakeStore();
-        saveV2Profile(emptyV2Profile(), store);
+        saveV2Profile({ ...emptyV2Profile(), modelId: 'gone' }, store);
         clearV2Profile(store);
         expect(store.map.has(PROFILE_KEY)).toBe(false);
         expect(loadV2Profile(store).savedAt).toBeNull();
     });
 
     it('is cloneable, so it can cross a worker boundary', () => {
-        const profile = saveV2Profile(emptyV2Profile(), fakeStore());
+        const profile = saveV2Profile({ ...emptyV2Profile(), modelId: 'qwen3-4b' }, fakeStore());
         expect(() => structuredClone(profile)).not.toThrow();
     });
 
-    it('names the model a job is started with', () => {
-        const identity = profileIdentity({ modelId: defaultModel().id, contextWindow: 2048 });
-        expect(identity).toEqual({
-            modelId: defaultModel().id,
-            quant: defaultModel().quant,
+    it('names the model a job is started with, and nothing without one', () => {
+        expect(profileIdentity({ modelId: 'qwen3-4b', contextWindow: 2048 })).toEqual({
+            modelId: 'qwen3-4b',
             contextWindow: 2048,
         });
+        expect(profileIdentity(emptyV2Profile())).toBeNull();
     });
 });

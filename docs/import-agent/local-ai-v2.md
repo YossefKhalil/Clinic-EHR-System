@@ -1,109 +1,96 @@
-# Local AI (GPU) — models, the card, and the engine path
+# Local AI (GPU) — a model from your own disk
 
 Status: **the only local engine in the app, and on by default.** The old
-wllama/GGUF engine and its settings card are gone. An import still runs in the
-cloud: wiring the GPU engine into the wizard is the next step, described at the
-end.
+wllama/GGUF engine is gone, and nothing is downloaded: the clinic picks the
+model folder it already has. An import still runs in the cloud — wiring the
+GPU engine into the wizard is the next step, described at the end.
 
 ## What it is
 
-A local engine that runs a model on **WebGPU** through MLC/WebLLM. It is
-text-only: spreadsheets, Word, plain text and PDFs through the existing
-readers. Photos are refused with a sentence, not a mid-import failure.
+A local engine that runs a model on **WebGPU** through MLC/WebLLM, loading the
+files from a folder on this computer. It is text-only: spreadsheets, Word,
+plain text and PDFs through the existing readers. Photos are refused with a
+sentence, not a mid-import failure.
 
-The whole path is one folder, `src/features/import-agent/local-v2/`:
+```
+src/features/import-agent/local-v2/
+  folder.js    pick, check and mount a model folder
+  device.js    WebGPU probe, reported memory, the fit decision
+  engine.js    the only file that imports @mlc-ai/web-llm
+  provider.js  the complete() contract the extractor uses
+  setup.js     device check → mount → load → provider
+  settings.js  the Alpine component behind the card
+  profile.js   what this computer uses, as plain JSON
+  errors.js    every failure code and its sentence key
+public/local-mlc-sw.js   serves the mounted folder to the engine
+```
 
-| File | Job |
+Nothing here changes a Supabase table, function or policy.
+
+## The folder
+
+The picker wants an **MLC build compiled for WebLLM**, which is four things:
+
+| File | Why |
 |---|---|
-| `catalog.json` | the checked-in model list: id, publisher, licence, size, VRAM, context, sampling |
-| `catalog.js` | catalog access, custom entries, WebGPU probe, and the pure device-fit decision |
-| `engine.js` | the only file that imports `@mlc-ai/web-llm`; resolves addresses, loads, one chat call, unload, error mapping |
-| `provider.js` | the `complete()` contract the extractor uses, plus the reasoning strip |
-| `profile.js` | the saved model and sampling, the last picked model, as plain JSON |
-| `setup.js` | device check → engine load → provider |
-| `settings.js` | the Alpine component behind the settings card |
-| `errors.js` | every failure code and the sentence key that explains it |
+| `mlc-chat-config.json` | the build's own description: quantisation, context window, conversation template |
+| `params_shard_*.bin` (or `tensor-cache.json`) | the weights |
+| `tokenizer.json` or `tokenizer.model` | how text becomes tokens |
+| `*-webgpu.wasm` | the compiled MLC library for this engine version |
 
-Nothing here changes a Supabase table, function or policy. The card reads and
-writes only this browser's storage.
+The wasm library is usualy not in the model repo — MLC publishes it separately
+in `mlc-ai/binary-mlc-llm-libs`. If the folder holds no `.wasm`, the card keeps
+the model and asks for that one file, and the note says which version this app
+pins (`0.2.87`); a library from another version fails with "the library was
+built for a different WebLLM version", not with a mysterious GPU error.
 
-## Models: three sources, one list
+**Anything in the list is fine** — quantisation, family and size are read from
+`mlc-chat-config.json`, so a MiniCPM, a Gemma or a Qwen build all work without
+an app release. The context window the card offers is the build's own window,
+read from the same file, and can only be lowered.
 
-The card shows one list, assembled from three places:
+## How the files reach the engine
 
-1. **Built into this app** (`catalog.json`, `source: "webllm"`). Only metadata
-   is stored. The download address, the wasm library, the buffer sizes and the
-   build's own overrides are read from the **installed** `@mlc-ai/web-llm`
-   release at load time. A hand-copied `model_lib` URL drifts one release
-   behind the runtime and the pair must match — this cannot drift.
-   `tests/unit/local-v2-catalog-multi.test.js` asserts every one of those ids
-   exists in the pinned package, so a stale entry fails the suite instead of
-   the download.
-2. **Linked by the project** (`source: "link"`), which carries its own two
-   addresses. The reference model, LFM2.5-8B-A1B, is one: it is a community
-   conversion that the WebLLM release does not ship.
-3. **Added by the clinic** (`source: "custom"`), stored in
-   `localStorage['clinic.localAi.v2.customModels']`. This is how a model that
-   is not in the list — MiniCPM2, or whatever is converted next — is used
-   without an app release.
+WebLLM loads a model over HTTP. Rather than teach the engine a second loading
+path, the app pretends to be that server:
 
-Currently shipped: LFM2.5-8B-A1B, Gemma 4 E2B, Gemma 3 1B, Qwen3.5 (0.8B / 2B
-/ 4B / 9B), Qwen3 1.7B, Llama 3.2 (1B / 3B), Phi-4 mini, SmolLM2 1.7B and
-DeepSeek R1 Distill 7B — five families, 0.4 GB to 5.1 GB.
+1. The page mounts the picked files in `public/local-mlc-sw.js` under
+   `/__local-mlc/<random>/`, posting `File` objects — references, not bytes.
+2. The engine is given `model` = that path and `model_lib` = its `.wasm`.
+3. The worker answers every request by streaming the file from disk.
 
-## Adding a model that is not in the list
+No network traffic, no copy in memory, no upload. The engine does keep a copy
+of what it reads in browser cache (that is how WebLLM works), which is why the
+second load of the same folder is faster; `Forget` clears the saved model, not
+the folder.
 
-**Add another MLC model** in the card takes:
+Two browser requirements: a secure origin (https, or `localhost`) for the
+worker, and WebGPU itself — Chrome/Edge 113+, Firefox 141+ on Windows, Safari
+26. The folder picker uses File System Access where it exists and
+`<input webkitdirectory>` where it does not, so Firefox works too.
 
-| Field | What it is |
-|---|---|
-| Model id | the folder name WebLLM caches under, e.g. `MiniCPM2-2B-q4f16_1-MLC` |
-| Model address | the repo URL, e.g. `https://huggingface.co/mlc-ai/MiniCPM2-2B-q4f16_1-MLC` (no `/resolve/` part) |
-| Wasm library | the matching `-webgpu.wasm` from `mlc-ai/binary-mlc-llm-libs`, built for the same engine version |
-| Context window | what the build was compiled for (4096 is typical) |
-| Size in GB | optional; only used for the storage check |
+## The card
 
-Validation happens before anything is stored: the id must be safe as a folder
-name and not collide with a shipped one, both addresses must be `https`, the
-library must end in `.wasm`, and the window must be between 512 and 1,048,576.
-A value that fails is refused in the card with the reason — it never becomes a
-multi-gigabyte download that dies at 99%.
+**Settings → AI → Local AI (GPU)**, at the top of the AI card, always shown.
 
-The one thing the app cannot check for you is whether the wasm library was
-compiled for the same engine version. If it was not, the load fails with the
-"model build does not match the engine version" sentence, and the fix is a
-library from the matching `v0_2_87` folder.
+- **Choose model folder…** — checks the four pieces before anything loads.
+- The model's name, size, quantisation and context window, plus the file count.
+- **Load & test** — mounts, loads, then frees the GPU memory. Only a load that
+  succeeded sets the profile's `savedAt`, which is what makes the card say
+  **Ready**; picking a folder never does.
+- **Choose the .wasm library** — only when the folder has none.
+- **Advanced** — context window, temperature, top-p, repetition penalty.
+- **Forget** — drops this computer's saved model. The folder is untouched.
 
-## Where it lives
-
-**Settings → AI → This computer**, at the top of the AI card, always shown
-(no flag, no query parameter). It offers: a list of models with their size,
-context and whether they fit; the picked model; one **Download & test**
-button; an **Advanced** drawer (context window, temperature, top-p, repetition
-penalty); and **Add another MLC model**.
-
-A row that cannot run on this device says why, with both numbers (model needs
-≈5.2 GB, device reports 4 GB). A model that is picked but not yet loaded is not
-"Ready": readiness means a load actually succeeded in this browser.
-
-## Trying it on a real machine
-
-1. Chrome or Edge 113+, or Firefox 141+ on Windows. Safari 26 also works.
-2. `npm run dev`, open `http://localhost:3000`, Settings → AI.
-3. Pick a small model first — Qwen3.5 0.8B is 0.44 GB — and press **Download &
-   test**. Progress is the engine's own report.
-4. Status becomes **Ready**. Reload: it stays Ready, and the weights come from
-   the browser cache. Then try the model you actually want.
-
-The engine is a lazy chunk (~6 MB uncompressed) fetched only when a model is
-loaded, so an installation that never opens the card never downloads it.
+Refusals are sentences with both numbers (the model needs ≈5.7 GB, this
+computer reports 4 GB), or the name of the file that is missing — never a bare
+error code. The raw engine message stays behind the details line.
 
 ## What changed when the old engine was removed
 
 The wllama/GGUF engine, its ONNX OCR model, the file pickers, the local config
-knobs and the `local_profile` save path are deleted, along with their 16 test
-files and three dependencies (`@wllama/wllama`, `onnxruntime-web`,
-`hash-wasm`). The **Local** option in the engine switch is gone with it.
+knobs and the `local_profile` save path are deleted, along with their tests and
+four dependencies. The **Local** option in the engine switch went with them.
 
 The server side is untouched: `import-job`, the shared `local-runtime.js`
 rules and the `LOCAL_INFERENCE_ENABLED` deployment flag still exist, so a
@@ -116,8 +103,8 @@ still run it.
 An import still runs on the server. Wiring the GPU engine into the wizard needs
 three things that were deliberately left out of this step:
 
-1. `localSetup()`/`runLocalImport()` choosing the v2 provider when the clinic
-   has a model on this device.
+1. `localSetup()`/`runLocalImport()` choosing the v2 provider when a model is
+   saved on this computer.
 2. A job identity for v2 (`{ modelId, contextWindow }`), which the Edge
    Function compares on every claim. Today's identity is built from file names
    and hashes, so this is a server-side change and must be made and tested on
@@ -130,5 +117,6 @@ three things that were deliberately left out of this step:
 - One real chunk extracted through the existing contract, with load time and
   tok/s recorded (this environment has no GPU, so it was not measured here).
 - 20 real records through review.
-- Chrome and Firefox both.
+- Chrome and Firefox both, with a folder from each filesystem (NTFS path with
+  spaces, and a network share).
 - Every failure state has a sentence and a next action.

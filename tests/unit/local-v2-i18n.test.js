@@ -24,7 +24,7 @@ function keysUsedInMarkup() {
     return [...keys];
 }
 
-const STATUSES = ['idle', 'checking', 'blocked', 'downloading', 'ready', 'error'];
+const STATUSES = ['idle', 'checking', 'loading', 'blocked', 'ready', 'error'];
 
 function hasSentence(locale, key) {
     const value = locale[key];
@@ -64,10 +64,14 @@ describe('v2 translations', () => {
     });
 
     it('interpolates the values the sentences ask for', () => {
-        // The card passes { needGb, haveGb } and { needGb, freeGb }; a
-        // ":name" placeholder with no value would render literally.
-        expect(en['aiSettings.localV2.error.ramShort']).toContain(':needGb');
-        expect(en['aiSettings.localV2.error.ramShort']).toContain(':haveGb');
-        expect(ar['aiSettings.localV2.error.storageShort']).toContain(':freeGb');
+        // The card passes { needGb, haveGb } for the memory refusal and
+        // { count, size } for the folder summary; a ":name" placeholder with
+        // no value would render literally.
+        for (const locale of [en, ar]) {
+            expect(locale['aiSettings.localV2.error.ramShort']).toContain(':needGb');
+            expect(locale['aiSettings.localV2.error.ramShort']).toContain(':haveGb');
+            expect(locale['aiSettings.localV2.folder.summary']).toContain(':count');
+            expect(locale['aiSettings.localV2.folder.summary']).toContain(':size');
+        }
     });
 });

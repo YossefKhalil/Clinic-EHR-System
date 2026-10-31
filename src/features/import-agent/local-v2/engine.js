@@ -1,13 +1,17 @@
 // The WebLLM engine seam.
 //
 // This is the only file in the app that imports `@mlc-ai/web-llm`. It is
-// imported lazily (a dynamic import), so a clinic that never turns the local
-// engine on never downloads the package.
+// imported lazily (a dynamic import), so a clinic that never opens the local
+// card never downloads the package.
 //
-// Everything the rest of v2 uses comes back through this small surface:
-// load a model, ask it for one chat completion, unload. Engine failures are
-// mapped to codes here — once — so the settings card and the wizard
-// translate a sentence instead of pattern-matching error text.
+// The engine loads a model from an address, exactly as it would load a hosted
+// one. Here that address points at the folder the clinic picked: the service
+// worker in `public/local-mlc-sw.js` answers it from disk.
+//
+// Everything the rest of v2 uses comes back through this small surface: load
+// a model, ask it for one chat completion, unload. Engine failures are mapped
+// to codes here — once — so the settings card and the wizard translate a
+// sentence instead of pattern-matching error text.
 
 const PACKAGE = '@mlc-ai/web-llm';
 
@@ -17,7 +21,7 @@ const PACKAGE = '@mlc-ai/web-llm';
  * The specifier is written out rather than stored in a variable so the
  * bundler can see it: a package name built at runtime would be left as a bare
  * import and fail in the browser. Being dynamic, it is still a separate chunk
- * — a clinic that never turns v2 on never downloads it.
+ * — a clinic that never opens the card never downloads it.
  */
 export function defaultLoader() {
     return import('@mlc-ai/web-llm');
@@ -31,48 +35,27 @@ function engineError(code, message, cause) {
 }
 
 /**
- * The app config WebLLM needs for one model.
+ * The app config WebLLM needs for the picked folder.
  *
- * Two sources, in this order:
+ * Both addresses come from the worker mount, so they point at this computer:
+ * the base for the config, the shards and the tokenizer, and the `.wasm`
+ * library inside the same mount. The clinic's context window is the one
+ * override, because the folder's own window is the maximum, not the choice.
  *
- *   - the entry carries its own addresses (`link` and `custom` entries), so
- *     they are used as given;
- *   - otherwise the model id is looked up in the installed package's own
- *     prebuilt list, and that entry is copied wholesale — download address,
- *     wasm library, buffer sizes, required features and the overrides the
- *     build needs (stop tokens, history depth). A hand-written copy of those
- *     URLs drifts one release behind the runtime; this cannot.
- *
- * The context window is the one thing the app overrides, because the clinic
- * can lower it in the card.
- *
- * @throws when a built-in id is not in the installed WebLLM release.
+ * @throws when the folder was not mounted or has no library.
  */
-export function buildAppConfig(model, prebuiltList = [], contextWindow) {
-    const context = Math.round(Number(contextWindow) || Number(model?.contextWindow) || 4096);
-
-    if (model?.baseUrl && model?.modelLib) {
-        return {
-            model_list: [
-                {
-                    model: model.baseUrl,
-                    model_id: model.id,
-                    model_lib: model.modelLib,
-                    overrides: { context_window_size: context },
-                },
-            ],
-        };
+export function buildAppConfig(model, contextWindow) {
+    if (!model?.baseUrl || !model?.modelLib) {
+        throw engineError('MODEL_NOT_LOCAL', 'a local model needs a mounted folder and a .wasm library');
     }
-
-    const entry = (prebuiltList ?? []).find((candidate) => candidate?.model_id === model?.id);
-    if (!entry) {
-        throw engineError('MODEL_NOT_IN_RUNTIME', `${model?.id ?? 'model'} is not in WebLLM ${PACKAGE}`);
-    }
+    const context = Math.round(Number(contextWindow) || Number(model.contextWindow) || 4096);
     return {
         model_list: [
             {
-                ...entry,
-                overrides: { ...(entry.overrides ?? {}), context_window_size: context },
+                model: model.baseUrl,
+                model_id: model.id,
+                model_lib: model.modelLib,
+                overrides: { context_window_size: context },
             },
         ],
     };
@@ -81,7 +64,7 @@ export function buildAppConfig(model, prebuiltList = [], contextWindow) {
 /**
  * Map an engine failure onto a code the UI can translate.
  *
- * WebLLM surfaces device loss, allocation failures, download failures and
+ * WebLLM surfaces device loss, allocation failures, a missing file and
  * runtime/model mismatches as plain Error messages with no code, so the
  * mapping is by text — kept in one place (see #53 for why: an opaque engine
  * error used to reach the review screen as "PROVIDER_ERROR").
@@ -95,7 +78,7 @@ export function mapEngineError(error) {
         { code: 'GPU_OUT_OF_MEMORY', test: /out of memory|OOM|insufficient (?:GPU )?memory|failed to allocate|allocation failed/i },
         { code: 'CONTEXT_TOO_SMALL', test: /context (?:window|length|size).*(?:exceed|too small|overflow)|exceeds? the context|prompt is too long/i },
         { code: 'MODEL_LIBRARY_MISMATCH', test: /tensor-cache|ndarray-cache|model_lib|record.*not found|cannot find.*(?:model|library)/i },
-        { code: 'MODEL_DOWNLOAD_FAILED', test: /fetch|network|download|HTTP\s*(?:4\d\d|5\d\d)|CORS/i },
+        { code: 'MODEL_DOWNLOAD_FAILED', test: /fetch|network|download|HTTP\s*(?:4\d\d|5\d\d)|CORS|not mounted/i },
         { code: 'WEBGPU_MISSING', test: /webgpu|navigator\.gpu|no adapter|requestAdapter/i },
     ];
 
@@ -110,14 +93,14 @@ export function mapEngineError(error) {
 /**
  * Load a model into a WebLLM engine.
  *
- * `onProgress` receives the engine's own progress reports (download and
- * shader compilation), which is what the card shows while gigabytes arrive.
+ * `onProgress` receives the engine's own progress reports (reading the files,
+ * compiling shaders), which is what the card shows while a model loads.
  *
  * @param {{ model: object, contextWindow?: number, onProgress?: Function, loader?: Function }} input
  */
 export async function createEngine(input) {
     const { model, onProgress } = input;
-    if (!model?.id) throw engineError('MODEL_UNKNOWN', 'no catalog model');
+    if (!model?.id) throw engineError('MODEL_UNKNOWN', 'no model folder');
 
     const load = input.loader ?? defaultLoader;
     let module;
@@ -131,17 +114,11 @@ export async function createEngine(input) {
         throw engineError('WEBLLM_PACKAGE_MISSING', `${PACKAGE} does not export CreateMLCEngine`);
     }
 
-    const prebuilt = module?.prebuiltAppConfig?.model_list
-        ?? module?.default?.prebuiltAppConfig?.model_list
-        ?? [];
-
     let appConfig;
     try {
-        appConfig = buildAppConfig(model, prebuilt, input.contextWindow);
+        appConfig = buildAppConfig(model, input.contextWindow);
     } catch (error) {
-        // A built-in entry that the pinned release no longer ships is a
-        // mismatch, not a download problem: say so before any traffic.
-        throw error?.code === 'MODEL_NOT_IN_RUNTIME' ? error : mapEngineError(error);
+        throw error?.code === 'MODEL_NOT_LOCAL' ? error : mapEngineError(error);
     }
 
     let raw;
@@ -150,7 +127,7 @@ export async function createEngine(input) {
             appConfig,
             initProgressCallback: (report) => {
                 onProgress?.({
-                    phase: 'download',
+                    phase: 'loading',
                     text: String(report?.text ?? ''),
                     progress: Number(report?.progress) || 0,
                 });
