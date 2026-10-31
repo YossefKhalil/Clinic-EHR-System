@@ -1,0 +1,71 @@
+name: Cloudinary attachment backup
+
+# The database dump stores attachment metadata only. This workflow downloads
+# the original bytes from Cloudinary so a lost product environment is
+# recoverable, encrypts the archive, and keeps it as a 30-day artifact.
+#
+# Long-term copies belong in private storage. Do NOT push this archive to a
+# branch of this public repository.
+#
+# Repository secrets:
+#   CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
+#   BACKUP_PASSPHRASE (shared with the database backup)
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'   # 03:00 UTC every Sunday
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check secrets are configured
+        env:
+          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          for name in CLOUDINARY_CLOUD_NAME CLOUDINARY_API_KEY CLOUDINARY_API_SECRET BACKUP_PASSPHRASE; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not set."
+              exit 1
+            fi
+          done
+
+      - name: Download originals
+        env:
+          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+        run: node scripts/backup-cloudinary.mjs cloudinary-backup
+
+      - name: Encrypt the archive
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$BACKUP_PASSPHRASE"
+          ARCHIVE="cloudinary-backup-$(date -u +%F).tar.gz"
+          tar -czf "$ARCHIVE" cloudinary-backup
+          printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --yes \
+            --pinentry-mode loopback --passphrase-fd 0 \
+            --symmetric --cipher-algo AES256 \
+            --output "$ARCHIVE.gpg" "$ARCHIVE"
+          rm -f "$ARCHIVE"
+          echo "ARCHIVE=$ARCHIVE.gpg" >> "$GITHUB_ENV"
+          ls -lh "$ARCHIVE.gpg"
+
+      - name: Upload encrypted archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudinary-backup-${{ github.run_number }}
+          path: ${{ env.ARCHIVE }}
+          retention-days: 30

@@ -3485,7 +3485,7 @@
                                             <i class="bi bi-cloud-arrow-up me-1"></i> <span x-text="t('Attach files')"></span>
                                             <input type="file" class="d-none" multiple accept="image/*,application/pdf" @change="onPatientAttach($event)">
                                         </label>
-                                        <div class="form-text text-muted" x-text="t('Images and PDF files, up to 10 MB each.')"></div>
+                                        <div class="form-text text-muted" x-text="t('Photos are compressed in the browser; PDFs are uploaded unchanged, up to 10 MB each.')"></div>
 
                                         <template x-if="patientAttachments.length">
                                             <div class="row g-2 mt-1">
@@ -3505,6 +3505,7 @@
                                                                 <div class="small fw-semibold text-truncate" x-text="att.name"></div>
                                                                 <div class="small text-muted">
                                                                     <span x-text="formatFileSize(att.size)"></span>
+                                                                    <span x-show="att.compressed && att.original_size > att.size" x-cloak>· <span x-text="t('Compressed from :size', { size: formatFileSize(att.original_size) })"></span></span>
                                                                     <span x-show="att.uploading" x-cloak>· <span x-text="t('Uploading... :percent%', { percent: att.progress || 0 })"></span></span>
                                                                     <span x-show="att.error" x-cloak class="text-danger">· <span x-text="att.error"></span></span>
                                                                 </div>

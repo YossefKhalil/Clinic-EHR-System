@@ -5,6 +5,9 @@
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- Trigram index for the patient search box (issue #44). Supabase enables this
+-- extension from the dashboard by default; the statement is idempotent.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- Users table (extends Supabase auth.users).
 -- The access model is documented at the helper functions below.
@@ -38,6 +41,9 @@ CREATE TABLE IF NOT EXISTS public.patients (
     problem TEXT,
     solution TEXT,
     notes JSONB DEFAULT '[]'::jsonb,
+    -- Trigger-maintained lowercase-agnostic text blob used by the search
+    -- filter and its pg_trgm index. Not written by clients.
+    search_text TEXT,
     visit_date DATE,
     is_completed BOOLEAN DEFAULT FALSE,
     price DECIMAL(10, 2),
@@ -70,6 +76,9 @@ ALTER TABLE public.patients ALTER COLUMN national_id DROP NOT NULL;
 -- Medical/lab papers & images are stored on Cloudinary; the row keeps only
 -- the metadata array [{ public_id, url, name, size, mime, uploaded_at }].
 ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]'::jsonb;
+-- The stored search blob is added before the trigger/function that reference
+-- it, because CREATE TABLE IF NOT EXISTS is a no-op on an existing database.
+ALTER TABLE public.patients ADD COLUMN IF NOT EXISTS search_text TEXT;
 
 -- User profiles trigger
 CREATE OR REPLACE FUNCTION public.handle_new_user()
@@ -204,6 +213,98 @@ AS $$
     );
 $$;
 
+-- Set-based replacements for the scalar helpers above. RLS policies call
+-- these once per query instead of calling can_read_section()/can_write_section()
+-- for every candidate row, which turned a count or an aggregate into one
+-- SECURITY DEFINER function call per patient (issue #44).
+--
+-- The Super Admin reaches every section in app_options. A regular account's
+-- grants are the union of the read and write arrays (write implies read); a
+-- legacy row with both arrays empty falls back to its single section.
+CREATE OR REPLACE FUNCTION public.readable_sections()
+RETURNS TEXT[]
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    me public.users%ROWTYPE;
+    result TEXT[];
+BEGIN
+    SELECT * INTO me FROM public.users WHERE id = auth.uid();
+    IF NOT FOUND THEN
+        RETURN ARRAY[]::text[];
+    END IF;
+
+    IF me.is_super_admin = TRUE OR me.is_admin = TRUE THEN
+        SELECT array_agg(o.key ORDER BY o.key)
+        INTO result
+        FROM public.app_options o
+        WHERE o.kind = 'section';
+    ELSE
+        SELECT array_agg(DISTINCT grants.key ORDER BY grants.key)
+        INTO result
+        FROM (
+            SELECT jsonb_array_elements_text(
+                COALESCE(me.read_sections, '[]'::jsonb)
+            ) AS key
+            UNION
+            SELECT jsonb_array_elements_text(
+                COALESCE(me.write_sections, '[]'::jsonb)
+            )
+            UNION
+            SELECT me.section
+            WHERE COALESCE(me.read_sections, '[]'::jsonb) = '[]'::jsonb
+              AND COALESCE(me.write_sections, '[]'::jsonb) = '[]'::jsonb
+        ) grants
+        WHERE grants.key IS NOT NULL;
+    END IF;
+
+    RETURN COALESCE(result, ARRAY[]::text[]);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.writable_sections()
+RETURNS TEXT[]
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    me public.users%ROWTYPE;
+    result TEXT[];
+BEGIN
+    SELECT * INTO me FROM public.users WHERE id = auth.uid();
+    IF NOT FOUND THEN
+        RETURN ARRAY[]::text[];
+    END IF;
+
+    IF me.is_super_admin = TRUE OR me.is_admin = TRUE THEN
+        SELECT array_agg(o.key ORDER BY o.key)
+        INTO result
+        FROM public.app_options o
+        WHERE o.kind = 'section';
+    ELSE
+        SELECT array_agg(DISTINCT grants.key ORDER BY grants.key)
+        INTO result
+        FROM (
+            SELECT jsonb_array_elements_text(
+                COALESCE(me.write_sections, '[]'::jsonb)
+            ) AS key
+            UNION
+            SELECT me.section
+            WHERE COALESCE(me.read_sections, '[]'::jsonb) = '[]'::jsonb
+              AND COALESCE(me.write_sections, '[]'::jsonb) = '[]'::jsonb
+        ) grants
+        WHERE grants.key IS NOT NULL;
+    END IF;
+
+    RETURN COALESCE(result, ARRAY[]::text[]);
+END;
+$$;
+
 -- Legacy helper kept callable for older policies and tests. It now answers
 -- the same question as can_read_section.
 CREATE OR REPLACE FUNCTION public.is_section_user(p_section TEXT)
@@ -224,12 +325,16 @@ REVOKE ALL ON FUNCTION public.is_super_admin() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.can_manage_users() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.can_read_section(TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.can_write_section(TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.readable_sections() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.writable_sections() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.is_section_user(TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.is_super_admin() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.can_manage_users() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.can_read_section(TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.can_write_section(TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.readable_sections() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.writable_sections() TO authenticated;
 
 -- Every policy below is written as DROP + CREATE so this whole file can be
 -- re-run against an existing database to repair policies created by an
@@ -271,9 +376,10 @@ DROP POLICY IF EXISTS "Super admins can delete users" ON public.users;
 CREATE POLICY "Super admins can delete users" ON public.users
     FOR DELETE USING (public.is_super_admin());
 
--- Patients policies. The section helpers already treat Super Admins (and
--- legacy admins) as holding every section, so read and write are decided in
--- exactly one place.
+-- Patients policies. The set-returning helpers resolve the caller's grants
+-- once per statement; the previous scalar helpers ran SECURITY DEFINER SQL
+-- once per candidate row. Both forms treat Super Admins (and legacy admins)
+-- as holding every section.
 -- Retire the names used by earlier schema revisions (see the users policies).
 DROP POLICY IF EXISTS "Admins can do everything with patients" ON public.patients;
 DROP POLICY IF EXISTS "Users can view patients in permitted sections" ON public.patients;
@@ -287,31 +393,37 @@ DROP POLICY IF EXISTS "Section users can delete patients in their section" ON pu
 
 DROP POLICY IF EXISTS "Read permitted sections" ON public.patients;
 CREATE POLICY "Read permitted sections" ON public.patients
-    FOR SELECT USING (public.can_read_section(patients.section));
+    FOR SELECT USING (
+        patients.section IN (SELECT unnest(public.readable_sections()))
+    );
 
 DROP POLICY IF EXISTS "Write permitted sections on insert" ON public.patients;
 CREATE POLICY "Write permitted sections on insert" ON public.patients
-    FOR INSERT WITH CHECK (public.can_write_section(patients.section));
+    FOR INSERT WITH CHECK (
+        patients.section IN (SELECT unnest(public.writable_sections()))
+    );
 
 DROP POLICY IF EXISTS "Write permitted sections on update" ON public.patients;
 CREATE POLICY "Write permitted sections on update" ON public.patients
-    FOR UPDATE USING (public.can_write_section(patients.section))
-    WITH CHECK (public.can_write_section(patients.section));
+    FOR UPDATE USING (
+        patients.section IN (SELECT unnest(public.writable_sections()))
+    )
+    WITH CHECK (
+        patients.section IN (SELECT unnest(public.writable_sections()))
+    );
 
 DROP POLICY IF EXISTS "Write permitted sections on delete" ON public.patients;
 CREATE POLICY "Write permitted sections on delete" ON public.patients
-    FOR DELETE USING (public.can_write_section(patients.section));
+    FOR DELETE USING (
+        patients.section IN (SELECT unnest(public.writable_sections()))
+    );
 
--- Any-value search support: a computed field that renders every patient
--- column as one space-joined text blob. PostgREST exposes it automatically
--- (GET /patients?anysearch=ilike.*term*), so one search box can match a name,
--- a phone number, a year, an id, or a note without knowing which column.
--- Casts live inside the function because PostgREST does not allow casting
--- columns in filter expressions, and ilike on int4/timestamptz/jsonb raises
--- "operator does not exist".
--- It only reads the row itself, so no SECURITY DEFINER and no RLS change:
--- callers still only ever see patient rows their policies allow.
-CREATE OR REPLACE FUNCTION public.anysearch(p public.patients)
+-- Any-value search support. `search_text` is a stored column maintained by a
+-- trigger, not a function evaluated for every row: filtering the column lets
+-- the pg_trgm GIN index below answer ILIKE queries (issue #44). The trigger
+-- includes every field the old anysearch() concatenated, including notes, so
+-- behavior is unchanged; only where the work happens is different.
+CREATE OR REPLACE FUNCTION public.patient_search_text(p public.patients)
 RETURNS TEXT
 LANGUAGE sql
 STABLE
@@ -327,6 +439,38 @@ AS $$
     );
 $$;
 
+CREATE OR REPLACE FUNCTION public.set_patient_search_text()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+    NEW.search_text := public.patient_search_text(NEW);
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS patients_set_search_text ON public.patients;
+CREATE TRIGGER patients_set_search_text
+    BEFORE INSERT OR UPDATE OF
+        name, national_id, mobile, governorate, address, problem, solution,
+        follower, marital_status, source_of_money, section, record_type, age,
+        children_count, visit_date, created_at, price, is_completed, notes
+    ON public.patients
+    FOR EACH ROW EXECUTE FUNCTION public.set_patient_search_text();
+
+-- Legacy computed field kept for older clients and the import agent. New
+-- queries filter patients.search_text directly so the trigram index is used.
+-- It only reads the row itself, so no SECURITY DEFINER and no RLS change:
+-- callers still only ever see patient rows their policies allow.
+CREATE OR REPLACE FUNCTION public.anysearch(p public.patients)
+RETURNS TEXT
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT COALESCE(p.search_text, public.patient_search_text(p));
+$$;
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_patients_national_id ON public.patients(national_id);
 CREATE INDEX IF NOT EXISTS idx_patients_user_id ON public.patients(user_id);
@@ -334,6 +478,120 @@ CREATE INDEX IF NOT EXISTS idx_patients_section ON public.patients(section);
 CREATE INDEX IF NOT EXISTS idx_patients_record_type ON public.patients(record_type);
 CREATE INDEX IF NOT EXISTS idx_patients_is_completed ON public.patients(is_completed);
 CREATE INDEX IF NOT EXISTS idx_patients_created_at ON public.patients(created_at);
+CREATE INDEX IF NOT EXISTS idx_patients_search_text_trgm
+    ON public.patients USING gin (search_text gin_trgm_ops);
+-- Composite/partial indexes matching the filters and the newest-first sort.
+CREATE INDEX IF NOT EXISTS idx_patients_section_created_at
+    ON public.patients(section, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_patients_completed_created_at
+    ON public.patients(is_completed, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_patients_source_created_at
+    ON public.patients(source_of_money, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_patients_record_type_created_at
+    ON public.patients(record_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_patients_follower
+    ON public.patients(follower);
+CREATE INDEX IF NOT EXISTS idx_patients_created_at_id
+    ON public.patients(created_at DESC, id ASC);
+
+-- Aggregate RPCs for the dashboard (issue #44). SECURITY INVOKER is the
+-- important word here: these run as the calling user, so the section RLS
+-- policies above still limit the rows being counted or summed. The previous
+-- browser-side aggregation downloaded at most 1000 rows and reported the
+-- truncated result as the clinic total.
+CREATE OR REPLACE FUNCTION public.dashboard_stats()
+RETURNS JSONB
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+    WITH rows AS MATERIALIZED (
+        SELECT is_completed, section, source_of_money
+        FROM public.patients
+    ),
+    counts AS (
+        SELECT
+            count(*)::bigint AS total,
+            count(*) FILTER (WHERE is_completed)::bigint AS completed
+        FROM rows
+    ),
+    sections AS (
+        SELECT COALESCE(jsonb_object_agg(section, n), '{}'::jsonb) AS value
+        FROM (
+            SELECT section, count(*)::bigint AS n
+            FROM rows
+            WHERE section IS NOT NULL
+            GROUP BY section
+        ) grouped
+    ),
+    sources AS (
+        SELECT COALESCE(jsonb_object_agg(source_of_money, n), '{}'::jsonb) AS value
+        FROM (
+            SELECT source_of_money, count(*)::bigint AS n
+            FROM rows
+            WHERE source_of_money IS NOT NULL
+            GROUP BY source_of_money
+        ) grouped
+    )
+    SELECT jsonb_build_object(
+        'total', counts.total,
+        'completed', counts.completed,
+        'pending', counts.total - counts.completed,
+        'sections', sections.value,
+        'sources', sources.value
+    )
+    FROM counts, sections, sources;
+$$;
+
+CREATE OR REPLACE FUNCTION public.price_stats()
+RETURNS JSONB
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+    WITH rows AS MATERIALIZED (
+        SELECT section, source_of_money, COALESCE(price, 0)::numeric AS price
+        FROM public.patients
+    ),
+    section_totals AS (
+        SELECT COALESCE(
+            jsonb_object_agg(section, jsonb_build_object('total', total, 'count', n)),
+            '{}'::jsonb
+        ) AS value
+        FROM (
+            SELECT section, sum(price) AS total, count(*)::bigint AS n
+            FROM rows
+            WHERE section IS NOT NULL
+            GROUP BY section
+        ) grouped
+    ),
+    source_totals AS (
+        SELECT COALESCE(
+            jsonb_object_agg(source_of_money, jsonb_build_object('total', total, 'count', n)),
+            '{}'::jsonb
+        ) AS value
+        FROM (
+            SELECT source_of_money, sum(price) AS total, count(*)::bigint AS n
+            FROM rows
+            WHERE source_of_money IS NOT NULL
+            GROUP BY source_of_money
+        ) grouped
+    )
+    SELECT jsonb_build_object(
+        'sectionTotals', section_totals.value,
+        'sourceTotals', source_totals.value,
+        'grandTotal', (SELECT COALESCE(sum(price), 0) FROM rows),
+        'totalPatients', (SELECT count(*)::bigint FROM rows)
+    )
+    FROM section_totals, source_totals;
+$$;
+
+REVOKE ALL ON FUNCTION public.dashboard_stats() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.price_stats() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.dashboard_stats() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.price_stats() TO authenticated;
 
 -- Updated at trigger
 CREATE OR REPLACE FUNCTION public.update_updated_at()
@@ -351,6 +609,16 @@ CREATE OR REPLACE TRIGGER update_users_updated_at
 CREATE OR REPLACE TRIGGER update_patients_updated_at
     BEFORE UPDATE ON public.patients
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+-- Backfill search_text for rows that predate the column (or whose computed
+-- value drifted). The audit timestamp is not a user edit, so preserve it while
+-- the one-time repair runs. Re-running the schema does nothing once every row
+-- matches, so the trigger toggle does not touch a healthy database.
+ALTER TABLE public.patients DISABLE TRIGGER update_patients_updated_at;
+UPDATE public.patients p
+SET search_text = public.patient_search_text(p)
+WHERE p.search_text IS DISTINCT FROM public.patient_search_text(p);
+ALTER TABLE public.patients ENABLE TRIGGER update_patients_updated_at;
 
 -- Editable option lists (issue #1): followers, clinic sections and sources of
 -- money live here instead of being hard-coded in the client or the SQL CHECK

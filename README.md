@@ -62,14 +62,14 @@ The application is deliberately serverless. The frontend is a static Vite build 
 
 - **Patient registry** with a 17-field intake form: identity, contact details, demographics, address, visit information, diagnosis and treatment plan, funding source, price, and section.
 - **Patient profiles** with editable records, internal notes, completion status, and attachments.
-- **Attachments** for medical and lab documents. Files upload directly from the browser to Cloudinary with progress and are served through its CDN.
+- **Attachments** for medical and lab documents. Photos are downscaled to a 1600px long side and re-encoded in the browser (WebP/JPEG, EXIF orientation respected, metadata stripped) before uploading directly to Cloudinary; PDFs upload unchanged. Cards and upload rows load 256/800px signed derivatives, and the original is requested only when the record is opened. The full asset can still be kept with `VITE_COMPRESS_ATTACHMENTS=false`.
 - **Section-aware access**: staff are granted read and/or write access per section; a Super Admin reaches every section and manages accounts.
 
 ### Search and reporting
 
-- **Global search** across every patient field, with Arabic-aware normalization and fuzzy matching. Results support full keyboard navigation.
-- **Dashboard** with total, completed, and pending counts, section and source breakdowns, a financial summary (grand total, by section, by funding source), and a recent-patients table.
-- **Excel export** in Arabic by default, with a caret for the language, the rows (all filtered, this page, or the ticked patients) and the columns. SheetJS is loaded only when an export is requested.
+- **Global search** across every patient field, with Arabic-aware normalization and fuzzy matching. A trigger-maintained `search_text` column with a `pg_trgm` GIN index keeps the query fast as the registry grows. Results support full keyboard navigation.
+- **Dashboard** with total, completed, and pending counts, section and source breakdowns, a financial summary (grand total, by section, by funding source), and a recent-patients table. Counts and totals come from `SECURITY INVOKER` aggregate RPCs, so section RLS still applies but PostgREST's 1000-row limit cannot truncate them.
+- **Excel export** in Arabic by default, with a caret for the language, the rows (all filtered, this page, or the ticked patients) and the columns. Filtered exports page through every matching row; SheetJS is loaded only when an export is requested.
 
 ### Administration
 
@@ -174,7 +174,7 @@ flowchart LR
     SPA -->|HTTPS| CDN
     SPA -->|sign in| Auth
     SPA -->|PostgREST + RLS| DB
-    SPA -->|unsigned upload| Cloudinary
+    SPA -->|signed/unsigned upload| Cloudinary
     SPA -->|JWT| Functions
     Functions -->|service role| DB
     Functions -->|staging files| Storage
@@ -217,7 +217,7 @@ flowchart LR
 ### Authentication and authorization
 
 - Supabase Auth issues JWTs, and row-level security is enabled on every application table.
-- Section staff are scoped to the sections granted on their profile by RLS policies; a Super Admin bypasses section scoping.
+- Section staff are scoped to the sections granted on their profile by RLS policies; a Super Admin bypasses section scoping. Patient policies resolve the caller's sections once per query (`readable_sections()`/`writable_sections()`) instead of running a SECURITY DEFINER scalar helper for every row.
 - Policies use `SECURITY DEFINER` helpers (`is_super_admin`, `can_read_section`, `can_write_section`) with `EXECUTE` revoked from `PUBLIC`, avoiding recursive policy evaluation. A write grant always implies read.
 - New accounts are created unprivileged. `handle_new_user()` ignores signup metadata for `is_admin` and `section`, preventing privilege escalation at registration.
 
@@ -242,8 +242,11 @@ flowchart LR
 
 ### Operational notes
 
-- Cloudinary uploads use an unsigned preset. Scope the preset to the expected file types and size, and monitor usage; the preset is not an authentication boundary.
-- **Cloudinary Free product environments block delivery of PDF (and ZIP/archive) files by default.** Patient PDFs upload fine and then return `401` with `X-Cld-Error: deny or ACL failure` on open, while images keep working, and the delivery signature is not the cause. Enable **Settings → Security → Allow delivery of PDF and ZIP files** for the product environment that `VITE_CLOUDINARY_CLOUD_NAME` points at (paid plans have no such block). Cloudinary caches the denied response per URL, so retry after the change or bust the cache before concluding it did not help.
+- **Cloudinary:** signed uploads through `cloudinary-sign` are the recommended mode (`VITE_CLOUDINARY_AUTHENTICATED=true`); the unsigned preset remains a fallback for local setups. A preset is not an authentication boundary, so scope it to the expected types and size. Client-side compression is on by default and can be disabled with `VITE_COMPRESS_ATTACHMENTS=false` when the untouched original is required.
+- **Cloudinary usage:** turn backup storage off (the database/attachment backup workflows below are the backup), and set a usage alert at about 70% in the Cloudinary console. Client-side downscaling plus 256/800px signed delivery variants keep one photo from consuming several credits per view.
+- **Cloudinary PDF delivery:** Free product environments block PDF delivery by default. Patient PDFs upload fine and then return `401` with `X-Cld-Error: deny or ACL failure` on open, while images keep working, and the delivery signature is not the cause. Enable **Settings → Security → Allow delivery of PDF and ZIP files** for the product environment that `VITE_CLOUDINARY_CLOUD_NAME` points at (paid plans have no such block). Cloudinary caches the denied response per URL, so retry after the change or bust the cache before concluding it did not help.
+- **Backups:** the daily database dump is encrypted and kept as a 30-day artifact; a restore drill restores every successful dump into a throwaway Postgres and runs the schema verification. Cloudinary originals are downloaded weekly and encrypted the same way. Long-term copies must go to private storage, never to a branch of this public repository. See [Backup and restore](docs/backup-restore.md).
+- **Keep-alive:** the daily workflow queries `app_options` through PostgREST, so it exercises the database rather than only the auth health endpoint. A monthly activity workflow keeps scheduled jobs from being disabled after 60 days of repository inactivity.
 - This repository is a software project, not a certified medical device or a compliance package. Deployers are responsible for their own regulatory, consent, retention, and security obligations.
 
 ## Getting started
@@ -284,7 +287,9 @@ VITE_CLOUDINARY_UPLOAD_PRESET=clinic_ehr_uploads
 | `VITE_SUPABASE_URL` | Yes | Supabase project URL |
 | `VITE_SUPABASE_ANON_KEY` | Yes | Public anon key; RLS enforces access |
 | `VITE_CLOUDINARY_CLOUD_NAME` | For attachments | Cloudinary cloud name |
-| `VITE_CLOUDINARY_UPLOAD_PRESET` | For attachments | Unsigned upload preset |
+| `VITE_CLOUDINARY_UPLOAD_PRESET` | For unsigned attachments | Unsigned upload preset |
+| `VITE_CLOUDINARY_AUTHENTICATED` | No | `true` uses signed uploads and authenticated delivery through `cloudinary-sign` |
+| `VITE_COMPRESS_ATTACHMENTS` | No | `false` uploads photos untouched; compression is on by default |
 
 These values are public and are embedded at build time. Never put a service-role key or an AI provider secret in a `VITE_*` variable.
 
@@ -422,7 +427,7 @@ npm run lint           # ESLint
 npm run check:registry # field registry and schema contract
 ```
 
-The suite currently contains **646 tests across 56 files**. RLS tests run against an in-process Postgres (PGlite) loaded with `supabase/schema.sql`, so policies are exercised against real SQL rather than mocks. Import fixtures cover XLSX, CSV, DOCX, and PDF readers, and property-based tests cover the normalizers. Local AI engine tests cover model profiles, adapters, verification, config resolution, and pump contracts.
+The suite currently contains **621 tests across 53 files**. RLS tests run against an in-process Postgres (PGlite) loaded with `supabase/schema.sql`, so policies are exercised against real SQL rather than mocks. Import fixtures cover XLSX, CSV, DOCX, and PDF readers, and property-based tests cover the normalizers. Local AI tests cover the WebGPU engine wrapper, model-folder loading, profile detection, and provider behavior.
 
 CI runs lint, the registry check, coverage, and the production build on every push and pull request.
 

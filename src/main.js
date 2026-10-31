@@ -22,7 +22,7 @@ import { dbErrorMessage } from './services/error-message.js';
 import { loadAiSettings as loadAiSettingsApi, saveAiSettings as saveAiSettingsApi, testAiProvider as testAiProviderApi, loadImportLimits as loadImportLimitsApi, saveImportLimits as saveImportLimitsApi, resetCloudConsent as resetCloudConsentApi } from './services/ai-settings.js';
 import { initCloudinary, getImageUrl, isImageAttachment } from './services/cloudinary.js';
 import { getDashboardStats, getRecentPatients } from './services/dashboard.js';
-import { getPatients, getPatientsPage, deletePatient, togglePatientStatus, GOVERNORATES, governorateLabel } from './services/patients.js';
+import { getPatients, getPatientsPage, getPatient, deletePatient, togglePatientStatus, GOVERNORATES, governorateLabel } from './services/patients.js';
 import { buildPatientPayload } from './services/patient-payload.js';
 import { emptyPatientFilters, activeFilterKeys } from './services/patient-filters.js';
 import { EXPORT_FIELDS, EXPORT_FIELD_KEYS } from './services/export-fields.js';
@@ -2078,9 +2078,11 @@ function app() {
                 // flight; discard the previous user's rows.
                 if (epoch !== this.sessionEpoch) return;
                 const lastPage = Math.max(1, Math.ceil(result.total / this.patientPageSize));
-                if (this.patientPage > lastPage) {
+                if (!result.rows.length && this.patientPage > lastPage) {
                     // A delete or a filter change can empty the page that was
-                    // open; show the last page that still has rows.
+                    // open; show the last page that still has rows. The total
+                    // is an estimate, so a populated page is never bounced
+                    // backwards just because the planner guessed low.
                     this.patientPage = lastPage;
                     await this.loadPatients({ page: lastPage });
                     return;
@@ -2747,29 +2749,43 @@ function app() {
                 this.showAlert(this.t('You do not have write access to this section.'), 'danger');
                 return;
             }
-            this.editingPatient = patient;
+            // The directory now selects only the light columns. Notes and
+            // attachments are loaded here, when the form is actually opened.
+            const epoch = this.sessionEpoch;
+            let full = patient;
+            try {
+                full = await getPatient(patient.id);
+            } catch (error) {
+                if (epoch !== this.sessionEpoch) return;
+                console.error(error);
+                this.showAlert(this.errorMessage(error), 'danger');
+                return;
+            }
+            if (epoch !== this.sessionEpoch) return;
+
+            this.editingPatient = full;
             this.patientForm = {
-                name: patient.name || '',
-                national_id: patient.national_id || '',
-                mobile: patient.mobile || '',
-                date_of_birth: patient.date_of_birth || '',
-                age: patient.age ?? '',
-                marital_status: patient.marital_status || '',
-                children_count: patient.children_count ?? '',
-                governorate: patient.governorate || '',
-                address: patient.address || '',
-                problem: patient.problem || '',
-                solution: patient.solution || '',
-                visit_date: patient.visit_date ? String(patient.visit_date).slice(0, 10) : '',
-                price: patient.price ?? '',
-                follower: patient.follower || '',
-                section: patient.section || this.defaultSection(),
-                source_of_money: patient.source_of_money || '',
+                name: full.name || '',
+                national_id: full.national_id || '',
+                mobile: full.mobile || '',
+                date_of_birth: full.date_of_birth || '',
+                age: full.age ?? '',
+                marital_status: full.marital_status || '',
+                children_count: full.children_count ?? '',
+                governorate: full.governorate || '',
+                address: full.address || '',
+                problem: full.problem || '',
+                solution: full.solution || '',
+                visit_date: full.visit_date ? String(full.visit_date).slice(0, 10) : '',
+                price: full.price ?? '',
+                follower: full.follower || '',
+                section: full.section || this.defaultSection(),
+                source_of_money: full.source_of_money || '',
             };
             this.refreshAge();
-            this.patientNotes = (patient.notes && patient.notes.length) ? [...patient.notes] : [''];
-            this.patientAttachments = Array.isArray(patient.attachments)
-                ? patient.attachments.map((att) => ({ ...att, uploading: false, progress: 100, error: null }))
+            this.patientNotes = (full.notes && full.notes.length) ? [...full.notes] : [''];
+            this.patientAttachments = Array.isArray(full.attachments)
+                ? full.attachments.map((att) => ({ ...att, uploading: false, progress: 100, error: null }))
                 : [];
             // Check PDF accessibility for authenticated attachments
             this.checkPatientPdfs();
@@ -2778,9 +2794,26 @@ function app() {
         
         async showPatient(patient) {
             if (!this.isLoggedIn) { this.currentPage = 'login'; return; }
+            // Dashboard/search rows are intentionally light. Opening a record
+            // is the one place that pays for the full notes and attachments,
+            // and authenticated images keep loading only their small preview.
+            const epoch = this.sessionEpoch;
+            // A row that already carries both arrays came from getPatient()
+            // (for example the global-search pick), so do not fetch it twice.
+            const isFullRecord = Array.isArray(patient?.notes) && Array.isArray(patient?.attachments);
+            let full = patient;
+            if (patient?.id && !isFullRecord) {
+                try {
+                    full = await getPatient(patient.id);
+                } catch (error) {
+                    if (epoch !== this.sessionEpoch) return;
+                    console.error(error);
+                }
+            }
+            if (epoch !== this.sessionEpoch) return;
             this.selectedPatient = {
-                ...patient,
-                user_name: patient.registered_by_name || patient.user_name || 'Unknown',
+                ...full,
+                user_name: full.registered_by_name || full.user_name || 'Unknown',
             };
             this.currentPage = 'patient-profile';
             // Check PDF accessibility for authenticated attachments
@@ -2904,18 +2937,27 @@ function app() {
         
         attachmentUrl(attachment, width = 320) {
             if (!attachment) return '';
-            // Authenticated assets cannot use on-the-fly transformations, so
-            // the stored signed URL is the only deliverable form.
-            if (attachment.authenticated) return attachment.url || '';
-            if (!this.attachmentIsImage(attachment) || !attachment.public_id) return attachment.url || '';
-            return getImageUrl(attachment.public_id, { width, quality: 80 });
+            if (!this.attachmentIsImage(attachment)) return attachment.url || '';
+            const target = Math.max(1, Number(width) || 320);
+
+            // Cards, lists and upload rows always use a signed CDN derivative
+            // when one was stored at upload time. Opening the record is the
+            // only place that asks for the full asset.
+            if (target <= 320 && attachment.thumbnail_url) return attachment.thumbnail_url;
+            if (target <= 900 && attachment.preview_url) return attachment.preview_url;
+
+            if (attachment.authenticated) {
+                return attachment.url || attachment.preview_url || attachment.thumbnail_url || '';
+            }
+            if (!attachment.public_id) return attachment.url || '';
+            return getImageUrl(attachment.public_id, { width: target, quality: 'auto' });
         },
         
         attachmentFullUrl(attachment) {
             if (!attachment) return '';
             if (attachment.authenticated) return attachment.url || '';
             if (!this.attachmentIsImage(attachment) || !attachment.public_id) return attachment.url || '';
-            return getImageUrl(attachment.public_id, { width: 1600, quality: 90 });
+            return getImageUrl(attachment.public_id, { width: 1600, quality: 'auto' });
         },
 
         /**

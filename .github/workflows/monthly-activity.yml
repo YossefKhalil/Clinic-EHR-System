@@ -1,0 +1,40 @@
+name: Monthly repository activity
+
+# GitHub disables scheduled workflows in public repositories after 60 days
+# without repository activity. This monthly marker is that activity: it keeps
+# the daily keep-alive and backup schedules running without a human having to
+# remember a calendar reminder.
+#
+# It intentionally changes only this one-line file, on the default branch.
+
+on:
+  schedule:
+    - cron: '0 4 1 * *'   # 04:00 UTC on the first day of every month
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: monthly-activity
+  cancel-in-progress: false
+
+jobs:
+  mark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write the activity marker
+        run: |
+          set -euo pipefail
+          date -u +'%Y-%m-%dT%H:%M:%SZ' > .github/last-activity
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/last-activity
+          if git diff --cached --quiet; then
+            echo "No change"
+            exit 0
+          fi
+          git commit -m "chore: monthly repository activity"
+          git push

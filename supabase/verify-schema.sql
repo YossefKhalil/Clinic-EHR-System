@@ -71,7 +71,8 @@ BEGIN
     SELECT string_agg(expected.proname, ', ') INTO missing
     FROM (VALUES
         ('is_super_admin'), ('can_manage_users'),
-        ('can_read_section'), ('can_write_section')
+        ('can_read_section'), ('can_write_section'),
+        ('readable_sections'), ('writable_sections')
     ) AS expected(proname)
     WHERE NOT EXISTS (
         SELECT 1 FROM pg_proc p
@@ -115,6 +116,38 @@ BEGIN
         WHERE schemaname = 'public' AND indexname = 'idx_import_rows_job_seq'
     ) THEN
         RAISE EXCEPTION 'idx_import_rows_job_seq is missing';
+    END IF;
+
+    -- 6. Attachment/search/dashboard work from issue #44.
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns c
+        WHERE c.table_schema = 'public' AND c.table_name = 'patients'
+          AND c.column_name = 'search_text'
+    ) THEN
+        RAISE EXCEPTION 'patients.search_text is missing';
+    END IF;
+
+    SELECT string_agg(expected.proname, ', ') INTO missing
+    FROM (VALUES ('patient_search_text'), ('dashboard_stats'), ('price_stats'))
+        AS expected(proname)
+    WHERE NOT EXISTS (
+        SELECT 1 FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public' AND p.proname = expected.proname
+    );
+    IF missing IS NOT NULL THEN
+        RAISE EXCEPTION 'missing issue-44 functions: %', missing;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE schemaname = 'public' AND indexname = 'idx_patients_search_text_trgm'
+    ) THEN
+        RAISE EXCEPTION 'idx_patients_search_text_trgm is missing';
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
+        RAISE EXCEPTION 'the pg_trgm extension is missing';
     END IF;
 
     RAISE NOTICE 'schema verification passed';

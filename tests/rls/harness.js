@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp';
+import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
 
 const RLS_DIR = fileURLToPath(new URL('.', import.meta.url));
 export const SCHEMA_PATH = fileURLToPath(new URL('../../supabase/schema.sql', import.meta.url));
@@ -81,7 +82,7 @@ ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 
 /** A fresh Postgres with the Supabase prelude and the real schema applied. */
 export async function createSupabaseLikeDb() {
-    const db = new PGlite({ extensions: { uuid_ossp } });
+    const db = new PGlite({ extensions: { uuid_ossp, pg_trgm } });
     await db.exec(SUPABASE_PRELUDE);
     await db.exec(readFileSync(SCHEMA_PATH, 'utf8'));
     return db;
@@ -130,7 +131,7 @@ CREATE TABLE public.patients (
 
 /** A Postgres that predates the per-section access model, for upgrade tests. */
 export async function createLegacyDb() {
-    const db = new PGlite({ extensions: { uuid_ossp } });
+    const db = new PGlite({ extensions: { uuid_ossp, pg_trgm } });
     await db.exec(SUPABASE_PRELUDE);
     await db.exec('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";');
     await db.exec(LEGACY_SCHEMA);

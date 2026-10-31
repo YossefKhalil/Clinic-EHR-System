@@ -12,7 +12,7 @@
 // everyone. The caller can pass explicit ids (the rows a user ticked) instead
 // of filters; the same scope still applies.
 import * as XLSX from 'xlsx';
-import { getPatients, getPatientsByIds } from './patients.js';
+import { getAllPatients, getPatientsByIds } from './patients.js';
 import { allOptions } from './options.js';
 import { EXPORT_FIELD_KEYS } from './export-fields.js';
 import { buildExportTable, exportLanguage, label } from './export-format.js';
@@ -50,7 +50,7 @@ export async function exportPatientsToExcel({
 
     const rows = Array.isArray(ids)
         ? await getPatientsByIds(ids)
-        : await getPatients(filters ?? {});
+        : await getAllPatients(filters ?? {});
     if (!rows.length) throw new Error(label(lang, 'No patients recorded yet.'));
 
     const table = buildExportTable({ rows, fields, language: lang, optionLabel });

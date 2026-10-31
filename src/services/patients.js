@@ -19,43 +19,57 @@ const SORTABLE_COLUMNS = {
     created_at: 'created_at',
 };
 
+// Rows for the directory, global search and dashboard-style reads. Notes and
+// attachments are the two heavy columns; they are fetched by getPatient (or
+// getPatientsByIds for an export) only when a record is actually opened.
+const PATIENT_COLUMNS = [
+    'id', 'name', 'national_id', 'record_type', 'mobile', 'date_of_birth',
+    'age', 'marital_status', 'children_count', 'governorate', 'address',
+    'problem', 'solution', 'visit_date', 'is_completed', 'price', 'follower',
+    'section', 'source_of_money', 'user_id', 'created_at', 'updated_at',
+    'registered_by_name', 'import_batch_id',
+];
+export const PATIENT_LIST_COLUMNS = PATIENT_COLUMNS.join(',');
+export const PATIENT_FULL_COLUMNS = [...PATIENT_COLUMNS, 'notes', 'attachments'].join(',');
+
 // The filter of PostgREST is a list, so a comma, a bracket or a quote
 // inside the term would cut the list in two. They are spaces in a search.
 function escapeSearchTerm(term) {
     return String(term).replace(/[,()*"]/g, ' ').trim();
 }
 
-// One query builder for both the full export and the paginated table, so the
+// One query builder for the full export and the paginated table, so the
 // filters and sort can never drift between them.
 function patientsQuery(filters = {}, options = {}) {
+    const columns = options.full ? PATIENT_FULL_COLUMNS : PATIENT_LIST_COLUMNS;
     let query = options.count
-        ? supabase().from('patients').select('*', { count: 'exact' })
-        : supabase().from('patients').select('*');
+        ? supabase().from('patients').select(columns, { count: 'estimated' })
+        : supabase().from('patients').select(columns);
 
-    // Section scope is enforced by RLS (can_read_section/can_write_section).
+    // Section scope is enforced by RLS (readable_sections/writable_sections).
     // Filtering again by a single section here would hide the other sections
     // a user has been granted, so it is deliberately omitted.
 
     if (filters.search) {
         const field = filters.filter_by || 'all';
         if (field === 'all') {
-            // Any-value search across every patient field at once via the
-            // anysearch computed field (see schema.sql). It renders every
-            // column, including numbers/dates/jsonb, as text.
-            //
-            // The terms are the word that was typed and every word that
-            // means the same thing (the Arabic name of a governorate and the
-            // English one that is stored), so both are found.
+            // search_text is the stored, trigger-maintained blob of every
+            // searchable patient field. Filtering the column directly lets
+            // the pg_trgm GIN index answer the ILIKE instead of recomputing
+            // every row through a function. The terms are the word that was
+            // typed and every word that means the same thing (the Arabic name
+            // of a governorate and the English one that is stored), so both
+            // are found.
             const terms = (filters.search_terms && filters.search_terms.length)
                 ? filters.search_terms
                 : [filters.search];
             if (terms.length > 1) {
                 const filter = terms
-                    .map((term) => `anysearch.ilike.%${escapeSearchTerm(term)}%`)
+                    .map((term) => `search_text.ilike.%${escapeSearchTerm(term)}%`)
                     .join(',');
                 query = query.or(filter);
             } else {
-                query = query.ilike('anysearch', `%${filters.search}%`);
+                query = query.ilike('search_text', `%${filters.search}%`);
             }
         } else if (['name', 'national_id', 'mobile'].includes(field)) {
             query = query.ilike(field, `%${filters.search}%`);
@@ -102,9 +116,26 @@ export async function getPatients(filters = {}, options = {}) {
     return data;
 }
 
-// One server-side page for the patients directory. The count is requested
-// with the page so the pager knows the size of the filtered result without a
-// second round trip.
+// Every matching row, in 1000-row pages. PostgREST caps a single response at
+// 1000 rows; the old export asked for one unbounded response and silently
+// lost everything after row 1000 (issue #44).
+export async function getAllPatients(filters = {}, options = {}) {
+    const pageSize = Math.min(1000, Math.max(1, Number(options.pageSize) || 1000));
+    const rows = [];
+    for (let from = 0; ; from += pageSize) {
+        const { data, error } = await patientsQuery(filters, { full: true })
+            .range(from, from + pageSize - 1);
+        if (error) throw error;
+        const page = data ?? [];
+        rows.push(...page);
+        if (page.length < pageSize) break;
+    }
+    return rows;
+}
+
+// One server-side page for the patients directory. The count is estimated
+// rather than exact: on a hot path the exact count forces a full scan, while
+// the pager only needs a number close enough to render its links.
 export async function getPatientsPage(filters = {}, options = {}) {
     const pageSize = Math.min(100, Math.max(1, Number(options.pageSize) || 25));
     const page = Math.max(1, Math.trunc(Number(options.page) || 1));
@@ -129,20 +160,32 @@ export async function getPatientsByIds(ids) {
     const list = (Array.isArray(ids) ? ids : []).filter(Boolean);
     if (!list.length) return [];
 
-    const { data, error } = await supabase()
-        .from('patients')
-        .select('*')
-        .in('id', list)
-        .order('created_at', { ascending: true });
+    // A long selection would overflow the PostgREST URL (and the 1000-row
+    // response cap), so ask in small batches and merge them in export order.
+    const CHUNK = 100;
+    const batches = [];
+    for (let index = 0; index < list.length; index += CHUNK) {
+        batches.push(list.slice(index, index + CHUNK));
+    }
+    const pages = await Promise.all(batches.map(async (batch) => {
+        const { data, error } = await supabase()
+            .from('patients')
+            .select(PATIENT_FULL_COLUMNS)
+            .in('id', batch)
+            .order('created_at', { ascending: true });
+        if (error) throw error;
+        return data ?? [];
+    }));
 
-    if (error) throw error;
-    return data ?? [];
+    return pages.flat().sort((a, b) => (
+        String(a.created_at || '').localeCompare(String(b.created_at || ''))
+    ));
 }
 
 export async function getPatient(id) {
     const { data, error } = await supabase()
         .from('patients')
-        .select('*')
+        .select(PATIENT_FULL_COLUMNS)
         .eq('id', id)
         .single();
 
@@ -187,7 +230,7 @@ export async function togglePatientStatus(id, isCompleted) {
         .from('patients')
         .update({ is_completed: isCompleted })
         .eq('id', id)
-        .select()
+        .select('id, is_completed')
         .single();
 
     if (error) throw error;

@@ -92,15 +92,54 @@ export async function uploadAttachment(file, { folder = '', onProgress = null } 
         throw new Error('The file is larger than 10 MB');
     }
 
+    // Raster photos are downscaled and re-encoded before they leave the
+    // browser (issue #44). The module is imported only when an image is
+    // actually chosen, keeping the initial bundle unchanged. PDFs and formats
+    // the browser cannot safely re-encode fall through untouched.
+    let prepared = null;
+    const looksLikeRaster = isImageAttachment(file) || /\.(jpe?g|png|webp|bmp|avif)$/i.test(file.name || '');
+    if (looksLikeRaster) {
+        const { compressImage } = await import('./image-compression.js');
+        prepared = await compressImage(file);
+    }
+    const uploadFile = prepared?.file || file;
+
     // PDFs must go through /raw: the image pipeline renders pages instead of
     // storing the original file.
-    const resourceType = isPdf(file) ? 'raw' : 'image';
+    const resourceType = isPdf(uploadFile) ? 'raw' : 'image';
 
     try {
-        if (authenticated) {
-            return await uploadAuthenticated(file, { folder, onProgress, resourceType });
+        const result = authenticated
+            ? await uploadAuthenticated(uploadFile, { folder, onProgress, resourceType })
+            : await uploadUnsigned(uploadFile, { folder, onProgress, resourceType });
+
+        const metadata = {
+            ...result,
+            // Staff recognize the file by the name they picked, even though
+            // the optimized asset has a new extension on Cloudinary.
+            name: file.name,
+            original_size: prepared?.originalSize ?? file.size,
+            size: result.size ?? uploadFile.size,
+            compressed: Boolean(prepared?.compressed),
+            width: prepared?.width ?? null,
+            height: prepared?.height ?? null,
+            mime: uploadFile.type || result.mime,
+        };
+
+        // Unsigned uploads can derive small CDN variants without a signature.
+        // Authenticated uploads already carry signed variants from the Edge
+        // Function; if that function is older and returned none, the caller
+        // must fall back to the signed original rather than store an unsigned
+        // (and therefore 401) derivative URL.
+        if (!metadata.authenticated && isImageAttachment(metadata) && metadata.public_id) {
+            if (!metadata.thumbnail_url) {
+                metadata.thumbnail_url = getImageUrl(metadata.public_id, { width: 256, quality: 'auto' });
+            }
+            if (!metadata.preview_url) {
+                metadata.preview_url = getImageUrl(metadata.public_id, { width: 800, quality: 'auto' });
+            }
         }
-        return await uploadUnsigned(file, { folder, onProgress, resourceType });
+        return metadata;
     } catch (error) {
         throw enhancePdfError(error, 'upload');
     }
@@ -155,13 +194,24 @@ async function uploadAuthenticated(file, { folder, onProgress, resourceType }) {
     });
 
     const usedResourceType = payload.resource_type || resourceType;
+    // One signing round trip returns the original URL and the small variants
+    // used by cards and upload rows. Authenticated assets cannot be
+    // transformed without a signature, so the Edge Function signs each path.
+    const urlRequest = {
+        action: 'url',
+        public_id: payload.public_id,
+        resource_type: usedResourceType,
+        format: payload.format,
+    };
+    if (usedResourceType === 'image') {
+        urlRequest.variants = [
+            { key: 'url' },
+            { key: 'thumbnail_url', width: 256, quality: 'auto' },
+            { key: 'preview_url', width: 800, quality: 'auto' },
+        ];
+    }
     const { data: signedUrl, error: urlError } = await supabase().functions.invoke('cloudinary-sign', {
-        body: {
-            action: 'url',
-            public_id: payload.public_id,
-            resource_type: usedResourceType,
-            format: payload.format,
-        },
+        body: urlRequest,
     });
     if (urlError || !signedUrl?.url) {
         throw new Error(urlError?.message || 'Could not sign the file URL');
@@ -170,6 +220,8 @@ async function uploadAuthenticated(file, { folder, onProgress, resourceType }) {
     return {
         public_id: payload.public_id,
         url: signedUrl.url,
+        thumbnail_url: signedUrl.urls?.thumbnail_url || '',
+        preview_url: signedUrl.urls?.preview_url || '',
         name: file.name,
         size: payload.bytes ?? file.size,
         mime: file.type || (usedResourceType === 'raw' ? 'application/pdf' : ''),
@@ -229,13 +281,9 @@ export function getImageUrl(publicId, options = {}) {
     const transforms = [];
     if (options.width) transforms.push(`w_${options.width}`);
     if (options.height) transforms.push(`h_${options.height}`);
-    if (options.quality) transforms.push(`q_${options.quality}`);
-    if (options.format) transforms.push(`f_${options.format}`);
-    else transforms.push('f_auto');
+    transforms.push(`q_${options.quality || 'auto'}`);
+    transforms.push(options.format ? `f_${options.format}` : 'f_auto');
+    if (options.width || options.height) transforms.push('c_limit');
 
-    transforms.push('c_limit');
-
-    const transformStr = transforms.length > 1 ? transforms.join(',') + '/' : '';
-
-    return `https://res.cloudinary.com/${cloudName}/image/upload/${transformStr}${publicId}`;
+    return `https://res.cloudinary.com/${cloudName}/image/upload/${transforms.join(',')}/${publicId}`;
 }

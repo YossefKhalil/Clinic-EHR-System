@@ -24,11 +24,10 @@
     "packageJson": {
       "dependencies": [
         "npm:@electric-sql/pglite@~0.5.10",
-        "npm:@huggingface/transformers@^4.3.1",
+        "npm:@mlc-ai/web-llm@0.2.87",
         "npm:@supabase/supabase-js@^2.45.0",
         "npm:@vitejs/plugin-legacy@^5.4.3",
         "npm:@vitest/coverage-v8@^2.1.9",
-        "npm:@wllama/wllama@^3.8.1",
         "npm:alpinejs@^3.14.0",
         "npm:bootstrap-icons@^1.11.3",
         "npm:bootstrap@^5.3.3",
@@ -36,10 +35,8 @@
         "npm:fake-indexeddb@^6.2.6",
         "npm:fast-check@^4.10.2",
         "npm:globals@^17.13.0",
-        "npm:hash-wasm@^4.12.0",
         "npm:js-yaml@^4.1.0",
         "npm:mammoth@^1.13.0",
-        "npm:onnxruntime-web@^1.30.0",
         "npm:pdfjs-dist@^6.4.299",
         "npm:terser@^5.51.2",
         "npm:vite@^5.4.0",

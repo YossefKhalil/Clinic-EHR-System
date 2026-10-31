@@ -9,12 +9,13 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      # Any authenticated request counts as project activity for the free
-      # tier's pause timer. GoTrue's health endpoint always answers 200 and
-      # needs no table of ours to exist.
-      - name: Ping Supabase Project
+      # A real database query, not the auth health endpoint: GoTrue answers
+      # even when the Postgres project is paused, so it never proved that the
+      # database was awake. PostgREST still executes this query when RLS
+      # returns no rows, which is exactly the activity the pause timer needs.
+      - name: Query the database
         run: |
-          curl -s -o /dev/null -w "%{http_code}" \
-            "${{ secrets.SUPABASE_URL }}/auth/v1/health" \
+          curl --fail-with-body -sS -o /dev/null -w "%{http_code}\n" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/app_options?select=id&limit=1" \
             -H "apikey: ${{ secrets.SUPABASE_KEY }}" \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_KEY }}"

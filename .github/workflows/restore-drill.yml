@@ -1,0 +1,123 @@
+name: Backup restore drill
+
+# Runs after every successful daily database backup and actually restores the
+# encrypted dump into a throwaway Postgres, then applies the same schema
+# verification the deploy uses. A backup that only lists its own contents is
+# not a tested backup.
+#
+# The dump contains every schema, but this drill restores only `public`; the
+# minimal auth/role stubs below satisfy the foreign keys and policy references
+# without needing a second Supabase project.
+
+on:
+  workflow_run:
+    workflows: ["Supabase daily backup"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  restore:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Download the latest backup artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RUN_ID=$(gh run list --workflow=supabase-backup.yml --status success \
+              --limit 1 --json databaseId --jq '.[0].databaseId')
+          else
+            RUN_ID="${{ github.event.workflow_run.id }}"
+          fi
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "::error::No successful backup run found"
+            exit 1
+          fi
+          ARTIFACT=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts" \
+            --jq '.artifacts[0].name')
+          if [ -z "$ARTIFACT" ] || [ "$ARTIFACT" = "null" ]; then
+            echo "::error::No backup artifact found on run $RUN_ID"
+            exit 1
+          fi
+          gh run download "$RUN_ID" -n "$ARTIFACT" -D artifacts
+          find artifacts -type f -name '*.gpg' -print
+
+      - name: Prepare the throwaway database
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$ BEGIN CREATE ROLE anon NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          DO $$ BEGIN CREATE ROLE service_role NOLOGIN BYPASSRLS; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          CREATE SCHEMA IF NOT EXISTS auth;
+          CREATE TABLE IF NOT EXISTS auth.users (
+              id uuid PRIMARY KEY,
+              email text,
+              raw_user_meta_data jsonb DEFAULT '{}'::jsonb
+          );
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
+          LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
+          CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+          CREATE EXTENSION IF NOT EXISTS pg_trgm;
+          SQL
+
+      - name: Decrypt and restore the dump
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          if [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::error::BACKUP_PASSPHRASE is not set."
+            exit 1
+          fi
+          DUMP=$(find artifacts -type f -name '*.gpg' -print -quit)
+          if [ -z "$DUMP" ]; then
+            echo "::error::No encrypted dump found."
+            exit 1
+          fi
+          echo "::add-mask::$BACKUP_PASSPHRASE"
+          printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --yes \
+            --pinentry-mode loopback --passphrase-fd 0 --decrypt "$DUMP" > restored.dump
+          pg_restore --no-owner --no-acl --disable-triggers --schema=public \
+            --clean --if-exists \
+            -d "host=127.0.0.1 port=5432 user=postgres dbname=postgres" \
+            restored.dump
+          rm -f restored.dump
+
+      - name: Verify the restored schema and data
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql "host=127.0.0.1 port=5432 user=postgres dbname=postgres" \
+            -v ON_ERROR_STOP=1 --no-psqlrc -f supabase/verify-schema.sql
+          psql "host=127.0.0.1 port=5432 user=postgres dbname=postgres" -Atc \
+            "SELECT 'patients=' || count(*) FROM public.patients;"
+          echo "Restore drill passed."

@@ -190,6 +190,8 @@
     "5. Attachments": "5. Attachments",
     "Attach files": "Attach files",
     "Images and PDF files, up to 10 MB each.": "Images and PDF files, up to 10 MB each.",
+    "Photos are compressed in the browser; PDFs are uploaded unchanged, up to 10 MB each.": "Photos are compressed in the browser; PDFs are uploaded unchanged, up to 10 MB each.",
+    "Compressed from :size": "Compressed from :size",
     "Uploading... :percent%": "Uploading... :percent%",
     "Attachments": "Attachments",
     "Upload failed": "Upload failed",

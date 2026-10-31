@@ -73,4 +73,8 @@ describe('RLS / DB', () => {
     it('05-permissions: super admins, per-section grants and write-implies-read', async () => {
         await runRlsScript(db, '05-permissions.sql');
     }, 60000);
+
+    it('06-issue44: search text, set-based sections and aggregate RPCs', async () => {
+        await runRlsScript(db, '06-issue44.sql');
+    }, 60000);
 });

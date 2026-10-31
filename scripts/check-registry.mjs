@@ -27,6 +27,7 @@ const APP_MANAGED_COLUMNS = [
     'registered_by_name', // denormalized registrar name
     'import_batch_id', // stamped by the import commit (M2); undo uses it
     'record_type', // what the row is about: patient, food, classroom, well
+    'search_text', // trigger-maintained search projection (issue #44)
 ];
 
 function patientsColumns(sql) {
