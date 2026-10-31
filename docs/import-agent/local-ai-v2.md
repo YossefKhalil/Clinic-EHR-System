@@ -1,17 +1,15 @@
-# Local AI v2 (WebGPU) — models, the card, and the engine path
+# Local AI (GPU) — models, the card, and the engine path
 
-Status: **built behind a flag, not yet driving imports.** This document covers
-what exists in the tree, which models it offers, how to try it on a machine
-with a GPU, and what is still missing before the flag flips. The plan and its
-reasoning live in #54; the v1 investigation is in
-[`local-ai-runtime-issue.md`](local-ai-runtime-issue.md).
+Status: **the only local engine in the app, and on by default.** The old
+wllama/GGUF engine and its settings card are gone. An import still runs in the
+cloud: wiring the GPU engine into the wizard is the next step, described at the
+end.
 
 ## What it is
 
-A second local engine that runs a model on **WebGPU** through MLC/WebLLM,
-beside the existing wllama/GGUF path. It is text-only: spreadsheets, Word,
-plain text and PDFs through the existing readers. Photos are refused with a
-sentence, not a mid-import failure.
+A local engine that runs a model on **WebGPU** through MLC/WebLLM. It is
+text-only: spreadsheets, Word, plain text and PDFs through the existing
+readers. Photos are refused with a sentence, not a mid-import failure.
 
 The whole path is one folder, `src/features/import-agent/local-v2/`:
 
@@ -20,13 +18,14 @@ The whole path is one folder, `src/features/import-agent/local-v2/`:
 | `catalog.json` | the checked-in model list: id, publisher, licence, size, VRAM, context, sampling |
 | `catalog.js` | catalog access, custom entries, WebGPU probe, and the pure device-fit decision |
 | `engine.js` | the only file that imports `@mlc-ai/web-llm`; resolves addresses, loads, one chat call, unload, error mapping |
-| `provider.js` | the same `complete()` contract v1 implements, plus the reasoning strip |
+| `provider.js` | the `complete()` contract the extractor uses, plus the reasoning strip |
 | `profile.js` | the saved model and sampling, the last picked model, as plain JSON |
 | `setup.js` | device check → engine load → provider |
 | `settings.js` | the Alpine component behind the settings card |
 | `errors.js` | every failure code and the sentence key that explains it |
 
-Nothing in `local/` (the v1 engine) changed, and no Supabase code changed.
+Nothing here changes a Supabase table, function or policy. The card reads and
+writes only this browser's storage.
 
 ## Models: three sources, one list
 
@@ -46,7 +45,7 @@ The card shows one list, assembled from three places:
 3. **Added by the clinic** (`source: "custom"`), stored in
    `localStorage['clinic.localAi.v2.customModels']`. This is how a model that
    is not in the list — MiniCPM2, or whatever is converted next — is used
-   without an app release. Two addresses plus a context window; see below.
+   without an app release.
 
 Currently shipped: LFM2.5-8B-A1B, Gemma 4 E2B, Gemma 3 1B, Qwen3.5 (0.8B / 2B
 / 4B / 9B), Qwen3 1.7B, Llama 3.2 (1B / 3B), Phi-4 mini, SmolLM2 1.7B and
@@ -75,49 +74,58 @@ compiled for the same engine version. If it was not, the load fails with the
 "model build does not match the engine version" sentence, and the fix is a
 library from the matching `v0_2_87` folder.
 
-## Turning it on
+## Where it lives
 
-Off by default. Any one of:
+**Settings → AI → This computer**, at the top of the AI card, always shown
+(no flag, no query parameter). It offers: a list of models with their size,
+context and whether they fit; the picked model; one **Download & test**
+button; an **Advanced** drawer (context window, temperature, top-p, repetition
+penalty); and **Add another MLC model**.
 
-```
-VITE_LOCAL_AI_V2=1 npm run dev      # build-time
-open the app once with ?localV2=1   # remembered on this device
-localStorage['clinic.localAi.v2.enabled'] = '1'
-```
-
-With the flag on, **Settings → AI → This computer** shows a card at the top: a
-list of models with their size, context and whether they fit; the picked
-model; one **Download & test** button; an **Advanced** drawer (context window,
-temperature, top-p, repetition penalty); and **Add another MLC model**.
+A row that cannot run on this device says why, with both numbers (model needs
+≈5.2 GB, device reports 4 GB). A model that is picked but not yet loaded is not
+"Ready": readiness means a load actually succeeded in this browser.
 
 ## Trying it on a real machine
 
 1. Chrome or Edge 113+, or Firefox 141+ on Windows. Safari 26 also works.
-2. `VITE_LOCAL_AI_V2=1 npm run dev`, open `http://localhost:3000?localV2=1`.
-3. Settings → AI → This computer. A row that cannot run here says why, with
-   the two numbers (model needs ≈5.2 GB, device reports 4 GB).
-4. Pick a small model first — Qwen3.5 0.8B is 0.44 GB — and press **Download &
+2. `npm run dev`, open `http://localhost:3000`, Settings → AI.
+3. Pick a small model first — Qwen3.5 0.8B is 0.44 GB — and press **Download &
    test**. Progress is the engine's own report.
-5. Status becomes **Ready**. Reload: it stays Ready, and the weights come from
+4. Status becomes **Ready**. Reload: it stays Ready, and the weights come from
    the browser cache. Then try the model you actually want.
 
 The engine is a lazy chunk (~6 MB uncompressed) fetched only when a model is
-loaded, so an installation that never turns v2 on never downloads it.
+loaded, so an installation that never opens the card never downloads it.
+
+## What changed when the old engine was removed
+
+The wllama/GGUF engine, its ONNX OCR model, the file pickers, the local config
+knobs and the `local_profile` save path are deleted, along with their 16 test
+files and three dependencies (`@wllama/wllama`, `onnxruntime-web`,
+`hash-wasm`). The **Local** option in the engine switch is gone with it.
+
+The server side is untouched: `import-job`, the shared `local-runtime.js`
+rules and the `LOCAL_INFERENCE_ENABLED` deployment flag still exist, so a
+deployment that had local inference turned on keeps its stored settings. The
+settings form shows such a row as Off rather than pretending this browser can
+still run it.
 
 ## What is not wired yet
 
-The import wizard still runs the v1 engine. Wiring v2 into an import needs
+An import still runs on the server. Wiring the GPU engine into the wizard needs
 three things that were deliberately left out of this step:
 
-1. `localSetup()`/`runLocalImport()` picking the v2 setup when the flag is on.
-2. A job identity for v2 (`{ modelId, quant, contextWindow }`, already produced
-   by `profileIdentity()`), which the Edge Function compares on every claim.
-   That is a server change — it must be made and tested on its own, and it
-   cannot be verified here.
-3. The add-step refusal for photos, using `v2RefusesImages()` and the
+1. `localSetup()`/`runLocalImport()` choosing the v2 provider when the clinic
+   has a model on this device.
+2. A job identity for v2 (`{ modelId, contextWindow }`), which the Edge
+   Function compares on every claim. Today's identity is built from file names
+   and hashes, so this is a server-side change and must be made and tested on
+   its own — it cannot be verified from this environment.
+3. The add-step refusal for photos, using the text-only rule and the existing
    `aiSettings.localV2.error.textOnly` sentence.
 
-## Gates before the default flips
+## Gates before local imports run on the GPU engine
 
 - One real chunk extracted through the existing contract, with load time and
   tok/s recorded (this environment has no GPU, so it was not measured here).

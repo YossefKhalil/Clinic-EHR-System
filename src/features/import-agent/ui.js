@@ -161,27 +161,10 @@ export function importAgentWizard() {
         async loadEngine() {
             const state = await loadImportState();
             if (!state) return;
-            this.engine = state.engine;
-            this.localAvailable = state.localEnabled === true;
-            // The runtime settings the clinic saved in the settings card.
-            this.localConfig = state.localConfig ?? null;
-            this.localModelReady = this.engine !== 'local' ? true : await this.hasLocalModel();
-        },
-
-        /** True when a usable local model is set up on this computer. */
-        async hasLocalModel() {
-            try {
-                const { loadProfile, profileComplete, profileNeedsRepair } = await import('./local/model-profile.js');
-                const profile = await loadProfile();
-                if (!profile || !profileComplete(profile)) return false;
-                const slot = profile.mode === 'single' ? profile.multimodal : profile.text;
-                // A name without a handle is a profile copied from another
-                // browser (or one saved before handles were kept). It cannot
-                // be loaded until the clinic picks the file again.
-                return Boolean(slot?.handle) && !profileNeedsRepair(slot);
-            } catch {
-                return false;
-            }
+            // The browser no longer keeps model files of its own, so an import
+            // runs on the server even when the settings still name a local
+            // engine.
+            this.engine = state.engine === 'off' ? 'off' : 'cloud';
         },
 
         t(key, params) {
@@ -202,18 +185,11 @@ export function importAgentWizard() {
         resumable: null,
         // Every import of this account that is still open.
         openJobs: [],
-        // Which engine the import runs on: 'cloud' sends the data to a
-        // provider, 'local' runs the model in this browser. The engine the
-        // clinic selected in the settings wins; the wizard only shows which
-        // one is in use.
+        // Which engine the import runs on. The clinic's choice is read from
+        // the settings; the wizard only shows what it is.
         engine: 'cloud',
-        localAvailable: false,
-        localModelReady: true,
-        localPhase: '',
-        // The runtime settings the clinic saved in the settings card.
-        localConfig: null,
-        // Why each local chunk failed in this session: the review banner shows
-        // the runtime's own message, which the chunk row does not carry.
+        // Why each chunk failed in this session: the review banner shows the
+        // runtime's own message, which the chunk row does not carry.
         localFailures: [],
 
         // extraction
@@ -228,8 +204,6 @@ export function importAgentWizard() {
         pumpFailed: false,
         pumpAttempts: 0,
         pumpError: null,
-        // The local run's abort handle and the phase it is in.
-        localAbort: null,
 
         // review
         reviewState: null,
@@ -466,69 +440,13 @@ export function importAgentWizard() {
             this.files = this.files.filter((file) => file.id !== id);
         },
 
-        /**
-         * What the local engine needs before the job starts.
-         *
-         * The models are the ones the clinic picked in the settings; they
-         * live in this browser. The job carries the names and the hashes, so
-         * a resume knows which model produced the records.
-         */
-        async localSetup() {
-            const [
-                { loadProfile, profileComplete, profileNeedsRepair },
-                { probeDevice },
-                { resolveLocalConfig },
-                { localProfileSummary },
-                { fileFromHandle },
-            ] = await Promise.all([
-                import('./local/model-profile.js'),
-                import('./local/manifest.js'),
-                import('./local/local-config.js'),
-                import('@import-core/local-runtime.js'),
-                import('./local/model-store.js'),
-            ]);
-            const profile = await loadProfile();
-            if (!profile || !profileComplete(profile)) {
-                throw new api.ImportApiError('NO_MODEL_PROFILE');
-            }
-            // The runner reads the handle, not the name. A profile copied from
-            // another browser has the name but no handle, and asking here gives
-            // the clinic a specific repair message before a job is created.
-            const slot = profile.mode === 'single' ? profile.multimodal : profile.text;
-            if (!slot?.handle || profileNeedsRepair(slot)) {
-                throw new api.ImportApiError('MODEL_PROFILE_HANDLE_MISSING');
-            }
-            const file = await fileFromHandle(slot.handle);
-            if (!file) {
-                throw new api.ImportApiError('MODEL_FILE_UNREACHABLE');
-            }
-            const device = await probeDevice();
-            // The clinic's own settings come first; the device tier fills
-            // the gaps.
-            const { config } = resolveLocalConfig(device.tier, this.localConfig ?? {});
-            return { profile: localProfileSummary(profile), config, tier: device.tier };
-        },
-
         // ------------------------------------------------------ extract
         async extract() {
             if (this.busy) return;
             this.busy = true;
             this.busyLabel = t('importAgent.wizard.sending');
-            const isLocal = this.engine === 'local';
-            let localProfile = null;
-            let localConfig = null;
-            let chunkLimits = LIMITS;
+            const chunkLimits = LIMITS;
             try {
-                if (isLocal) {
-                    // The local engine runs the model in this browser, so the
-                    // models and the runtime settings travel with the job.
-                    const local = await this.localSetup();
-                    localProfile = local.profile;
-                    localConfig = local.config;
-                    // The chunks are shaped so they fit the model's context.
-                    const { localLimits } = await import('./local/runner.js');
-                    chunkLimits = localLimits(local.config);
-                }
                 const sourcesMeta = this.usableFiles.map((file) => ({ name: file.name }));
                 if (this.pastedText.trim()) sourcesMeta.push({ name: 'Typed text' });
                 if (sourcesMeta.length === 0) throw new api.ImportApiError('BAD_REQUEST');
@@ -537,9 +455,7 @@ export function importAgentWizard() {
                     sources_meta: sourcesMeta,
                     section: this.section || null,
                     defaults: {},
-                    inference_mode: isLocal ? 'local' : 'cloud',
-                    local_profile: localProfile,
-                    local_config: localConfig,
+                    inference_mode: 'cloud',
                 });
                 const jobId = created.job_id;
                 this.job = await api.fetchJob(jobId);
@@ -600,12 +516,6 @@ export function importAgentWizard() {
             this.cancelRequested = false;
             this.pumpFailed = false;
             try {
-                // The local engine does the extraction in this browser; the
-                // cloud engine keeps it on the server.
-                if (this.job?.config?.inference_mode === 'local') {
-                    await this.localPumpLoop();
-                    return;
-                }
                 while (!this.cancelRequested && this.step === 'extracting') {
                     let response;
                     try {
@@ -659,65 +569,6 @@ export function importAgentWizard() {
             }
         },
 
-        /**
-         * The local pump: the browser claims the chunks and runs the model.
-         *
-         * The server only keeps the bookkeeping. The progress labels say
-         * what the machine is doing, because a local run is slower and the
-         * user needs to see that it is working.
-         */
-        async localPumpLoop() {
-            const controller = new AbortController();
-            this.localAbort = controller;
-            this.localFailures = [];
-            try {
-                const { runLocalImport } = await import('./local/runner.js');
-                const localResult = await runLocalImport({
-                    api,
-                    jobId: this.job.id,
-                    hints: this.hints?.trim() ?? '',
-                    config: this.localConfig ?? {},
-                    signal: controller.signal,
-                    onProgress: (event) => {
-                        if (event?.phase === 'ocr') this.localPhase = 'reading_photos';
-                        else if (event?.phase === 'extract') this.localPhase = 'extracting';
-                        else if (event?.phase === 'loading_models' || event?.phase === 'loading_model') this.localPhase = 'loading_model';
-                        else if (event?.phase === 'done') this.localPhase = '';
-                        else if (event?.phase === 'result_failed') this.noteChunkFailure(event.chunk, event.code, event.detail);
-                        else if (event?.phase === 'chunk_failed' || event?.phase === 'submit_failed') {
-                            this.noteChunkFailure(event.chunk, event.error?.code, event.error?.message);
-                        }
-                        if (event?.progress) this.progress = { ...this.progress, ...event.progress };
-                    },
-                });
-                // A drift found after the chunk ran is returned rather than
-                // thrown (the other parallel chunks have to settle first).
-                if (localResult?.error) throw localResult.error;
-                this.localPhase = '';
-                const overview = await this.loadJobOverview();
-                this.jobStatus = overview?.status ?? this.jobStatus;
-                if (this.jobStatus === 'review') {
-                    await this.enterReview();
-                } else if (this.jobStatus === 'cancelled') {
-                    this.step = 'add';
-                    this.job = null;
-                }
-            } catch (error) {
-                if (error?.code === 'CANCELLED' || this.cancelRequested) {
-                    this.step = 'add';
-                    this.job = null;
-                    return;
-                }
-                this.pumpError = error;
-                this.pumpFailed = true;
-                this.showFailure(error);
-            } finally {
-                this.localAbort = null;
-                this.localPhase = '';
-                this.pumpActive = false;
-            }
-        },
-
         /** Continue an import that stopped (the worker died, the user paused). */
         async resumeImport() {
             if (!this.job || this.busy) return;
@@ -740,9 +591,6 @@ export function importAgentWizard() {
         async cancelJob() {
             if (!this.job) return;
             this.cancelRequested = true;
-            // The local run stops in the browser: the model call is aborted
-            // and the chunk goes back to the queue.
-            this.localAbort?.abort();
             try {
                 await api.callJob('cancel', { job_id: this.job.id });
             } catch (error) {

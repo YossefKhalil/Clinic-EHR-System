@@ -17,17 +17,13 @@
     "check:i18n": "node scripts/check-local-i18n.mjs"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.3.1",
     "@mlc-ai/web-llm": "0.2.87",
     "@supabase/supabase-js": "^2.45.0",
-    "@wllama/wllama": "^3.8.1",
     "alpinejs": "^3.14.0",
     "bootstrap": "^5.3.3",
     "bootstrap-icons": "^1.11.3",
-    "hash-wasm": "^4.12.0",
     "js-yaml": "^4.1.0",
     "mammoth": "^1.13.0",
-    "onnxruntime-web": "^1.30.0",
     "pdfjs-dist": "^6.4.299",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },

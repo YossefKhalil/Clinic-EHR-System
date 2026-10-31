@@ -21,7 +21,6 @@ import {
     validateCustomModel,
 } from './catalog.js';
 import { v2ErrorKey } from './errors.js';
-import { v2Enabled } from './flag.js';
 import {
     clearV2Profile,
     loadSelectedModelId,
@@ -43,7 +42,6 @@ function blankDraft() {
 
 export function localAiV2() {
     return {
-        enabled: false,
         profile: null,
         device: null,
         capacity: null,
@@ -63,8 +61,6 @@ export function localAiV2() {
         draft: blankDraft(),
 
         async init() {
-            this.enabled = v2Enabled();
-            if (!this.enabled) return;
             this.refresh();
             this.profile = loadV2Profile();
             this.selectedId = loadSelectedModelId() ?? this.profile?.modelId ?? this.models[0]?.id ?? null;

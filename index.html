@@ -1210,11 +1210,10 @@
                         <div class="card-body">
                             <!-- Which engine runs the import: the clinic chose it
                                  in the settings, the wizard only shows it. -->
-                            <div class="alert py-2 px-3 small mb-3" :class="engine === 'local' ? 'alert-success' : 'alert-light border'">
-                                <i class="bi me-1" :class="engine === 'local' ? 'bi-pc-display' : 'bi-cloud'"></i>
-                                <strong x-text="engine === 'local' ? t('importAgent.wizard.localEngine') : t('importAgent.wizard.cloudEngine')"></strong>
-                                <span class="ms-1" x-text="engine === 'local' ? t('importAgent.wizard.localEngineHint') : t('importAgent.wizard.cloudEngineHint')"></span>
-                                <div class="small mt-1" x-show="engine === 'local' && !localModelReady" x-text="t('importAgent.wizard.localNoModel')"></div>
+                            <div class="alert alert-light border py-2 px-3 small mb-3">
+                                <i class="bi bi-cloud me-1"></i>
+                                <strong x-text="t('importAgent.wizard.cloudEngine')"></strong>
+                                <span class="ms-1" x-text="t('importAgent.wizard.cloudEngineHint')"></span>
                             </div>
                             <label class="dropzone-hero d-block border border-2 border-dashed rounded-4 text-center px-4 py-5 position-relative" style="cursor:pointer">
                                 <span class="dropzone-icon d-inline-flex align-items-center justify-content-center rounded-circle bg-primary-subtle text-primary mb-3">
@@ -1294,8 +1293,7 @@
                             <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
                                 <h5 class="card-title mb-0">
                                     <span class="spinner-border spinner-border-sm text-primary me-2"></span>
-                                    <span x-show="localPhase" x-text="t('importAgent.progress.local.' + localPhase)"></span>
-                                    <span x-show="!localPhase" x-text="banners.some(b => b.code === 'PROVIDER_RATE_LIMITED' || b.code === 'CHUNKS_RATE_LIMITED') ? t('importAgent.progress.waiting') : t('importAgent.progress.working')"></span>
+                                    <span x-text="banners.some(b => b.code === 'PROVIDER_RATE_LIMITED' || b.code === 'CHUNKS_RATE_LIMITED') ? t('importAgent.progress.waiting') : t('importAgent.progress.working')"></span>
                                 </h5>
                                 <button type="button" class="btn btn-sm btn-outline-danger" @click="cancelJob()" x-text="t('importAgent.wizard.cancel')"></button>
                             </div>
@@ -2578,8 +2576,6 @@
                             <label class="btn btn-sm btn-outline-secondary" for="ai-engine-off"><i class="bi bi-power me-1"></i><span x-text="t('aiSettings.engine.off')"></span></label>
                             <input type="radio" class="btn-check" name="ai-engine" id="ai-engine-cloud" value="cloud" x-model="aiEngine" @change="aiOnEngineChange('cloud')">
                             <label class="btn btn-sm btn-outline-secondary" for="ai-engine-cloud"><i class="bi bi-cloud me-1"></i><span x-text="t('aiSettings.engine.cloud')"></span></label>
-                            <input type="radio" class="btn-check" name="ai-engine" id="ai-engine-local" value="local" x-model="aiEngine" @change="aiOnEngineChange('local')" :disabled="!aiLocalEnabled">
-                            <label class="btn btn-sm btn-outline-secondary" for="ai-engine-local" :class="{ 'disabled': !aiLocalEnabled }" :title="aiLocalEnabled ? '' : t('aiSettings.local.disabledHint')"><i class="bi bi-pc-display me-1"></i><span x-text="t('aiSettings.engine.local')"></span></label>
                         </div>
                     </div>
                     <div class="card-body">
@@ -2754,525 +2750,179 @@
                                 <!-- ============================================================
                                      LOCAL
                                      ============================================================ -->
-                                <div x-show="aiEngine === 'local'" x-cloak>
-                                    <!-- ------------------------------------------------------------
-                                         LOCAL AI v2 (WebGPU / MLC): text only, one model, one button.
-                                         Hidden unless the flag is on (VITE_LOCAL_AI_V2=1).
-                                         ------------------------------------------------------------ -->
-                                    <!-- ------------------------------------------------------------
-                                         LOCAL AI v2 (WebGPU / MLC): text only, a model list, one button.
-                                         Hidden unless the flag is on (VITE_LOCAL_AI_V2=1 or ?localV2=1).
-                                         ------------------------------------------------------------ -->
-                                    <div x-data="localAiV2()" x-show="enabled" x-cloak class="border rounded-3 p-3 mb-3 bg-white">
-                                        <div class="d-flex align-items-center gap-2 mb-1">
-                                            <i class="bi bi-gpu-card text-secondary"></i>
-                                            <span class="fw-semibold" x-text="label('aiSettings.localV2.title')"></span>
-                                            <span class="badge rounded-pill ms-auto border"
-                                                  :class="status === 'ready' ? 'text-bg-success' : (status === 'blocked' || status === 'error' ? 'text-bg-danger' : 'text-bg-light')"
-                                                  x-text="statusText"></span>
-                                        </div>
-                                        <div class="small text-secondary" x-text="label('aiSettings.localV2.subtitle')"></div>
-                                        <div class="small text-secondary mt-1" x-show="deviceLabel" x-text="deviceLabel"></div>
 
-                                        <!-- model list -->
-                                        <div class="mt-3">
-                                            <div class="d-flex align-items-baseline justify-content-between gap-2">
-                                                <span class="small fw-semibold" x-text="label('aiSettings.localV2.models')"></span>
-                                                <span class="small text-secondary" x-text="label('aiSettings.localV2.modelsHint')"></span>
-                                            </div>
-                                            <div class="mt-1 border rounded-2" style="max-height: 16rem; overflow-y: auto;"
-                                                 role="radiogroup" :aria-label="label('aiSettings.localV2.models')">
-                                                <template x-for="row in rows" :key="row.id">
-                                                    <div class="d-flex align-items-start gap-2 px-2 py-2 border-bottom"
-                                                         :class="row.active ? 'bg-primary-subtle' : ''">
-                                                        <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none"
-                                                                role="radio" :aria-checked="row.active ? 'true' : 'false'"
-                                                                :aria-label="row.name" @click="select(row.id)" :disabled="busy">
-                                                            <i class="bi" :class="row.active ? 'bi-record-circle text-primary' : 'bi-circle text-secondary'"></i>
-                                                        </button>
-                                                        <button type="button" class="border-0 bg-transparent text-start flex-grow-1 p-0"
-                                                                @click="select(row.id)" :disabled="busy">
-                                                            <span class="d-flex flex-wrap align-items-center gap-1">
-                                                                <span class="small fw-semibold" x-text="row.name"></span>
-                                                                <span class="badge rounded-pill border text-secondary fw-normal" x-show="row.custom"
-                                                                      x-text="label('aiSettings.localV2.customTag')"></span>
-                                                                <span class="badge rounded-pill text-bg-light border fw-normal" x-show="row.tierLabel"
-                                                                      x-text="row.tierLabel"></span>
-                                                            </span>
-                                                            <span class="d-block small text-secondary" x-text="row.meta"></span>
-                                                            <span class="d-block small text-danger" x-show="!row.ok" x-text="row.fitText"></span>
-                                                        </button>
-                                                        <div class="text-end">
-                                                            <span class="small text-secondary d-block" dir="ltr" x-text="row.sizeLabel"></span>
-                                                            <button type="button" class="btn btn-sm btn-link text-danger p-0" x-show="row.custom"
-                                                                    :aria-label="label('aiSettings.localV2.custom.remove')"
-                                                                    @click="removeCustom(row.id)" :disabled="busy">
-                                                                <i class="bi bi-x-lg"></i>
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </template>
-                                            </div>
-                                            <div class="mt-1">
-                                                <button type="button" class="btn btn-sm btn-link text-decoration-none px-0"
-                                                        @click="toggleCustom()" :aria-expanded="customOpen ? 'true' : 'false'">
-                                                    <i class="bi bi-plus-lg me-1"></i><span x-text="label('aiSettings.localV2.custom.add')"></span>
+                            <div x-data="localAiV2()" x-cloak class="border rounded-3 p-3 mb-3 bg-white">
+                                <div class="d-flex align-items-center gap-2 mb-1">
+                                    <i class="bi bi-gpu-card text-secondary"></i>
+                                    <span class="fw-semibold" x-text="label('aiSettings.localV2.title')"></span>
+                                    <span class="badge rounded-pill ms-auto border"
+                                          :class="status === 'ready' ? 'text-bg-success' : (status === 'blocked' || status === 'error' ? 'text-bg-danger' : 'text-bg-light')"
+                                          x-text="statusText"></span>
+                                </div>
+                                <div class="small text-secondary" x-text="label('aiSettings.localV2.subtitle')"></div>
+                                <div class="small text-secondary mt-1" x-show="deviceLabel" x-text="deviceLabel"></div>
+
+                                <!-- model list -->
+                                <div class="mt-3">
+                                    <div class="d-flex align-items-baseline justify-content-between gap-2">
+                                        <span class="small fw-semibold" x-text="label('aiSettings.localV2.models')"></span>
+                                        <span class="small text-secondary" x-text="label('aiSettings.localV2.modelsHint')"></span>
+                                    </div>
+                                    <div class="mt-1 border rounded-2" style="max-height: 16rem; overflow-y: auto;"
+                                         role="radiogroup" :aria-label="label('aiSettings.localV2.models')">
+                                        <template x-for="row in rows" :key="row.id">
+                                            <div class="d-flex align-items-start gap-2 px-2 py-2 border-bottom"
+                                                 :class="row.active ? 'bg-primary-subtle' : ''">
+                                                <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none"
+                                                        role="radio" :aria-checked="row.active ? 'true' : 'false'"
+                                                        :aria-label="row.name" @click="select(row.id)" :disabled="busy">
+                                                    <i class="bi" :class="row.active ? 'bi-record-circle text-primary' : 'bi-circle text-secondary'"></i>
                                                 </button>
-                                            </div>
-                                        </div>
-
-                                        <!-- add a model of your own -->
-                                        <div class="border rounded-2 p-2 mt-1" x-show="customOpen" x-cloak>
-                                            <div class="small text-secondary mb-2" x-text="label('aiSettings.localV2.custom.hint')"></div>
-                                            <div class="row g-2">
-                                                <div class="col-12 col-md-6">
-                                                    <label class="form-label small fw-semibold mb-0" for="ai-v2-custom-id"
-                                                           x-text="label('aiSettings.localV2.custom.id')"></label>
-                                                    <input type="text" class="form-control form-control-sm" id="ai-v2-custom-id" dir="ltr"
-                                                           placeholder="MiniCPM2-2B-q4f16_1-MLC" x-model="draft.id">
-                                                </div>
-                                                <div class="col-12 col-md-6">
-                                                    <label class="form-label small fw-semibold mb-0" for="ai-v2-custom-name"
-                                                           x-text="label('aiSettings.localV2.custom.name')"></label>
-                                                    <input type="text" class="form-control form-control-sm" id="ai-v2-custom-name" x-model="draft.name">
-                                                </div>
-                                                <div class="col-12">
-                                                    <label class="form-label small fw-semibold mb-0" for="ai-v2-custom-repo"
-                                                           x-text="label('aiSettings.localV2.custom.repo')"></label>
-                                                    <input type="url" class="form-control form-control-sm" id="ai-v2-custom-repo" dir="ltr"
-                                                           placeholder="https://huggingface.co/mlc-ai/...-MLC" x-model="draft.baseUrl">
-                                                    <div class="form-text" x-text="label('aiSettings.localV2.custom.repoHint')"></div>
-                                                </div>
-                                                <div class="col-12">
-                                                    <label class="form-label small fw-semibold mb-0" for="ai-v2-custom-lib"
-                                                           x-text="label('aiSettings.localV2.custom.lib')"></label>
-                                                    <input type="url" class="form-control form-control-sm" id="ai-v2-custom-lib" dir="ltr"
-                                                           placeholder="https://...-webgpu.wasm" x-model="draft.modelLib">
-                                                    <div class="form-text" x-text="label('aiSettings.localV2.custom.libHint')"></div>
-                                                </div>
-                                                <div class="col-6 col-md-3">
-                                                    <label class="form-label small fw-semibold mb-0" for="ai-v2-custom-context"
-                                                           x-text="label('aiSettings.localV2.contextTokens')"></label>
-                                                    <input type="number" class="form-control form-control-sm" id="ai-v2-custom-context"
-                                                           min="512" step="512" dir="ltr" x-model="draft.contextWindow">
-                                                </div>
-                                                <div class="col-6 col-md-3">
-                                                    <label class="form-label small fw-semibold mb-0" for="ai-v2-custom-size"
-                                                           x-text="label('aiSettings.localV2.custom.size')"></label>
-                                                    <input type="number" class="form-control form-control-sm" id="ai-v2-custom-size"
-                                                           min="0" step="0.1" dir="ltr" placeholder="2.1" x-model="draft.downloadGb">
-                                                </div>
-                                            </div>
-                                            <div class="small text-danger mt-1" x-show="customErrorText" x-text="customErrorText"></div>
-                                            <div class="d-flex flex-wrap gap-2 mt-2">
-                                                <button type="button" class="btn btn-sm btn-primary" @click="saveCustom()" :disabled="busy"
-                                                        x-text="label('aiSettings.localV2.custom.save')"></button>
-                                                <button type="button" class="btn btn-sm btn-outline-secondary" @click="toggleCustom()"
-                                                        x-text="label('aiSettings.localV2.custom.cancel')"></button>
-                                            </div>
-                                        </div>
-
-                                        <!-- the picked model -->
-                                        <div class="mt-3" x-show="model">
-                                            <div class="small">
-                                                <span class="fw-semibold" x-text="model?.name"></span>
-                                                <span class="text-secondary" x-text="' · ' + sizeLabel"></span>
-                                                <span class="text-secondary" x-text="' · ' + label('aiSettings.localV2.context', { count: contextLabel })"></span>
-                                            </div>
-                                            <div class="alert alert-warning py-2 px-3 small mt-2 mb-0" x-show="errorText" x-text="errorText"></div>
-                                            <div class="progress mt-2" x-show="status === 'downloading'" style="height: .5rem;">
-                                                <div class="progress-bar" role="progressbar" :style="'width: ' + progress + '%'"
-                                                     :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100"></div>
-                                            </div>
-                                            <div class="small text-secondary mt-1" x-show="status === 'downloading'" dir="ltr" x-text="progressText"></div>
-                                            <div class="d-flex flex-wrap gap-2 mt-2">
-                                                <button type="button" class="btn btn-sm btn-primary" x-show="showDownload" @click="download()" :disabled="busy">
-                                                    <span class="spinner-border spinner-border-sm me-1" x-show="busy" x-cloak></span>
-                                                    <i class="bi bi-download me-1"></i><span x-text="label('aiSettings.localV2.download')"></span>
+                                                <button type="button" class="border-0 bg-transparent text-start flex-grow-1 p-0"
+                                                        @click="select(row.id)" :disabled="busy">
+                                                    <span class="d-flex flex-wrap align-items-center gap-1">
+                                                        <span class="small fw-semibold" x-text="row.name"></span>
+                                                        <span class="badge rounded-pill border text-secondary fw-normal" x-show="row.custom"
+                                                              x-text="label('aiSettings.localV2.customTag')"></span>
+                                                        <span class="badge rounded-pill text-bg-light border fw-normal" x-show="row.tierLabel"
+                                                              x-text="row.tierLabel"></span>
+                                                    </span>
+                                                    <span class="d-block small text-secondary" x-text="row.meta"></span>
+                                                    <span class="d-block small text-danger" x-show="!row.ok" x-text="row.fitText"></span>
                                                 </button>
-                                                <button type="button" class="btn btn-sm btn-outline-primary" x-show="showRetry" @click="retry()" :disabled="busy">
-                                                    <i class="bi bi-arrow-clockwise me-1"></i><span x-text="label('aiSettings.localV2.retry')"></span>
-                                                </button>
-                                                <button type="button" class="btn btn-sm btn-outline-danger" x-show="showRemove" @click="remove()" :disabled="busy">
-                                                    <i class="bi bi-trash me-1"></i><span x-text="label('aiSettings.localV2.remove')"></span>
-                                                </button>
-                                                <button type="button" class="btn btn-sm btn-link text-secondary text-decoration-none"
-                                                        x-show="status === 'ready' || status === 'idle'" @click="toggleAdvanced()"
-                                                        :aria-expanded="advancedOpen ? 'true' : 'false'">
-                                                    <i class="bi bi-sliders me-1"></i><span x-text="label('aiSettings.localV2.advanced')"></span>
-                                                    <i class="bi ms-1" :class="advancedOpen ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
-                                                </button>
-                                            </div>
-                                            <div class="small text-secondary mt-2" x-text="label('aiSettings.localV2.textOnly')"></div>
-                                            <div class="small text-secondary" x-show="storageLabel" x-text="label('aiSettings.localV2.storageFree', { size: storageLabel })"></div>
-                                            <div class="small text-secondary" x-show="status === 'ready'" x-text="label('aiSettings.localV2.cacheNote')"></div>
-                                            <div class="border-top mt-3 pt-2" x-show="advancedOpen" x-cloak>
-                                                <div class="small text-secondary mb-2" x-text="label('aiSettings.localV2.advancedHint')"></div>
-                                                <div class="row g-2">
-                                                    <div class="col-6 col-md-3">
-                                                        <label class="form-label small fw-semibold mb-0" for="ai-v2-context" x-text="label('aiSettings.localV2.contextTokens')"></label>
-                                                        <input type="number" class="form-control form-control-sm" id="ai-v2-context" min="512" step="512"
-                                                               :max="model?.contextWindow" :value="contextWindow" @change="updateContext($event.target.value)" dir="ltr">
-                                                    </div>
-                                                    <div class="col-6 col-md-3">
-                                                        <label class="form-label small fw-semibold mb-0" x-text="label('aiSettings.localV2.temperature')"></label>
-                                                        <input type="number" class="form-control form-control-sm" min="0" max="2" step="0.1"
-                                                               :value="sampling.temperature" @change="updateSampling('temperature', $event.target.value)" dir="ltr">
-                                                    </div>
-                                                    <div class="col-6 col-md-3">
-                                                        <label class="form-label small fw-semibold mb-0" x-text="label('aiSettings.localV2.topP')"></label>
-                                                        <input type="number" class="form-control form-control-sm" min="0.05" max="1" step="0.05"
-                                                               :value="sampling.topP" @change="updateSampling('topP', $event.target.value)" dir="ltr">
-                                                    </div>
-                                                    <div class="col-6 col-md-3">
-                                                        <label class="form-label small fw-semibold mb-0" x-text="label('aiSettings.localV2.frequencyPenalty')"></label>
-                                                        <input type="number" class="form-control form-control-sm" min="-2" max="2" step="0.1"
-                                                               :value="sampling.frequencyPenalty" @change="updateSampling('frequencyPenalty', $event.target.value)" dir="ltr">
-                                                    </div>
-                                                </div>
-                                                <div class="small text-secondary mt-2" x-text="licenseText"></div>
-                                            </div>
-                                            <div class="small text-secondary mt-1" x-show="model?.notes" x-text="model?.notes"></div>
-                                        </div>
-                                    </div>
-
-
-                                    <div class="d-flex flex-wrap gap-2 mb-1" role="group" :aria-label="t('aiSettings.local.readiness')">
-                                        <span class="dev-chip" x-show="aiLocalDevice"><span class="dot" :class="'dot-' + aiLocalSignal('webgpu')"></span><span x-text="t('aiSettings.local.chip.webgpu')"></span></span>
-                                        <span class="dev-chip" x-show="aiLocalDevice"><span class="dot" :class="'dot-' + aiLocalSignal('threads')"></span><span x-text="aiLocalThreadsLabel()"></span></span>
-                                        <span class="dev-chip" x-show="aiLocalDevice"><span class="dot" :class="'dot-' + aiLocalSignal('memory')"></span><span x-text="aiLocalMemoryLabel()"></span></span>
-                                        <span class="dev-chip" x-show="aiLocalDevice"><span class="dot" :class="'dot-' + aiLocalSignal('storage')"></span><span x-text="aiLocalStorageLabel()"></span></span>
-                                        <span class="dev-chip" x-show="aiLocalDevice"><i class="bi bi-cpu"></i><span x-text="t('aiSettings.local.chip.tier', { tier: aiLocalTierLabel() })"></span></span>
-                                        <span class="dev-chip"><i class="bi bi-box"></i><span x-text="aiLocalRuntimeLabel()"></span></span>
-                                    </div>
-                                    <div class="form-text mb-3" x-show="aiLocalDevice" x-text="t('aiSettings.local.tierHint')"></div>
-
-                                    <div class="alert alert-info py-2 px-3 small" x-show="aiLocalMessage?.type === 'info'" x-cloak x-text="aiLocalMessage ? t(aiLocalMessage.key, aiLocalMessage.params) : ''"></div>
-                                    <div class="alert alert-warning py-2 px-3 small" x-show="aiLocalMessage?.type === 'warning'" x-cloak x-text="aiLocalMessage ? t(aiLocalMessage.key, aiLocalMessage.params) : ''"></div>
-                                    <div class="alert alert-danger py-2 px-3 small" x-show="aiLocalMessage?.type === 'danger'" x-cloak>
-                                        <div class="d-flex flex-wrap align-items-center gap-2">
-                                            <span class="me-auto" x-text="aiLocalMessage ? t(aiLocalMessage.key, aiLocalMessage.params) : ''"></span>
-                                            <button type="button" class="btn btn-sm btn-outline-danger" x-show="aiLocalMessage?.allowAnyway" @click="aiLocalLoadAnyway()">
-                                                <span x-text="t('aiSettings.local.loadAnyway')"></span>
-                                            </button>
-                                        </div>
-                                        <div class="form-text text-danger-emphasis mt-1" x-show="aiLocalMessage?.allowAnyway" x-text="t('aiSettings.local.loadAnywayHint')"></div>
-                                    </div>
-                                    <div class="alert alert-success py-2 px-3 small" x-show="aiLocalMessage?.type === 'success'" x-cloak x-text="aiLocalMessage ? t(aiLocalMessage.key, aiLocalMessage.params) : ''"></div>
-
-                                    <div class="row g-2 align-items-end mb-1">
-                                        <div class="col-12 col-md-5">
-                                            <label class="form-label small fw-semibold mb-1" for="ai-local-layout" x-text="t('aiSettings.local.layout')"></label>
-                                            <select class="form-select" id="ai-local-layout" x-model="aiLocal.mode" @change="aiOnLocalLayoutChange()">
-                                                <option value="single" x-text="t('aiSettings.local.layoutSingle')"></option>
-                                                <option value="split" x-text="t('aiSettings.local.layoutSplit')"></option>
-                                            </select>
-                                        </div>
-                                        <div class="col-12 col-md-7">
-                                            <div class="form-text mb-0" x-text="aiLocal.mode === 'split' ? t('aiSettings.local.layoutSplitHint') : t('aiSettings.local.layoutSingleHint')"></div>
-                                        </div>
-                                    </div>
-
-                                    <hr class="my-3">
-
-                                    <!-- Single layout: one multimodal model -->
-                                    <div x-show="aiLocal.mode === 'single'">
-                                        <span class="title-inline" x-text="t('aiSettings.local.multimodalTitle')"></span>
-                                        <span class="badge rounded-pill text-bg-light border align-middle ms-2" :class="aiLocalBadgeClass(aiLocal.multimodal.status)" x-text="aiLocalBadgeLabel(aiLocal.multimodal)"></span>
-
-                                        <div class="model-card p-3 mt-2">
-                                            <div class="row g-2 align-items-end">
-                                                <div class="col-12 col-md">
-                                                    <label class="form-label small fw-semibold mb-1" x-text="t('aiSettings.local.modelFile')"></label>
-                                                    <input type="text" class="form-control file-path" :value="aiLocal.multimodal.name" :placeholder="t('aiSettings.local.noFile')" readonly>
-                                                </div>
-                                                <div class="col-12 col-md-auto d-flex flex-wrap align-items-center gap-2">
-                                                    <button type="button" class="btn btn-outline-secondary" @click="aiLocalBrowse('multimodal')" :disabled="aiLocalBrowsing !== null || aiLocalVerifying !== null">
-                                                        <span class="spinner-border spinner-border-sm me-1" x-show="aiLocalBrowsing === 'multimodal'" x-cloak></span>
-                                                        <i class="bi bi-folder2-open me-1" x-show="aiLocalBrowsing !== 'multimodal'"></i>
-                                                        <span x-text="t('aiSettings.local.browse')"></span>
-                                                    </button>
-                                                    <button type="button" class="btn btn-outline-secondary" @click="aiLocalVerify('multimodal')" :disabled="!aiLocal.multimodal.name || aiLocalVerifying !== null || aiLocalBrowsing !== null">
-                                                        <span class="spinner-border spinner-border-sm me-1" x-show="aiLocalVerifying === 'multimodal'" x-cloak></span>
-                                                        <i class="bi bi-shield-check me-1" x-show="aiLocalVerifying !== 'multimodal'"></i>
-                                                        <span x-text="t('aiSettings.local.verify')"></span>
-                                                    </button>
-                                                    <button type="button" class="btn btn-link btn-sm text-danger text-decoration-none p-0" x-show="aiLocal.multimodal.name" @click="aiLocalRemove('multimodal')" x-text="t('aiSettings.local.remove')"></button>
-                                                </div>
-                                            </div>
-                                            <div class="small mt-2" x-show="aiLocal.multimodal.name">
-                                                <span :class="aiLocalSlotClass(aiLocal.multimodal)" x-text="aiLocalSlotMessage(aiLocal.multimodal)"></span>
-                                                <span class="ms-2 text-muted" x-text="aiLocalFileMeta(aiLocal.multimodal)"></span>
-                                                <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 ms-2" x-show="aiLocal.multimodal.status === 'error'" @click="aiLocalRecheck('multimodal')" :disabled="aiLocalVerifying !== null" x-text="t('aiSettings.local.recheck')"></button>
-                                            </div>
-                                            <div class="alert alert-warning py-2 px-3 small mt-2 mb-0" x-show="aiLocalSingleVisionWarning()" x-cloak x-text="aiLocalSingleVisionWarning()"></div>
-
-                                            <div class="accordion accordion-flush mt-3" id="ai-local-single-config">
-                                                <div class="accordion-item border-0">
-                                                    <h2 class="accordion-header">
-                                                        <button class="accordion-button collapsed bg-light rounded" type="button" data-bs-toggle="collapse" data-bs-target="#ai-local-single-config-body">
-                                                            <i class="bi bi-sliders me-2"></i><span x-text="t('aiSettings.local.modelConfig')"></span>
-                                                        </button>
-                                                    </h2>
-                                                    <div id="ai-local-single-config-body" class="accordion-collapse collapse" data-bs-parent="#ai-local-single-config">
-                                                        <div class="accordion-body">
-                                                            <div class="row g-2">
-                                                                <template x-for="field in aiLocalSingleTextFields" :key="field.key">
-                                                                    <div :class="field.width || 'col-6 col-md-3'">
-                                                                        <template x-if="field.type === 'switch'">
-                                                                            <div>
-                                                                                <div class="form-check form-switch mt-4">
-                                                                                    <input class="form-check-input" type="checkbox" :id="field.idPrefix + '-' + field.key" :checked="aiLocal.config.text[field.key]" @change="aiLocalSetConfig('text', field.key, $event.target.checked); aiLocalValidateConfigField('text', field.key)" :class="{ 'is-invalid': aiLocalConfigInvalid('text.' + field.key) }" :disabled="aiLocalFieldDisabled(field)">
-                                                                                    <label class="form-check-label small" :for="field.idPrefix + '-' + field.key" x-text="t(field.labelKey)"></label>
-                                                                                </div>
-                                                                                <div class="small text-danger" x-show="aiLocalConfigInvalid('text.' + field.key)" x-text="t('aiSettings.local.invalidValue')"></div>
-                                                                            </div>
-                                                                        </template>
-                                                                        <template x-if="field.type !== 'switch'">
-                                                                            <div>
-                                                                                <label class="form-label small mb-1" :for="field.idPrefix + '-' + field.key" x-text="t(field.labelKey)"></label>
-                                                                                <template x-if="field.type === 'select'">
-                                                                                    <select class="form-select form-select-sm" :id="field.idPrefix + '-' + field.key" :value="aiLocal.config.text[field.key]" @change="aiLocalSetConfig('text', field.key, $event.target.value); aiLocalValidateConfigField('text', field.key)" @blur="aiLocalValidateConfigField('text', field.key)" :class="{ 'is-invalid': aiLocalConfigInvalid('text.' + field.key) }" :disabled="aiLocalFieldDisabled(field)">
-                                                                                        <template x-for="option in field.options" :key="option"><option :value="option" x-text="option"></option></template>
-                                                                                    </select>
-                                                                                </template>
-                                                                                <template x-if="field.type === 'number'">
-                                                                                    <input type="number" class="form-control form-control-sm" :id="field.idPrefix + '-' + field.key" :min="field.min" :max="field.max" :step="field.step || 1" :value="aiLocal.config.text[field.key]" @change="aiLocalSetConfig('text', field.key, $event.target.value); aiLocalValidateConfigField('text', field.key)" @blur="aiLocalValidateConfigField('text', field.key)" :class="{ 'is-invalid': aiLocalConfigInvalid('text.' + field.key) }" :disabled="aiLocalFieldDisabled(field)">
-                                                                                </template>
-                                                                                <template x-if="field.type === 'text'">
-                                                                                    <input type="text" class="form-control form-control-sm font-monospace" :id="field.idPrefix + '-' + field.key" :value="aiLocal.config.text[field.key] || ''" :placeholder="t('aiSettings.local.chatTemplateAuto')" @change="aiLocalSetConfig('text', field.key, $event.target.value); aiLocalValidateConfigField('text', field.key)" @blur="aiLocalValidateConfigField('text', field.key)" :class="{ 'is-invalid': aiLocalConfigInvalid('text.' + field.key) }" dir="ltr" :disabled="aiLocalFieldDisabled(field)">
-                                                                                </template>
-                                                                                <div class="form-text" x-show="field.hintKey || aiLocalFieldDisabled(field)" x-text="aiLocalFieldHint(field)"></div>
-                                                                                <div class="small text-danger" x-show="aiLocalConfigInvalid('text.' + field.key)" x-text="t('aiSettings.local.invalidValue')"></div>
-                                                                            </div>
-                                                                        </template>
-                                                                    </div>
-                                                                </template>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <!-- The optional projector that lets the model read photos. -->
-                                        <div class="model-card p-3 mt-3">
-                                            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-                                                <span class="title-inline" x-text="t('aiSettings.local.mmprojTitle')"></span>
-                                                <span class="badge rounded-pill text-bg-light border" x-text="t('aiSettings.local.mmprojOptional')"></span>
-                                                <span class="badge rounded-pill text-bg-light border ms-auto" :class="aiLocalBadgeClass(aiLocal.mmproj.status)" x-text="aiLocalBadgeLabel(aiLocal.mmproj)"></span>
-                                            </div>
-                                            <div class="row g-2 align-items-end">
-                                                <div class="col-12 col-md">
-                                                    <label class="form-label small fw-semibold mb-1" x-text="t('aiSettings.local.mmprojFile')"></label>
-                                                    <input type="text" class="form-control file-path" :value="aiLocal.mmproj.name" :placeholder="t('aiSettings.local.noFile')" readonly>
-                                                </div>
-                                                <div class="col-12 col-md-auto d-flex flex-wrap align-items-center gap-2">
-                                                    <button type="button" class="btn btn-outline-secondary" @click="aiLocalBrowse('mmproj')" :disabled="aiLocalBrowsing !== null || aiLocalVerifying !== null">
-                                                        <span class="spinner-border spinner-border-sm me-1" x-show="aiLocalBrowsing === 'mmproj'" x-cloak></span>
-                                                        <i class="bi bi-folder2-open me-1" x-show="aiLocalBrowsing !== 'mmproj'"></i>
-                                                        <span x-text="t('aiSettings.local.browse')"></span>
-                                                    </button>
-                                                    <button type="button" class="btn btn-outline-secondary" @click="aiLocalVerify('mmproj')" :disabled="!aiLocal.mmproj.name || aiLocalVerifying !== null || aiLocalBrowsing !== null">
-                                                        <span class="spinner-border spinner-border-sm me-1" x-show="aiLocalVerifying === 'mmproj'" x-cloak></span>
-                                                        <i class="bi bi-shield-check me-1" x-show="aiLocalVerifying !== 'mmproj'"></i>
-                                                        <span x-text="t('aiSettings.local.verify')"></span>
-                                                    </button>
-                                                    <button type="button" class="btn btn-link btn-sm text-danger text-decoration-none p-0" x-show="aiLocal.mmproj.name" @click="aiLocalRemove('mmproj')" x-text="t('aiSettings.local.remove')"></button>
-                                                </div>
-                                            </div>
-                                            <div class="small mt-2" x-show="aiLocal.mmproj.name">
-                                                <span :class="aiLocalSlotClass(aiLocal.mmproj)" x-text="aiLocalSlotMessage(aiLocal.mmproj)"></span>
-                                                <span class="ms-2 text-muted" x-text="aiLocalFileMeta(aiLocal.mmproj)"></span>
-                                                <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 ms-2" x-show="aiLocal.mmproj.status === 'error'" @click="aiLocalRecheck('mmproj')" :disabled="aiLocalVerifying !== null" x-text="t('aiSettings.local.recheck')"></button>
-                                            </div>
-                                            <div class="form-text" x-text="t('aiSettings.local.mmprojHint')"></div>
-                                        </div>
-                                    </div>
-
-                                    <!-- Split layout: a text model and a vision model -->
-                                    <div x-show="aiLocal.mode === 'split'">
-                                        <span class="title-inline" x-text="t('aiSettings.local.splitTitle')"></span>
-
-                                        <div class="model-card p-3 mt-2">
-                                            <div class="d-flex align-items-center gap-2 mb-2">
-                                                <span class="badge text-bg-primary-subtle border border-primary-subtle text-primary-emphasis" x-text="t('aiSettings.local.textBadge')"></span>
-                                                <span class="badge rounded-pill text-bg-light border ms-auto" :class="aiLocalBadgeClass(aiLocal.text.status)" x-text="aiLocalBadgeLabel(aiLocal.text)"></span>
-                                            </div>
-                                            <div class="row g-2 align-items-end">
-                                                <div class="col-12 col-md">
-                                                    <label class="form-label small fw-semibold mb-1" x-text="t('aiSettings.local.textModel')"></label>
-                                                    <input type="text" class="form-control file-path" :value="aiLocal.text.name" :placeholder="t('aiSettings.local.noFile')" readonly>
-                                                </div>
-                                                <div class="col-12 col-md-auto d-flex flex-wrap align-items-center gap-2">
-                                                    <button type="button" class="btn btn-outline-secondary" @click="aiLocalBrowse('text')" :disabled="aiLocalBrowsing !== null || aiLocalVerifying !== null">
-                                                        <span class="spinner-border spinner-border-sm me-1" x-show="aiLocalBrowsing === 'text'" x-cloak></span>
-                                                        <i class="bi bi-folder2-open me-1" x-show="aiLocalBrowsing !== 'text'"></i>
-                                                        <span x-text="t('aiSettings.local.browse')"></span>
-                                                    </button>
-                                                    <button type="button" class="btn btn-outline-secondary" @click="aiLocalVerify('text')" :disabled="!aiLocal.text.name || aiLocalVerifying !== null || aiLocalBrowsing !== null">
-                                                        <span class="spinner-border spinner-border-sm me-1" x-show="aiLocalVerifying === 'text'" x-cloak></span>
-                                                        <i class="bi bi-shield-check me-1" x-show="aiLocalVerifying !== 'text'"></i>
-                                                        <span x-text="t('aiSettings.local.verify')"></span>
-                                                    </button>
-                                                    <button type="button" class="btn btn-link btn-sm text-danger text-decoration-none p-0" x-show="aiLocal.text.name" @click="aiLocalRemove('text')" x-text="t('aiSettings.local.remove')"></button>
-                                                </div>
-                                            </div>
-                                            <div class="small mt-2" x-show="aiLocal.text.name">
-                                                <span :class="aiLocalSlotClass(aiLocal.text)" x-text="aiLocalSlotMessage(aiLocal.text)"></span>
-                                                <span class="ms-2 text-muted" x-text="aiLocalFileMeta(aiLocal.text)"></span>
-                                                <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 ms-2" x-show="aiLocal.text.status === 'error'" @click="aiLocalRecheck('text')" :disabled="aiLocalVerifying !== null" x-text="t('aiSettings.local.recheck')"></button>
-                                            </div>
-
-                                            <div class="accordion accordion-flush mt-3" id="ai-local-text-config">
-                                                <div class="accordion-item border-0">
-                                                    <h2 class="accordion-header">
-                                                        <button class="accordion-button collapsed bg-light rounded" type="button" data-bs-toggle="collapse" data-bs-target="#ai-local-text-config-body">
-                                                            <i class="bi bi-sliders me-2"></i><span x-text="t('aiSettings.local.modelConfig')"></span>
-                                                        </button>
-                                                    </h2>
-                                                    <div id="ai-local-text-config-body" class="accordion-collapse collapse" data-bs-parent="#ai-local-text-config">
-                                                        <div class="accordion-body">
-                                                            <div class="row g-2">
-                                                                <template x-for="field in aiLocalTextFields" :key="field.key">
-                                                                    <div :class="field.width || 'col-6 col-md-3'">
-                                                                        <template x-if="field.type === 'switch'">
-                                                                            <div>
-                                                                                <div class="form-check form-switch mt-4">
-                                                                                    <input class="form-check-input" type="checkbox" :id="field.idPrefix + '-' + field.key" :checked="aiLocal.config.text[field.key]" @change="aiLocalSetConfig('text', field.key, $event.target.checked); aiLocalValidateConfigField('text', field.key)" :class="{ 'is-invalid': aiLocalConfigInvalid('text.' + field.key) }" :disabled="aiLocalFieldDisabled(field)">
-                                                                                    <label class="form-check-label small" :for="field.idPrefix + '-' + field.key" x-text="t(field.labelKey)"></label>
-                                                                                </div>
-                                                                                <div class="small text-danger" x-show="aiLocalConfigInvalid('text.' + field.key)" x-text="t('aiSettings.local.invalidValue')"></div>
-                                                                            </div>
-                                                                        </template>
-                                                                        <template x-if="field.type !== 'switch'">
-                                                                            <div>
-                                                                                <label class="form-label small mb-1" :for="field.idPrefix + '-' + field.key" x-text="t(field.labelKey)"></label>
-                                                                                <template x-if="field.type === 'select'">
-                                                                                    <select class="form-select form-select-sm" :id="field.idPrefix + '-' + field.key" :value="aiLocal.config.text[field.key]" @change="aiLocalSetConfig('text', field.key, $event.target.value); aiLocalValidateConfigField('text', field.key)" @blur="aiLocalValidateConfigField('text', field.key)" :class="{ 'is-invalid': aiLocalConfigInvalid('text.' + field.key) }" :disabled="aiLocalFieldDisabled(field)">
-                                                                                        <template x-for="option in field.options" :key="option"><option :value="option" x-text="option"></option></template>
-                                                                                    </select>
-                                                                                </template>
-                                                                                <template x-if="field.type === 'number'">
-                                                                                    <input type="number" class="form-control form-control-sm" :id="field.idPrefix + '-' + field.key" :min="field.min" :max="field.max" :step="field.step || 1" :value="aiLocal.config.text[field.key]" @change="aiLocalSetConfig('text', field.key, $event.target.value); aiLocalValidateConfigField('text', field.key)" @blur="aiLocalValidateConfigField('text', field.key)" :class="{ 'is-invalid': aiLocalConfigInvalid('text.' + field.key) }" :disabled="aiLocalFieldDisabled(field)">
-                                                                                </template>
-                                                                                <template x-if="field.type === 'text'">
-                                                                                    <input type="text" class="form-control form-control-sm font-monospace" :id="field.idPrefix + '-' + field.key" :value="aiLocal.config.text[field.key] || ''" :placeholder="t('aiSettings.local.chatTemplateAuto')" @change="aiLocalSetConfig('text', field.key, $event.target.value); aiLocalValidateConfigField('text', field.key)" @blur="aiLocalValidateConfigField('text', field.key)" :class="{ 'is-invalid': aiLocalConfigInvalid('text.' + field.key) }" dir="ltr" :disabled="aiLocalFieldDisabled(field)">
-                                                                                </template>
-                                                                                <div class="form-text" x-show="field.hintKey || aiLocalFieldDisabled(field)" x-text="aiLocalFieldHint(field)"></div>
-                                                                                <div class="small text-danger" x-show="aiLocalConfigInvalid('text.' + field.key)" x-text="t('aiSettings.local.invalidValue')"></div>
-                                                                            </div>
-                                                                        </template>
-                                                                    </div>
-                                                                </template>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div class="model-card p-3">
-                                            <div class="d-flex align-items-center gap-2 mb-2">
-                                                <span class="badge text-bg-warning-subtle border border-warning-subtle text-warning-emphasis" x-text="t('aiSettings.local.visionBadge')"></span>
-                                                <span class="badge rounded-pill text-bg-light border ms-auto" :class="aiLocalBadgeClass(aiLocal.vision.status)" x-text="aiLocalBadgeLabel(aiLocal.vision)"></span>
-                                            </div>
-                                            <div class="row g-2 align-items-end">
-                                                <div class="col-12 col-md">
-                                                    <label class="form-label small fw-semibold mb-1" x-text="t('aiSettings.local.visionModel')"></label>
-                                                    <input type="text" class="form-control file-path" :value="aiLocal.vision.name" :placeholder="t('aiSettings.local.noFile')" readonly>
-                                                </div>
-                                                <div class="col-12 col-md-auto d-flex flex-wrap align-items-center gap-2">
-                                                    <button type="button" class="btn btn-outline-secondary" @click="aiLocalBrowse('vision')" :disabled="aiLocalBrowsing !== null || aiLocalVerifying !== null">
-                                                        <span class="spinner-border spinner-border-sm me-1" x-show="aiLocalBrowsing === 'vision'" x-cloak></span>
-                                                        <i class="bi bi-folder2-open me-1" x-show="aiLocalBrowsing !== 'vision'"></i>
-                                                        <span x-text="t('aiSettings.local.browse')"></span>
-                                                    </button>
-                                                    <button type="button" class="btn btn-outline-secondary" @click="aiLocalVerify('vision')" :disabled="!aiLocal.vision.name || aiLocalVerifying !== null || aiLocalBrowsing !== null">
-                                                        <span class="spinner-border spinner-border-sm me-1" x-show="aiLocalVerifying === 'vision'" x-cloak></span>
-                                                        <i class="bi bi-shield-check me-1" x-show="aiLocalVerifying !== 'vision'"></i>
-                                                        <span x-text="t('aiSettings.local.verify')"></span>
-                                                    </button>
-                                                    <button type="button" class="btn btn-link btn-sm text-danger text-decoration-none p-0" x-show="aiLocal.vision.name" @click="aiLocalRemove('vision')" x-text="t('aiSettings.local.remove')"></button>
-                                                </div>
-                                            </div>
-                                            <div class="small mt-2" x-show="aiLocal.vision.name">
-                                                <span :class="aiLocalSlotClass(aiLocal.vision)" x-text="aiLocalSlotMessage(aiLocal.vision)"></span>
-                                                <span class="ms-2 text-muted" x-text="aiLocalFileMeta(aiLocal.vision)"></span>
-                                                <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 ms-2" x-show="aiLocal.vision.status === 'error'" @click="aiLocalRecheck('vision')" :disabled="aiLocalVerifying !== null" x-text="t('aiSettings.local.recheck')"></button>
-                                            </div>
-
-                                            <div class="row g-2 align-items-end mt-1">
-                                                <div class="col-12 col-md">
-                                                    <label class="form-label small fw-semibold mb-1" x-text="t('aiSettings.local.supportFiles')"></label>
-                                                    <input type="text" class="form-control file-path" :value="aiLocal.support.name" :placeholder="t('aiSettings.local.supportPlaceholder')" readonly>
-                                                </div>
-                                                <div class="col-12 col-md-auto">
-                                                    <button type="button" class="btn btn-outline-secondary" @click="aiLocalBrowseSupport()">
-                                                        <i class="bi bi-folder2-open me-1"></i><span x-text="t('aiSettings.local.browseFolder')"></span>
+                                                <div class="text-end">
+                                                    <span class="small text-secondary d-block" dir="ltr" x-text="row.sizeLabel"></span>
+                                                    <button type="button" class="btn btn-sm btn-link text-danger p-0" x-show="row.custom"
+                                                            :aria-label="label('aiSettings.localV2.custom.remove')"
+                                                            @click="removeCustom(row.id)" :disabled="busy">
+                                                        <i class="bi bi-x-lg"></i>
                                                     </button>
                                                 </div>
-                                            </div>
-                                            <div class="form-text" x-show="aiLocal.support.missing.length > 0" x-text="t('aiSettings.local.supportMissing', { files: aiLocal.support.missing.join(', ') })"></div>
-                                            <div class="form-text" x-text="t('aiSettings.local.visionGguFNote')"></div>
-
-                                            <div class="accordion accordion-flush mt-3" id="ai-local-vision-config">
-                                                <div class="accordion-item border-0">
-                                                    <h2 class="accordion-header">
-                                                        <button class="accordion-button collapsed bg-light rounded" type="button" data-bs-toggle="collapse" data-bs-target="#ai-local-vision-config-body">
-                                                            <i class="bi bi-sliders me-2"></i><span x-text="t('aiSettings.local.ocrConfig')"></span>
-                                                        </button>
-                                                    </h2>
-                                                    <div id="ai-local-vision-config-body" class="accordion-collapse collapse" data-bs-parent="#ai-local-vision-config">
-                                                        <div class="accordion-body">
-                                                            <div class="row g-2">
-                                                                <template x-for="field in aiLocalOcrFields" :key="field.key">
-                                                                    <div :class="field.width || 'col-6 col-md-3'">
-                                                                        <label class="form-label small mb-1" :for="'ai-local-ocr-' + field.key" x-text="t(field.labelKey)"></label>
-                                                                        <template x-if="field.type === 'select'">
-                                                                            <select class="form-select form-select-sm" :id="'ai-local-ocr-' + field.key" :value="aiLocal.config.ocr[field.key]" @change="aiLocalSetConfig('ocr', field.key, $event.target.value); aiLocalValidateConfigField('ocr', field.key)" @blur="aiLocalValidateConfigField('ocr', field.key)" :class="{ 'is-invalid': aiLocalConfigInvalid('ocr.' + field.key) }">
-                                                                                <template x-for="option in field.options" :key="option"><option :value="option" x-text="option"></option></template>
-                                                                            </select>
-                                                                        </template>
-                                                                        <template x-if="field.type === 'number'">
-                                                                            <input type="number" class="form-control form-control-sm" :id="'ai-local-ocr-' + field.key" :min="field.min" :max="field.max" :step="field.step || 1" :value="aiLocal.config.ocr[field.key]" @change="aiLocalSetConfig('ocr', field.key, $event.target.value); aiLocalValidateConfigField('ocr', field.key)" @blur="aiLocalValidateConfigField('ocr', field.key)" :class="{ 'is-invalid': aiLocalConfigInvalid('ocr.' + field.key) }">
-                                                                        </template>
-                                                                        <div class="form-text" x-show="field.hintKey || aiLocalFieldDisabled(field)" x-text="aiLocalFieldHint(field)"></div>
-                                                                        <div class="small text-danger" x-show="aiLocalConfigInvalid('ocr.' + field.key)" x-text="t('aiSettings.local.invalidValue')"></div>
-                                                                    </div>
-                                                                </template>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <hr class="my-3">
-
-                                    <span class="title-inline" x-text="t('aiSettings.local.runtimeTitle')"></span>
-                                    <div class="row g-2 mt-2">
-                                        <template x-for="field in aiLocalRuntimeFields" :key="field.key">
-                                            <div class="col-sm-6 col-lg-3">
-                                                <label class="form-label small mb-1" :for="'ai-local-runtime-' + field.key" x-text="t(field.labelKey)"></label>
-                                                <input type="number" class="form-control form-control-sm" :id="'ai-local-runtime-' + field.key" :min="field.min" :max="field.max" :value="aiLocal.config.runtime[field.key]" @change="aiLocalSetConfig('runtime', field.key, $event.target.value); aiLocalValidateConfigField('runtime', field.key)" @blur="aiLocalValidateConfigField('runtime', field.key)" :class="{ 'is-invalid': aiLocalConfigInvalid('runtime.' + field.key) }">
-                                                <div class="form-text" x-show="field.hintKey || aiLocalFieldDisabled(field)" x-text="aiLocalFieldHint(field)"></div>
-                                                <div class="small text-danger" x-show="aiLocalConfigInvalid('runtime.' + field.key)" x-text="t('aiSettings.local.invalidValue')"></div>
                                             </div>
                                         </template>
                                     </div>
-
-                                    <div class="alert alert-warning py-2 px-3 small mt-3" x-show="aiLocalConfigWarnings().length > 0" x-cloak>
-                                        <div class="fw-semibold" x-text="t('aiSettings.local.configWarnings')"></div>
-                                        <ul class="mb-0 ps-3">
-                                            <template x-for="warning in aiLocalConfigWarnings()" :key="warning">
-                                                <li x-text="warning"></li>
-                                            </template>
-                                        </ul>
+                                    <div class="mt-1">
+                                        <button type="button" class="btn btn-sm btn-link text-decoration-none px-0"
+                                                @click="toggleCustom()" :aria-expanded="customOpen ? 'true' : 'false'">
+                                            <i class="bi bi-plus-lg me-1"></i><span x-text="label('aiSettings.localV2.custom.add')"></span>
+                                        </button>
                                     </div>
-
                                 </div>
+
+                                <!-- add a model of your own -->
+                                <div class="border rounded-2 p-2 mt-1" x-show="customOpen" x-cloak>
+                                    <div class="small text-secondary mb-2" x-text="label('aiSettings.localV2.custom.hint')"></div>
+                                    <div class="row g-2">
+                                        <div class="col-12 col-md-6">
+                                            <label class="form-label small fw-semibold mb-0" for="ai-v2-custom-id"
+                                                   x-text="label('aiSettings.localV2.custom.id')"></label>
+                                            <input type="text" class="form-control form-control-sm" id="ai-v2-custom-id" dir="ltr"
+                                                   placeholder="MiniCPM2-2B-q4f16_1-MLC" x-model="draft.id">
+                                        </div>
+                                        <div class="col-12 col-md-6">
+                                            <label class="form-label small fw-semibold mb-0" for="ai-v2-custom-name"
+                                                   x-text="label('aiSettings.localV2.custom.name')"></label>
+                                            <input type="text" class="form-control form-control-sm" id="ai-v2-custom-name" x-model="draft.name">
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="form-label small fw-semibold mb-0" for="ai-v2-custom-repo"
+                                                   x-text="label('aiSettings.localV2.custom.repo')"></label>
+                                            <input type="url" class="form-control form-control-sm" id="ai-v2-custom-repo" dir="ltr"
+                                                   placeholder="https://huggingface.co/mlc-ai/...-MLC" x-model="draft.baseUrl">
+                                            <div class="form-text" x-text="label('aiSettings.localV2.custom.repoHint')"></div>
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="form-label small fw-semibold mb-0" for="ai-v2-custom-lib"
+                                                   x-text="label('aiSettings.localV2.custom.lib')"></label>
+                                            <input type="url" class="form-control form-control-sm" id="ai-v2-custom-lib" dir="ltr"
+                                                   placeholder="https://...-webgpu.wasm" x-model="draft.modelLib">
+                                            <div class="form-text" x-text="label('aiSettings.localV2.custom.libHint')"></div>
+                                        </div>
+                                        <div class="col-6 col-md-3">
+                                            <label class="form-label small fw-semibold mb-0" for="ai-v2-custom-context"
+                                                   x-text="label('aiSettings.localV2.contextTokens')"></label>
+                                            <input type="number" class="form-control form-control-sm" id="ai-v2-custom-context"
+                                                   min="512" step="512" dir="ltr" x-model="draft.contextWindow">
+                                        </div>
+                                        <div class="col-6 col-md-3">
+                                            <label class="form-label small fw-semibold mb-0" for="ai-v2-custom-size"
+                                                   x-text="label('aiSettings.localV2.custom.size')"></label>
+                                            <input type="number" class="form-control form-control-sm" id="ai-v2-custom-size"
+                                                   min="0" step="0.1" dir="ltr" placeholder="2.1" x-model="draft.downloadGb">
+                                        </div>
+                                    </div>
+                                    <div class="small text-danger mt-1" x-show="customErrorText" x-text="customErrorText"></div>
+                                    <div class="d-flex flex-wrap gap-2 mt-2">
+                                        <button type="button" class="btn btn-sm btn-primary" @click="saveCustom()" :disabled="busy"
+                                                x-text="label('aiSettings.localV2.custom.save')"></button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" @click="toggleCustom()"
+                                                x-text="label('aiSettings.localV2.custom.cancel')"></button>
+                                    </div>
+                                </div>
+
+                                <!-- the picked model -->
+                                <div class="mt-3" x-show="model">
+                                    <div class="small">
+                                        <span class="fw-semibold" x-text="model?.name"></span>
+                                        <span class="text-secondary" x-text="' · ' + sizeLabel"></span>
+                                        <span class="text-secondary" x-text="' · ' + label('aiSettings.localV2.context', { count: contextLabel })"></span>
+                                    </div>
+                                    <div class="alert alert-warning py-2 px-3 small mt-2 mb-0" x-show="errorText" x-text="errorText"></div>
+                                    <div class="progress mt-2" x-show="status === 'downloading'" style="height: .5rem;">
+                                        <div class="progress-bar" role="progressbar" :style="'width: ' + progress + '%'"
+                                             :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100"></div>
+                                    </div>
+                                    <div class="small text-secondary mt-1" x-show="status === 'downloading'" dir="ltr" x-text="progressText"></div>
+                                    <div class="d-flex flex-wrap gap-2 mt-2">
+                                        <button type="button" class="btn btn-sm btn-primary" x-show="showDownload" @click="download()" :disabled="busy">
+                                            <span class="spinner-border spinner-border-sm me-1" x-show="busy" x-cloak></span>
+                                            <i class="bi bi-download me-1"></i><span x-text="label('aiSettings.localV2.download')"></span>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-primary" x-show="showRetry" @click="retry()" :disabled="busy">
+                                            <i class="bi bi-arrow-clockwise me-1"></i><span x-text="label('aiSettings.localV2.retry')"></span>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-danger" x-show="showRemove" @click="remove()" :disabled="busy">
+                                            <i class="bi bi-trash me-1"></i><span x-text="label('aiSettings.localV2.remove')"></span>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-link text-secondary text-decoration-none"
+                                                x-show="status === 'ready' || status === 'idle'" @click="toggleAdvanced()"
+                                                :aria-expanded="advancedOpen ? 'true' : 'false'">
+                                            <i class="bi bi-sliders me-1"></i><span x-text="label('aiSettings.localV2.advanced')"></span>
+                                            <i class="bi ms-1" :class="advancedOpen ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+                                        </button>
+                                    </div>
+                                    <div class="small text-secondary mt-2" x-text="label('aiSettings.localV2.textOnly')"></div>
+                                    <div class="small text-secondary" x-show="storageLabel" x-text="label('aiSettings.localV2.storageFree', { size: storageLabel })"></div>
+                                    <div class="small text-secondary" x-show="status === 'ready'" x-text="label('aiSettings.localV2.cacheNote')"></div>
+                                    <div class="border-top mt-3 pt-2" x-show="advancedOpen" x-cloak>
+                                        <div class="small text-secondary mb-2" x-text="label('aiSettings.localV2.advancedHint')"></div>
+                                        <div class="row g-2">
+                                            <div class="col-6 col-md-3">
+                                                <label class="form-label small fw-semibold mb-0" for="ai-v2-context" x-text="label('aiSettings.localV2.contextTokens')"></label>
+                                                <input type="number" class="form-control form-control-sm" id="ai-v2-context" min="512" step="512"
+                                                       :max="model?.contextWindow" :value="contextWindow" @change="updateContext($event.target.value)" dir="ltr">
+                                            </div>
+                                            <div class="col-6 col-md-3">
+                                                <label class="form-label small fw-semibold mb-0" x-text="label('aiSettings.localV2.temperature')"></label>
+                                                <input type="number" class="form-control form-control-sm" min="0" max="2" step="0.1"
+                                                       :value="sampling.temperature" @change="updateSampling('temperature', $event.target.value)" dir="ltr">
+                                            </div>
+                                            <div class="col-6 col-md-3">
+                                                <label class="form-label small fw-semibold mb-0" x-text="label('aiSettings.localV2.topP')"></label>
+                                                <input type="number" class="form-control form-control-sm" min="0.05" max="1" step="0.05"
+                                                       :value="sampling.topP" @change="updateSampling('topP', $event.target.value)" dir="ltr">
+                                            </div>
+                                            <div class="col-6 col-md-3">
+                                                <label class="form-label small fw-semibold mb-0" x-text="label('aiSettings.localV2.frequencyPenalty')"></label>
+                                                <input type="number" class="form-control form-control-sm" min="-2" max="2" step="0.1"
+                                                       :value="sampling.frequencyPenalty" @change="updateSampling('frequencyPenalty', $event.target.value)" dir="ltr">
+                                            </div>
+                                        </div>
+                                        <div class="small text-secondary mt-2" x-text="licenseText"></div>
+                                    </div>
+                                    <div class="small text-secondary mt-1" x-show="model?.notes" x-text="model?.notes"></div>
+                                </div>
+                            </div>
 
                                 <!-- Import limits only matter while an engine is selected. -->
                                 <div x-show="aiEngine !== 'off'">
@@ -3314,7 +2964,7 @@
                                     <button type="button" class="btn btn-primary" @click="saveAiSettings()" :disabled="aiSettingsSaving || aiSettingsLoading">
                                         <span class="spinner-border spinner-border-sm me-1" x-show="aiSettingsSaving" x-cloak></span>
                                         <i class="bi bi-save me-1" x-show="!aiSettingsSaving"></i>
-                                        <span x-text="aiEngine === 'local' ? t('aiSettings.saveLocal') : t('aiSettings.save')"></span>
+                                        <span x-text="t('aiSettings.save')"></span>
                                     </button>
                                 </div>
                                 <div class="alert py-2 px-3 mt-3 mb-0" x-show="aiSettingsMessage" x-cloak :class="'alert-' + (aiSettingsMessage?.type || 'info')">

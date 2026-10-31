@@ -336,7 +336,7 @@ headers by default, so the local runtime uses one thread and the settings card
 disables the Threads field. A deployment that serves the app from its own LAN
 server can enable those headers to unlock more threads.
 
-See [docs/import-agent/local-ai-engine.md](docs/import-agent/local-ai-engine.md)
+See [docs/import-agent/local-ai-v2.md](docs/import-agent/local-ai-v2.md)
 for what the engine does and what it needs.
 
 ### 5. Create the first Super Admin

@@ -20,25 +20,6 @@ import { readRememberPreference, saveRememberPreference } from './services/sessi
 import { loadImportEnabled, clearImportFlagCache } from './services/import-flag.js';
 import { dbErrorMessage } from './services/error-message.js';
 import { loadAiSettings as loadAiSettingsApi, saveAiSettings as saveAiSettingsApi, testAiProvider as testAiProviderApi, loadImportLimits as loadImportLimitsApi, saveImportLimits as saveImportLimitsApi, resetCloudConsent as resetCloudConsentApi } from './services/ai-settings.js';
-import {
-    browseLocalModel,
-    createLocalState,
-    emptySlot,
-    localProfilePayload,
-    pickSupportFiles,
-    readDevice,
-    recheckLocalModelSlot,
-    resolveConfig,
-    restoreLocalState,
-    persistLocalState,
-    validateLocalConfig,
-    verifyLocalModelSlot,
-} from './services/ai-local.js';
-import { deviceSignals, memorySignal } from './features/import-agent/local/manifest.js';
-import { detectTier } from './features/import-agent/local/local-config.js';
-import { runtimeIdentityLabel } from './features/import-agent/local/gguf-metadata.js';
-import { formatProbeMessage } from './features/import-agent/local/probe-messages.js';
-import { threadsAvailable } from './features/import-agent/local/wllama-provider.js';
 import { initCloudinary, getImageUrl, isImageAttachment } from './services/cloudinary.js';
 import { getDashboardStats, getRecentPatients } from './services/dashboard.js';
 import { getPatients, getPatientsPage, deletePatient, togglePatientStatus, GOVERNORATES, governorateLabel } from './services/patients.js';
@@ -53,45 +34,6 @@ import { importAgentWizard, importAgentEnter } from './features/import-agent/ui.
 import { localAiV2 } from './features/import-agent/local-v2/settings.js';
 import { GOVERNORATE_BY_ID_CODE, BORN_ABROAD_ID_CODE } from '@import-core/enums.js';
 
-// The local runtime fields that hold text rather than a number. Reading a
-// text field as a number turns it into NaN, which the server stores as null.
-const LOCAL_TEXT_CONFIG = new Set(['text.chatTemplate', 'text.kvCacheType']);
-const LOCAL_TEXT_FIELDS = Object.freeze([
-    { group: 'text', key: 'contextTokens', type: 'number', min: 1024, max: 131072, step: 1024, labelKey: 'aiSettings.local.context', hintKey: 'aiSettings.local.contextHint' },
-    { group: 'text', key: 'kvCacheType', type: 'select', options: ['f16', 'q8_0', 'q4_0', 'q4_1', 'q5_0', 'q5_1'], labelKey: 'aiSettings.local.kvCache', hintKey: 'aiSettings.local.kvCacheHint' },
-    { group: 'text', key: 'gpuLayers', type: 'number', min: -1, max: 999, labelKey: 'aiSettings.local.gpuLayers', hintKey: 'aiSettings.local.gpuLayersHint' },
-    { group: 'text', key: 'threads', type: 'number', min: 1, max: 16, labelKey: 'aiSettings.local.threads', hintKey: 'aiSettings.local.threadsHint' },
-    { group: 'text', key: 'batchSize', type: 'number', min: 32, max: 2048, labelKey: 'aiSettings.local.batch', hintKey: 'aiSettings.local.batchHint' },
-    { group: 'text', key: 'ubatchSize', type: 'number', min: 32, max: 2048, labelKey: 'aiSettings.local.ubatch', hintKey: 'aiSettings.local.ubatchHint' },
-    { group: 'text', key: 'maxOutputTokens', type: 'number', min: 256, max: 32768, labelKey: 'aiSettings.local.maxOutput', hintKey: 'aiSettings.local.maxOutputHint' },
-    { group: 'text', key: 'temperature', type: 'number', min: 0, max: 2, step: 0.1, labelKey: 'aiSettings.local.temperature' },
-    { group: 'text', key: 'topK', type: 'number', min: 1, max: 200, labelKey: 'aiSettings.local.topK' },
-    { group: 'text', key: 'topP', type: 'number', min: 0, max: 1, step: 0.05, labelKey: 'aiSettings.local.topP' },
-    { group: 'text', key: 'repeatPenalty', type: 'number', min: 0.5, max: 2, step: 0.05, labelKey: 'aiSettings.local.repeatPenalty' },
-    { group: 'text', key: 'flashAttention', type: 'switch', labelKey: 'aiSettings.local.flashAttention' },
-    { group: 'text', key: 'mmap', type: 'switch', labelKey: 'aiSettings.local.mmap' },
-    { group: 'text', key: 'enableThinking', type: 'switch', labelKey: 'aiSettings.local.allowThinking' },
-    { group: 'text', key: 'repairPass', type: 'switch', labelKey: 'aiSettings.local.repairPass' },
-    { group: 'text', key: 'chatTemplate', type: 'text', width: 'col-12', labelKey: 'aiSettings.local.chatTemplate', hintKey: 'aiSettings.local.chatTemplateAuto' },
-]);
-const LOCAL_OCR_FIELDS = Object.freeze([
-    { group: 'ocr', key: 'executionProvider', type: 'select', options: ['webgpu', 'wasm'], labelKey: 'aiSettings.local.executionProvider' },
-    { group: 'ocr', key: 'stripWidth', type: 'number', min: 320, max: 2048, labelKey: 'aiSettings.local.stripWidth' },
-    { group: 'ocr', key: 'stripHeight', type: 'number', min: 64, max: 1024, labelKey: 'aiSettings.local.stripHeight' },
-    { group: 'ocr', key: 'overlap', type: 'number', min: 0, max: 256, labelKey: 'aiSettings.local.overlap', hintKey: 'aiSettings.local.stripHint' },
-    { group: 'ocr', key: 'imageLongSide', type: 'number', min: 512, max: 4096, labelKey: 'aiSettings.local.imageLongSide' },
-    { group: 'ocr', key: 'maxNewTokens', type: 'number', min: 32, max: 2048, labelKey: 'aiSettings.local.maxNewTokens' },
-    { group: 'ocr', key: 'graphOptimizationLevel', type: 'select', options: ['disabled', 'basic', 'extended', 'all'], labelKey: 'aiSettings.local.graphOptimization' },
-]);
-const LOCAL_RUNTIME_FIELDS = Object.freeze([
-    // Firefox and Safari do not report RAM. The entered value wins over the
-    // browser-reported one when the tier is suggested (0 = not entered).
-    { group: 'runtime', key: 'systemMemoryGb', type: 'number', min: 0, max: 1024, labelKey: 'aiSettings.local.systemMemory', hintKey: 'aiSettings.local.systemMemoryHint' },
-    { group: 'runtime', key: 'leaseSeconds', type: 'number', min: 60, max: 3600, labelKey: 'aiSettings.local.lease' },
-    { group: 'runtime', key: 'heartbeatSeconds', type: 'number', min: 10, max: 1800, labelKey: 'aiSettings.local.heartbeat' },
-    { group: 'runtime', key: 'maxAttempts', type: 'number', min: 1, max: 10, labelKey: 'aiSettings.local.attempts' },
-    { group: 'runtime', key: 'parallel', type: 'number', min: 1, max: 4, labelKey: 'aiSettings.local.parallel', hintKey: 'aiSettings.local.parallelHint' },
-]);
 
 // A tab left open across a deploy still points at the previous build's
 // hashed chunks, so the next dynamic import 404s ("error loading dynamically
@@ -310,27 +252,16 @@ function app() {
         // The card holds changes that are not saved yet.
         aiSettingsDirty: false,
         // Whether this deployment allows the local engine at all.
-        aiLocalEnabled: false,
         // The cloud consent record: the clinic accepted that the data leaves
         // the clinic. The record holds no patient data.
         aiCloudConsent: false,
         aiConsentChecked: false,
         // The local engine draft: the models the clinic picked and the
         // runtime settings. The files stay in the browser.
-        aiLocal: createLocalState(),
-        aiLocalDevice: null,
-        aiLocalVerifying: null,
         // Browsing is separate from verifying: picking a 700 MB file and
         // loading it are two deliberate actions, and each has its own spinner.
-        aiLocalBrowsing: null,
-        aiLocalMessage: null,
-        aiLocalConfigErrors: {},
         // The field descriptors the card renders. Exposed to Alpine so the
         // template and the label lookup use the same list.
-        aiLocalTextFields: LOCAL_TEXT_FIELDS.map((field) => ({ ...field, idPrefix: 'ai-local-text' })),
-        aiLocalSingleTextFields: LOCAL_TEXT_FIELDS.map((field) => ({ ...field, idPrefix: 'ai-local-single' })),
-        aiLocalOcrFields: LOCAL_OCR_FIELDS,
-        aiLocalRuntimeFields: LOCAL_RUNTIME_FIELDS,
         // The import limits (imports per day, rows per file, ...). They live
         // in `import_settings`, which only the ai-settings function may write,
         // so an admin raises the daily quota here instead of in the SQL
@@ -1388,8 +1319,6 @@ function app() {
                 // browser-side handles are restored first too, so a slot the
                 // clinic picked earlier keeps its handle when the server names
                 // the same file.
-                await this.loadAiLocalDevice();
-                await restoreLocalState(this.aiLocal);
                 this.applyAiSettings(data);
             } catch (error) {
                 console.error('AI settings load failed:', error);
@@ -1398,16 +1327,6 @@ function app() {
                 this.aiSettings = null;
             } finally {
                 this.aiSettingsLoading = false;
-            }
-        },
-
-        /** What the device can do, and the tier it suggests. */
-        async loadAiLocalDevice() {
-            try {
-                this.aiLocalDevice = await readDevice();
-            } catch (error) {
-                console.error('Local device probe failed:', error);
-                this.aiLocalDevice = null;
             }
         },
 
@@ -1470,15 +1389,16 @@ function app() {
             // says. A cloud selection without the consent record falls back
             // to Off, because the browser may restore the form state.
             const engine = data.engine ?? (data.enabled === true ? (data.inference_mode ?? 'cloud') : 'off');
-            this.aiLocalEnabled = data.local_enabled === true;
             this.aiCloudConsent = data.cloud_consent === true;
             let next = engine;
+            // This browser no longer keeps model files, so a stored local
+            // choice cannot run here: the form shows Off until the admin picks
+            // an engine again.
+            if (next === 'local') next = 'off';
             if (next === 'cloud' && !this.aiCloudConsent && data.enabled !== true) next = 'off';
-            if (next === 'local' && !this.aiLocalEnabled) next = 'off';
             this.aiEngine = next;
             this.aiEngineBefore = next;
             this.aiSettingsForm.enabled = next !== 'off';
-            this.aiLocal = this.aiLocalFromServer(data);
             const chain = Array.isArray(data.chain) ? data.chain : [];
             this.aiSettingsForm.chain = chain.map((row) => this.aiChainRow(row.provider, row.model));
             if (this.aiSettingsForm.chain.length === 0) {
@@ -1513,100 +1433,6 @@ function app() {
             this.aiSettingsDirty = false;
         },
 
-        /** The local draft, as the server knows it. */
-        aiLocalFromServer(data) {
-            const state = createLocalState();
-            const profile = data.local_profile ?? {};
-            const config = data.local_config ?? {};
-            state.mode = profile.mode === 'split' ? 'split' : 'single';
-            // The server response has the names but never the handles. Keep
-            // the handle, file and badge of a slot that still names the same
-            // file, so a save made after a reload does not wipe the browser
-            // side of the profile.
-            const keepSlot = (slot, name) => {
-                const current = this.aiLocal?.[slot];
-                if (!current || !name || current.name !== name) {
-                    return { status: name ? 'warn' : 'none' };
-                }
-                return {
-                    handle: current.handle ?? null,
-                    file: current.file ?? null,
-                    status: current.status,
-                    message: current.message ?? '',
-                    params: current.params ?? {},
-                    code: current.code ?? null,
-                    capabilities: current.capabilities ?? null,
-                    warnings: current.warnings ?? [],
-                    runtimeLabel: current.runtimeLabel ?? '',
-                    bytesConsumed: current.bytesConsumed ?? 0,
-                    fileSize: current.fileSize ?? 0,
-                    allowUnsupportedArchitecture: current.allowUnsupportedArchitecture === true,
-                };
-            };
-            state.multimodal = {
-                ...emptySlot(),
-                ...keepSlot('multimodal', profile.name),
-                name: profile.name ?? '',
-                size: profile.size ?? 0,
-                sha256: profile.sha256 ?? '',
-                kind: 'gguf',
-            };
-            // The optional projector for the single layout travels with the
-            // server profile as name/size/hash. Its bytes stay in the browser.
-            state.mmproj = {
-                ...emptySlot(),
-                ...keepSlot('mmproj', profile.mmprojName),
-                name: profile.mmprojName ?? '',
-                size: profile.mmprojSize ?? 0,
-                sha256: profile.mmprojSha256 ?? '',
-                kind: 'gguf',
-            };
-            // The projector is optional: no file is "Not configured", not
-            // "Not verified".
-            if (!state.mmproj.name) state.mmproj.status = 'none';
-            state.text = {
-                ...emptySlot(),
-                ...keepSlot('text', profile.textName),
-                name: profile.textName ?? '',
-                size: profile.textSize ?? 0,
-                sha256: profile.textSha256 ?? '',
-                kind: 'gguf',
-            };
-            state.vision = {
-                ...emptySlot(),
-                ...keepSlot('vision', profile.visionName),
-                name: profile.visionName ?? '',
-                size: profile.visionSize ?? 0,
-                sha256: profile.visionSha256 ?? '',
-                kind: 'onnx',
-            };
-            // The support files are local too. Keep them (and the folder
-            // handle) when the server still names the same folder.
-            const currentSupport = this.aiLocal?.support;
-            const sameSupport = Boolean(
-                profile.supportName && currentSupport?.name === profile.supportName,
-            );
-            state.support = {
-                ...state.support,
-                name: profile.supportName ?? '',
-                status: profile.supportName ? (sameSupport ? currentSupport.status : 'warn') : 'none',
-                message: sameSupport ? currentSupport.message ?? '' : '',
-                missing: sameSupport ? currentSupport.missing ?? state.support.missing : state.support.missing,
-                handle: sameSupport ? currentSupport.handle ?? null : null,
-                files: sameSupport ? currentSupport.files ?? {} : {},
-            };
-            state.device = this.aiLocalDevice;
-            if (config && typeof config === 'object') {
-                // The service resolves the draft's own `config`; the server
-                // payload has to be placed there first, or a saved config
-                // would silently fall back to the defaults.
-                state.config = config;
-                const resolved = resolveConfig(state);
-                state.config = resolved.config;
-            }
-            return state;
-        },
-
         /**
          * The engine changed.
          *
@@ -1617,13 +1443,6 @@ function app() {
         aiOnEngineChange(engine) {
             this.aiSettingsMessage = null;
             this.aiSettingsDirty = true;
-            if (engine === 'local' && !this.aiLocalEnabled) {
-                this.aiEngine = 'off';
-                this.aiEngineBefore = 'off';
-                this.aiSettingsForm.enabled = false;
-                this.aiNotify('warning', 'aiSettings.local.disabledHint');
-                return;
-            }
             if (engine === 'cloud' && !this.aiCloudConsent) {
                 // Hold the current engine until the clinic accepted that the
                 // data leaves the clinic.
@@ -1657,352 +1476,6 @@ function app() {
                 const view = this.aiErrorView(error, 'aiSettings.saveFailed');
                 this.aiNotify('danger', view.key, view.params);
             }
-        },
-
-        /** Step one: pick a model file. Nothing is loaded or hashed yet. */
-        async aiLocalBrowse(slot) {
-            this.aiLocalMessage = null;
-            this.aiLocalBrowsing = slot;
-            this.aiSettingsDirty = true;
-            try {
-                const picked = await browseLocalModel(this.aiLocal, slot);
-                if (!picked) return;
-                this.aiLocalMessage = { type: 'info', key: 'aiSettings.local.modelPicked' };
-            } catch (error) {
-                console.error('Local model pick failed:', error);
-                this.aiLocalMessage = { type: 'danger', key: 'aiSettings.local.pickFailed' };
-            } finally {
-                this.aiLocalBrowsing = null;
-            }
-        },
-
-        /**
-         * Step two: verify the picked file. The SHA-256 and the header probe
-         * run here, so the slow work is a separate, deliberate click.
-         */
-        async aiLocalVerify(slot, options = {}) {
-            this.aiLocalMessage = null;
-            this.aiLocalVerifying = slot;
-            try {
-                const result = await verifyLocalModelSlot(this.aiLocal, slot, options);
-                if (!result.ok) {
-                    this.aiLocalRejected(result, slot);
-                    return;
-                }
-                this.aiLocalMessage = { type: 'success', key: 'aiSettings.local.modelAccepted' };
-            } catch (error) {
-                console.error('Local model verification failed:', error);
-                this.aiLocalRejected(error, slot);
-            } finally {
-                this.aiLocalVerifying = null;
-            }
-        },
-
-        /**
-         * Check the header again without re-reading the hash.
-         *
-         * A truncated download is the usual reason a model stopped working;
-         * re-probing is cheap, while hashing a 700 MB file is not.
-         */
-        async aiLocalRecheck(slot) {
-            this.aiLocalMessage = null;
-            this.aiLocalVerifying = slot;
-            try {
-                const result = await recheckLocalModelSlot(this.aiLocal, slot);
-                if (!result.ok) {
-                    this.aiLocalRejected(result, slot);
-                    return;
-                }
-                this.aiLocalMessage = { type: 'success', key: 'aiSettings.local.recheckDone' };
-            } catch (error) {
-                console.error('Local model re-check failed:', error);
-                this.aiLocalRejected(error, slot);
-            } finally {
-                this.aiLocalVerifying = null;
-            }
-        },
-
-        /** The clinic chose to load an architecture outside the support list. */
-        aiLocalLoadAnyway() {
-            const slot = this.aiLocalMessage?.slot;
-            if (!slot) return;
-            return this.aiLocalVerify(slot, { allowUnsupportedArchitecture: true });
-        },
-
-        /** Show a refusal in the clinic's language, keeping the code too. */
-        aiLocalRejected(result, slot) {
-            this.aiLocalMessage = {
-                type: 'danger',
-                key: 'aiSettings.local.modelRejected',
-                params: { detail: this.aiLocalErrorDetail(result) },
-                slot,
-                allowAnyway: result?.code === 'GGUF_ARCH_UNSUPPORTED',
-            };
-        },
-
-        /** The probe error, translated, with the raw detail as a fallback. */
-        aiLocalErrorDetail(result) {
-            return formatProbeMessage((key, params) => this.t(key, params), result)
-                || this.t('aiSettings.local.pickFailed');
-        },
-
-        /** Pick the folder with the tokenizer and the config files. */
-        async aiLocalBrowseSupport() {
-            this.aiLocalMessage = null;
-            this.aiSettingsDirty = true;
-            try {
-                const picked = await pickSupportFiles(this.aiLocal);
-                // A plain cancel is not a failure. The input fallback only
-                // returns false when the clinic closed the picker too.
-                if (!picked) return;
-                if (this.aiLocal.support.missing.length > 0) {
-                    this.aiLocalMessage = { type: 'warning', key: 'aiSettings.local.supportMissing', params: { files: this.aiLocal.support.missing.join(', ') } };
-                    return;
-                }
-                this.aiLocalMessage = { type: 'success', key: 'aiSettings.local.supportAccepted' };
-            } catch (error) {
-                console.error('Local support files pick failed:', error);
-                this.aiLocalMessage = { type: 'danger', key: 'aiSettings.local.pickFailed' };
-            }
-        },
-
-        /** Forget one model. */
-        aiLocalRemove(slot) {
-            this.aiLocal[slot] = emptySlot();
-            this.aiLocalMessage = null;
-            this.aiSettingsDirty = true;
-        },
-
-        /** The layout changed: the other slot is not used any more. */
-        aiOnLocalLayoutChange() {
-            this.aiLocalMessage = null;
-            this.aiSettingsDirty = true;
-        },
-
-        /**
-         * Write one config value.
-         *
-         * The kind of the field decides how the value is read: a switch is a
-         * boolean, a text field is text, everything else is a number. A
-         * number field that was cleared or contains garbage keeps its previous
-         * value rather than becoming NaN.
-         */
-        aiLocalSetConfig(group, key, value) {
-            if (!this.aiLocal.config[group]) return;
-            const current = this.aiLocal.config[group][key];
-            const path = `${group}.${key}`;
-            let next;
-            if (LOCAL_TEXT_CONFIG.has(path)) {
-                const text = String(value ?? '').trim();
-                next = text === '' && key === 'chatTemplate' ? null : text;
-            } else if (typeof current === 'boolean') {
-                next = Boolean(value);
-            } else {
-                const text = String(value ?? '').trim();
-                if (text === '') {
-                    next = current;
-                } else {
-                    const number = Number(text);
-                    next = Number.isFinite(number) ? number : current;
-                }
-            }
-            this.aiLocal.config = {
-                ...this.aiLocal.config,
-                [group]: { ...this.aiLocal.config[group], [key]: next },
-            };
-            this.aiLocalClearConfigError(path);
-            this.aiSettingsDirty = true;
-        },
-
-        aiLocalClearConfigError(path) {
-            if (!this.aiLocalConfigErrors[path]) return;
-            const next = { ...this.aiLocalConfigErrors };
-            delete next[path];
-            this.aiLocalConfigErrors = next;
-        },
-
-        /** True when a field is outside the bounds the server enforces too. */
-        aiLocalConfigInvalid(path) {
-            return this.aiLocalConfigErrors[path] === true;
-        },
-
-        /**
-         * Validate on blur: the whole config is checked because a few bounds
-         * are relational (ubatch <= batch, heartbeat <= lease/2).
-         */
-        aiLocalValidateConfigField(group, key) {
-            const result = validateLocalConfig(this.aiLocal.config);
-            const errors = result.errors ?? [];
-            this.aiLocalConfigErrors = Object.fromEntries(errors.map((path) => [path, true]));
-            return !errors.includes(`${group}.${key}`);
-        },
-
-        aiLocalValidateConfig() {
-            const result = validateLocalConfig(this.aiLocal.config);
-            this.aiLocalConfigErrors = Object.fromEntries((result.errors ?? []).map((path) => [path, true]));
-            return result;
-        },
-
-        /** The human label of a dotted config path, for the error message. */
-        aiLocalConfigLabel(path) {
-            const fields = [...LOCAL_TEXT_FIELDS, ...LOCAL_OCR_FIELDS, ...LOCAL_RUNTIME_FIELDS];
-            const field = fields.find((entry) => `${entry.group}.${entry.key}` === path);
-            return field ? this.t(field.labelKey) : path;
-        },
-
-        /** The resolved config: device tier defaults plus the user's choices. */
-        aiLocalResolvedConfig() {
-            return resolveConfig(this.aiLocal).config;
-        },
-
-        aiLocalConfigWarnings() {
-            return resolveConfig(this.aiLocal).warnings ?? [];
-        },
-
-        /** The System RAM the clinic entered, or 0 when it is not entered. */
-        aiLocalSystemMemory() {
-            return Number(this.aiLocal?.config?.runtime?.systemMemoryGb) || 0;
-        },
-
-        /** The device information with the entered RAM laid over it. */
-        aiLocalDeviceInfo() {
-            return { ...(this.aiLocalDevice ?? {}), systemMemoryGb: this.aiLocalSystemMemory() };
-        },
-
-        /** The colour of one readiness chip. */
-        aiLocalSignals() {
-            return deviceSignals(this.aiLocalDeviceInfo());
-        },
-
-        aiLocalSignal(name) {
-            return this.aiLocalSignals()[name] ?? 'warn';
-        },
-
-        /** The suggested tier, in the words the card uses (medium, not mid). */
-        aiLocalTierLabel(tier = this.aiLocalSuggestedTier()) {
-            const normalized = tier === 'low' || tier === 'high' ? tier : 'medium';
-            return this.t(`aiSettings.local.tier.${normalized}`);
-        },
-
-        /** The tier the device signals suggest, using the entered RAM first. */
-        aiLocalSuggestedTier() {
-            if (!this.aiLocalDevice) return 'mid';
-            return detectTier(this.aiLocalDeviceInfo());
-        },
-
-        aiLocalThreadsLabel() {
-            if (!threadsAvailable()) return this.t('aiSettings.local.chip.threadsForced');
-            const count = Number(this.aiLocalDevice?.threads) || 0;
-            return count > 0
-                ? this.t('aiSettings.local.chip.threads', { count })
-                : this.t('aiSettings.local.chip.unknown');
-        },
-
-        aiLocalMemoryLabel() {
-            const signal = memorySignal(this.aiLocalDeviceInfo());
-            if (signal.source === 'entered') {
-                return this.t('aiSettings.local.chip.memoryEntered', { count: signal.memory });
-            }
-            if (signal.source === 'reported') {
-                return this.t('aiSettings.local.chip.memory', { count: signal.memory });
-            }
-            return this.t('aiSettings.local.chip.memoryUnknown');
-        },
-
-        /** The runtime build that will load the model. */
-        aiLocalRuntimeLabel() {
-            return runtimeIdentityLabel();
-        },
-
-        /** Multi-thread loading needs COOP/COEP, which the deployment opts into. */
-        aiLocalFieldDisabled(field) {
-            return field?.group === 'text' && field?.key === 'threads' && !threadsAvailable();
-        },
-
-        aiLocalFieldHint(field) {
-            if (this.aiLocalFieldDisabled(field)) return this.t('aiSettings.local.threadsForcedHint');
-            return field?.hintKey ? this.t(field.hintKey) : '';
-        },
-
-        aiLocalStorageLabel() {
-            const free = Number(this.aiLocalDevice?.storageFree) || 0;
-            return free > 0
-                ? this.t('aiSettings.local.chip.storage', { size: this.aiLocalFormatBytes(free) })
-                : this.t('aiSettings.local.chip.unknown');
-        },
-
-        /** The badge class of a model slot. */
-        aiLocalBadgeClass(status) {
-            if (status === 'ok') return 'text-bg-success border';
-            if (status === 'warn') return 'text-bg-warning border';
-            if (status === 'error') return 'text-bg-danger border';
-            return 'text-bg-light border';
-        },
-
-        /** The badge text of a model slot. */
-        aiLocalBadgeKey(status) {
-            if (status === 'ok') return 'aiSettings.local.statusReady';
-            if (status === 'warn') return 'aiSettings.local.statusNotVerified';
-            if (status === 'error') return 'aiSettings.local.statusError';
-            return 'aiSettings.local.statusNone';
-        },
-
-        /** The badge says why a slot failed, not just that it failed. */
-        aiLocalBadgeLabel(slot) {
-            const status = slot?.status;
-            if (status === 'error' && slot?.code) {
-                return this.t('aiSettings.local.statusErrorCode', { code: slot.code });
-            }
-            return this.t(this.aiLocalBadgeKey(status));
-        },
-
-        /** A slot message is a translation key, or a translated probe code. */
-        aiLocalSlotMessage(slot) {
-            const message = slot?.message ?? '';
-            if (message) return this.t(message, slot?.params ?? {});
-            if (slot?.code) {
-                return formatProbeMessage((key, params) => this.t(key, params), slot);
-            }
-            return '';
-        },
-
-        /** The colour of a slot's message line. */
-        aiLocalSlotClass(slot) {
-            if (slot?.status === 'ok') return 'text-success';
-            if (slot?.status === 'error') return 'text-danger';
-            return 'text-warning-emphasis';
-        },
-
-        /** The one-model layout's amber note about photos. */
-        aiLocalSingleVisionWarning() {
-            const slot = this.aiLocal?.multimodal;
-            if (!slot?.name) return '';
-            const capabilities = slot.capabilities;
-            if (!capabilities) return '';
-            if (capabilities.vision !== true) return this.t('aiSettings.local.textOnlyWarning');
-            if (!this.aiLocal?.mmproj?.name) return this.t('aiSettings.local.mmprojMissing');
-            return '';
-        },
-
-        /** The size and the hash of a model file. */
-        aiLocalFileMeta(slot) {
-            const parts = [];
-            if (slot.size) parts.push(this.aiLocalFormatBytes(slot.size));
-            if (slot.sha256) parts.push(this.t('aiSettings.local.sha256', { hash: slot.sha256.slice(0, 12) }));
-            return parts.join(' · ');
-        },
-
-        aiLocalFormatBytes(bytes) {
-            const number = Number(bytes) || 0;
-            if (number <= 0) return '0 B';
-            const units = ['B', 'KB', 'MB', 'GB'];
-            let value = number;
-            let index = 0;
-            while (value >= 1000 && index < units.length - 1) {
-                value /= 1000;
-                index += 1;
-            }
-            return `${value < 10 && index > 0 ? value.toFixed(1) : Math.round(value)} ${units[index]}`;
         },
 
         /** The provider token limit only applies to the cloud engine. */
@@ -2194,32 +1667,6 @@ function app() {
 
             // The cloud engine needs a model chain. The local engine needs a
             // model file and a config inside the bounds the server enforces.
-            if (this.aiEngine === 'local') {
-                if (!this.aiLocalModelReady()) {
-                    this.aiNotify('warning', 'aiSettings.local.modelMissing');
-                    return false;
-                }
-                // Support files are only required when the vision model is
-                // actually ready (verified). A vision model in error state
-                // (e.g., wrong file type, verification failed) should not
-                // block saving a text-only configuration.
-                if (this.aiLocal.mode === 'split'
-                    && this.aiLocal.vision.name
-                    && this.aiLocal.vision.status === 'ok'
-                    && (this.aiLocal.support.missing ?? []).length > 0) {
-                    this.aiNotify('warning', 'aiSettings.local.supportMissing', {
-                        files: this.aiLocal.support.missing.join(', '),
-                    });
-                    return false;
-                }
-                const validation = this.aiLocalValidateConfig();
-                if (!validation.valid) {
-                    const fields = validation.errors.map((path) => this.aiLocalConfigLabel(path)).join(', ');
-                    this.aiNotify('warning', 'aiSettings.local.configInvalid', { fields });
-                    return false;
-                }
-                return true;
-            }
 
             if (this.aiSettingsForm.enabled && touched.length === 0) {
                 this.aiNotify('warning', 'aiSettings.chainEmpty');
@@ -2264,16 +1711,6 @@ function app() {
             return true;
         },
 
-        /** True when the local engine has everything it needs. */
-        aiLocalModelReady() {
-            const local = this.aiLocal;
-            if (local.mode === 'single') return Boolean(local.multimodal.name);
-            // The text model is the one every split import needs. The vision
-            // model is only needed when the import contains images, so a
-            // missing or broken vision file must not block a text import.
-            return Boolean(local.text.name);
-        },
-
         aiSavePayload() {
             const credentials = this.aiSettingsForm.credentials;
             const chain = this.aiSettingsForm.chain
@@ -2285,15 +1722,12 @@ function app() {
             return {
                 // The segmented control sets the flag and the mode together.
                 enabled: engine !== 'off',
-                inference_mode: engine === 'local' ? 'local' : 'cloud',
                 cloud_consent: this.aiCloudConsent === true,
                 chain,
                 // The local profile holds the names, the sizes and the hashes
                 // only. The files and their handles stay in the browser. The
                 // config is resolved against the device tier, so the server
                 // stores exactly what the import will run.
-                local_profile: localProfilePayload(this.aiLocal),
-                local_config: this.aiLocalResolvedConfig(),
                 credentials: {
                     openrouter: {
                         apiKey: credentials.openrouter.apiKey.trim(),
@@ -2322,22 +1756,6 @@ function app() {
             if (!this.aiValidateSettings()) return;
             this.aiSettingsSaving = true;
             try {
-                // The models are remembered in the browser, so the clinic
-                // picks them once and not on every visit. Write them BEFORE
-                // the server call: a rejected server save (for example when
-                // the deployment has turned the local engine off) must not
-                // throw away a file the clinic already picked.
-                const hasLocalFiles = ['multimodal', 'mmproj', 'text', 'vision']
-                    .some((slot) => Boolean(this.aiLocal?.[slot]?.name));
-                if (hasLocalFiles) {
-                    await persistLocalState(this.aiLocal);
-                    // Firefox/Safari store the File itself. If the browser
-                    // refused to make that storage persistent, say so: the
-                    // model may be evicted when the disk fills up.
-                    if (['denied', 'quota', 'unsupported'].includes(this.aiLocal.fileStorage)) {
-                        this.aiNotify('warning', 'aiSettings.local.fileStorageDenied');
-                    }
-                }
                 const data = await saveAiSettingsApi(this.aiSavePayload());
                 this.applyAiSettings(data);
                 clearImportFlagCache();
@@ -2454,14 +1872,7 @@ function app() {
                 this.loadAiSettings();
                 return;
             }
-            // Restore the browser-side handles first: the server never has
-            // them, and applyAiSettings keeps one only when the server still
-            // names the same file. Without this step a discard after browsing
-            // another model loses the saved model's handle.
-            await restoreLocalState(this.aiLocal);
             this.applyAiSettings(this.aiSettings);
-            this.aiLocalMessage = null;
-            this.aiLocalConfigErrors = {};
             this.aiNotify('info', 'aiSettings.discarded');
         },
 
@@ -2487,9 +1898,7 @@ function app() {
             if (code === 'CHAIN_DUPLICATE') return { key: 'aiSettings.chainDuplicate', params: {} };
             if (code === 'MODEL_TOO_LONG') return { key: 'aiSettings.modelTooLong', params: {} };
             if (code === 'CLOUD_CONSENT_REQUIRED') return { key: 'aiSettings.consent.required', params: {} };
-            if (code === 'LOCAL_MODE_DISABLED') return { key: 'aiSettings.local.disabledHint', params: {} };
             if (code === 'ENGINE_MISMATCH') return { key: 'aiSettings.engineMismatch', params: {} };
-            if (code === 'LOCAL_MODEL_NOT_CONFIGURED') return { key: 'aiSettings.local.modelMissing', params: {} };
             if (code === 'INVALID_ACCOUNT_ID') return { key: 'aiSettings.invalidAccountId', params: {} };
             if (code === 'INVALID_BASE_URL') return { key: 'aiSettings.invalidBaseUrl', params: {} };
             if (code === 'INVALID_SECRET') return { key: 'aiSettings.invalidSecret', params: {} };

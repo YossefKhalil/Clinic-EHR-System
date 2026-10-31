@@ -79,7 +79,7 @@ export default defineConfig({
       // megabytes of wasm, which does not fit the hosting. The OCR path is
       // dark until it ships with its own build; until then the import fails
       // at runtime and the code says so.
-      external: ['onnxruntime-web', '@huggingface/transformers'],
+      external: [],
     },
   },
   server: {
@@ -132,6 +132,6 @@ export default defineConfig({
   ],
   optimizeDeps: {
     // The model runtimes ship their own wasm and must not be pre-bundled.
-    exclude: ['onnxruntime-web', '@wllama/wllama', '@huggingface/transformers'],
+    exclude: [],
   },
 });
