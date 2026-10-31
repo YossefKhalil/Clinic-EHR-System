@@ -828,5 +828,6 @@
     "aiSettings.localV2.folder.error.worker": "The browser refused to start the worker that reads local files. Open the app over https, or use Chrome, Edge or Firefox.",
     "aiSettings.localV2.folder.error.mount": "The browser did not hand the model files over. Reload the page and pick the folder again.",
     "aiSettings.localV2.quant": "quant :quant",
-    "aiSettings.localV2.status.loading": "Loading…"
+    "aiSettings.localV2.status.loading": "Loading…",
+    "aiSettings.engine.local": "Local"
 }

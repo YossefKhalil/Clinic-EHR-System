@@ -828,5 +828,6 @@
     "aiSettings.localV2.folder.error.worker": "رفض المتصفح تشغيل العامل الذي يقرأ الملفات المحلية. افتح التطبيق عبر https، أو استخدم Chrome أو Edge أو Firefox.",
     "aiSettings.localV2.folder.error.mount": "لم يسلّم المتصفح ملفات النموذج. أعد تحميل الصفحة واختر المجلد مرة أخرى.",
     "aiSettings.localV2.quant": "التكميم :quant",
-    "aiSettings.localV2.status.loading": "جارٍ التحميل…"
+    "aiSettings.localV2.status.loading": "جارٍ التحميل…",
+    "aiSettings.engine.local": "محلي"
 }

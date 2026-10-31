@@ -34,6 +34,27 @@ import { importAgentWizard, importAgentEnter } from './features/import-agent/ui.
 import { localAiV2 } from './features/import-agent/local-v2/settings.js';
 import { GOVERNORATE_BY_ID_CODE, BORN_ABROAD_ID_CODE } from '@import-core/enums.js';
 
+// The engine tab this browser is on. The Local tab hosts the on-device card,
+// and its model lives in this browser's storage, so the choice belongs here
+// too — the server row keeps the mode an import would actually use.
+const ENGINE_VIEW_KEY = 'clinic.ai.engineView';
+
+function readEngineView() {
+    try {
+        return localStorage.getItem(ENGINE_VIEW_KEY) || '';
+    } catch {
+        return '';
+    }
+}
+
+function writeEngineView(view) {
+    try {
+        localStorage.setItem(ENGINE_VIEW_KEY, String(view));
+    } catch {
+        // Storage disabled: the tab just falls back to the server mode.
+    }
+}
+
 
 // A tab left open across a deploy still points at the previous build's
 // hashed chunks, so the next dynamic import 404s ("error loading dynamically
@@ -1391,11 +1412,8 @@ function app() {
             const engine = data.engine ?? (data.enabled === true ? (data.inference_mode ?? 'cloud') : 'off');
             this.aiCloudConsent = data.cloud_consent === true;
             let next = engine;
-            // This browser no longer keeps model files, so a stored local
-            // choice cannot run here: the form shows Off until the admin picks
-            // an engine again.
-            if (next === 'local') next = 'off';
             if (next === 'cloud' && !this.aiCloudConsent && data.enabled !== true) next = 'off';
+            if (next !== 'off' && readEngineView() === 'local') next = 'local';
             this.aiEngine = next;
             this.aiEngineBefore = next;
             this.aiSettingsForm.enabled = next !== 'off';
@@ -1454,6 +1472,7 @@ function app() {
             this.aiEngine = engine;
             this.aiEngineBefore = engine;
             this.aiSettingsForm.enabled = engine !== 'off';
+            writeEngineView(engine);
         },
 
         /** The clinic accepted the data egress: cloud mode may be switched on. */
@@ -1462,6 +1481,7 @@ function app() {
             this.aiConsentChecked = false;
             this.aiEngine = 'cloud';
             this.aiSettingsForm.enabled = true;
+            writeEngineView('cloud');
             bootstrapBundle?.Modal?.getOrCreateInstance(document.getElementById('aiCloudConsentModal'))?.hide();
         },
 
@@ -1722,6 +1742,11 @@ function app() {
             return {
                 // The segmented control sets the flag and the mode together.
                 enabled: engine !== 'off',
+                // The mode an import would run on. The Local tab is the
+                // on-device card, but an import still runs in the cloud until
+                // the wizard can use the GPU engine, so a "local" row would
+                // make import-job refuse every cloud job. Cloud it is.
+                inference_mode: engine === 'local' ? 'cloud' : engine,
                 cloud_consent: this.aiCloudConsent === true,
                 chain,
                 // The local profile holds the names, the sizes and the hashes
