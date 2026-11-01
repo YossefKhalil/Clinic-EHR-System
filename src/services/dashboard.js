@@ -1,4 +1,5 @@
 import { supabase } from './supabase.js';
+import { isMissingRpc, loadDashboardFallbackRows } from './patient-scan.js';
 
 function countMap(value) {
     const result = {};
@@ -29,14 +30,44 @@ export function normalizeDashboardStats(payload) {
     };
 }
 
+/** Aggregate the compatibility rows without a round trip for each count. */
+export function aggregateDashboardRows(rows = []) {
+    const sections = {};
+    const sources = {};
+    let completed = 0;
+
+    rows.forEach((row) => {
+        if (row?.is_completed) completed += 1;
+        if (row?.section) sections[row.section] = (sections[row.section] || 0) + 1;
+        if (row?.source_of_money) {
+            sources[row.source_of_money] = (sources[row.source_of_money] || 0) + 1;
+        }
+    });
+
+    return {
+        total: rows.length,
+        completed,
+        pending: Math.max(0, rows.length - completed),
+        sections,
+        sources,
+    };
+}
+
 export async function getDashboardStats() {
     // One aggregate on the server. Fetching the rows and counting in the
     // browser silently stopped at PostgREST's 1000-row cap (issue #44), and
     // transferring every row for a card was wasteful even below that cap.
     // The SQL function is SECURITY INVOKER, so section RLS still applies.
     const { data, error } = await supabase().rpc('dashboard_stats');
-    if (error) throw error;
-    return normalizeDashboardStats(data);
+    if (!error) return normalizeDashboardStats(data);
+
+    // A database that has not applied schema.sql yet (or whose PostgREST
+    // cache is stale) must still show correct cards. This is a temporary
+    // compatibility path: it reads a light projection in 1000-row pages,
+    // rather than the old full-row fetch, and disappears once the RPC exists.
+    if (!isMissingRpc(error)) throw error;
+    console.warn('dashboard_stats RPC unavailable; using paged compatibility read.');
+    return aggregateDashboardRows(await loadDashboardFallbackRows());
 }
 
 export async function getRecentPatients(limit = 5) {

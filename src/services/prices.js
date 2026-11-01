@@ -1,4 +1,5 @@
 import { supabase } from './supabase.js';
+import { isMissingRpc, loadDashboardFallbackRows } from './patient-scan.js';
 
 // Aggregate a list of patient rows into the financial summary shape the
 // dashboard card shows: totals per section, per source of money, plus the
@@ -39,9 +40,14 @@ export async function getPriceStats() {
     // function is SECURITY INVOKER, so the caller's section RLS still decides
     // which price rows are included.
     const { data, error } = await supabase().rpc('price_stats');
-    if (error) throw error;
+    if (!error) return normalizePriceStats(data);
 
-    return normalizePriceStats(data);
+    // Same compatibility path as the dashboard: an older database still gets
+    // the true totals (including rows after PostgREST's 1000-row cap), using
+    // the shared light-column scan rather than a second download.
+    if (!isMissingRpc(error)) throw error;
+    console.warn('price_stats RPC unavailable; using paged compatibility read.');
+    return aggregatePriced(await loadDashboardFallbackRows());
 }
 
 function totalMap(value) {

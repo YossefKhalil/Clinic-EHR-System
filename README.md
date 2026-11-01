@@ -427,7 +427,7 @@ npm run lint           # ESLint
 npm run check:registry # field registry and schema contract
 ```
 
-The suite currently contains **627 tests across 54 files**. RLS tests run against an in-process Postgres (PGlite) loaded with `supabase/schema.sql`, so policies are exercised against real SQL rather than mocks. Import fixtures cover XLSX, CSV, DOCX, and PDF readers, and property-based tests cover the normalizers. Local AI tests cover the WebGPU engine wrapper, model-folder loading, profile detection, and provider behavior.
+The suite currently contains **630 tests across 54 files**. RLS tests run against an in-process Postgres (PGlite) loaded with `supabase/schema.sql`, so policies are exercised against real SQL rather than mocks. Import fixtures cover XLSX, CSV, DOCX, and PDF readers, and property-based tests cover the normalizers. Local AI tests cover the WebGPU engine wrapper, model-folder loading, profile detection, and provider behavior.
 
 CI runs lint, the registry check, coverage, and the production build on every push and pull request.
 
