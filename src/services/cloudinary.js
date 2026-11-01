@@ -216,11 +216,19 @@ async function requestDeliveryUrls(asset, resourceType) {
 }
 
 // Pull one eager transformation's signed URL out of the upload response.
+// Cloudinary should sign eager URLs for authenticated assets; if an older
+// account returns an unsigned one, leave it out so the UI uses the signed
+// original instead of rendering a guaranteed 401.
 function eagerUrl(payload, width) {
     const eager = Array.isArray(payload?.eager) ? payload.eager : [];
     const match = eager.find((item) => Number(item?.width) === width)
         || eager.find((item) => String(item?.transformation || '').includes(`w_${width}`));
-    return match?.secure_url || '';
+    const secure = match?.secure_url || '';
+    if (!secure) return '';
+    if (payload?.type === 'authenticated' || isProtectedCloudinaryUrl(secure)) {
+        return hasCloudinarySignature(secure) ? secure : '';
+    }
+    return secure;
 }
 
 // Signed upload into the `authenticated` delivery type. The API secret never
