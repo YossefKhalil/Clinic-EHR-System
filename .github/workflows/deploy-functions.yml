@@ -65,7 +65,7 @@ jobs:
           # PostgREST caches the functions it exposes. Without this, a freshly
           # created dashboard_stats()/price_stats() is still reported as
           # "Could not find the function ... in the schema cache" and the
-          # dashboard falls back or looks empty until the cache expires.
+          # dashboard looks empty until the cache expires.
           psql "$SUPABASE_DB_URL" --set ON_ERROR_STOP=1 --no-psqlrc \
             --command "NOTIFY pgrst, 'reload schema';"
           echo "PostgREST schema cache reload requested."
