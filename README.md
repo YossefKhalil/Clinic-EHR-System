@@ -242,7 +242,7 @@ flowchart LR
 
 ### Operational notes
 
-- **Cloudinary:** signed uploads through `cloudinary-sign` are the recommended mode (`VITE_CLOUDINARY_AUTHENTICATED=true`); the unsigned preset remains a fallback for local setups. A preset is not an authentication boundary, so scope it to the expected types and size. Client-side compression is on by default and can be disabled with `VITE_COMPRESS_ATTACHMENTS=false` when the untouched original is required.
+- **Cloudinary:** signed uploads through `cloudinary-sign` are the recommended mode (`VITE_CLOUDINARY_AUTHENTICATED=true`); the unsigned preset remains a fallback for local setups. A preset is not an authentication boundary, so scope it to the expected types and size. Client-side compression is on by default and can be disabled with `VITE_COMPRESS_ATTACHMENTS=false` when the untouched original is required. Authenticated assets cannot be transformed on the fly, so 256/800px card images are generated as eager transformations during upload; existing authenticated assets without eager derivatives fall back to the signed original.
 - **Cloudinary usage:** turn backup storage off (the database/attachment backup workflows below are the backup), and set a usage alert at about 70% in the Cloudinary console. Client-side downscaling plus 256/800px signed delivery variants keep one photo from consuming several credits per view.
 - **Cloudinary PDF delivery:** Free product environments block PDF delivery by default. Patient PDFs upload fine and then return `401` with `X-Cld-Error: deny or ACL failure` on open, while images keep working, and the delivery signature is not the cause. Enable **Settings → Security → Allow delivery of PDF and ZIP files** for the product environment that `VITE_CLOUDINARY_CLOUD_NAME` points at (paid plans have no such block). Cloudinary caches the denied response per URL, so retry after the change or bust the cache before concluding it did not help.
 - **Backups:** the daily database dump is encrypted and kept as a 30-day artifact; a restore drill restores every successful dump into a throwaway Postgres and runs the schema verification. Cloudinary originals are downloaded weekly and encrypted the same way. Long-term copies must go to private storage, never to a branch of this public repository. See [Backup and restore](docs/backup-restore.md).
@@ -427,7 +427,7 @@ npm run lint           # ESLint
 npm run check:registry # field registry and schema contract
 ```
 
-The suite currently contains **621 tests across 53 files**. RLS tests run against an in-process Postgres (PGlite) loaded with `supabase/schema.sql`, so policies are exercised against real SQL rather than mocks. Import fixtures cover XLSX, CSV, DOCX, and PDF readers, and property-based tests cover the normalizers. Local AI tests cover the WebGPU engine wrapper, model-folder loading, profile detection, and provider behavior.
+The suite currently contains **627 tests across 54 files**. RLS tests run against an in-process Postgres (PGlite) loaded with `supabase/schema.sql`, so policies are exercised against real SQL rather than mocks. Import fixtures cover XLSX, CSV, DOCX, and PDF readers, and property-based tests cover the normalizers. Local AI tests cover the WebGPU engine wrapper, model-folder loading, profile detection, and provider behavior.
 
 CI runs lint, the registry check, coverage, and the production build on every push and pull request.
 

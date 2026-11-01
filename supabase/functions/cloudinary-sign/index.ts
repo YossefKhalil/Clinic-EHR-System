@@ -255,6 +255,14 @@ Deno.serve(async (req: Request) => {
             folder,
         };
 
+        // Authenticated assets cannot be transformed on the fly. Generate the
+        // two card/preview derivatives eagerly during upload; their signed
+        // URLs come back in the upload response. PDFs (raw) do not support
+        // image transformations.
+        if (body.resource_type !== 'raw') {
+            params.eager = 'w_256,c_limit,q_auto|w_800,c_limit,q_auto';
+        }
+
         const signature = await signUploadParams(params, apiSecret);
         return json({
             cloud_name: cloudName,

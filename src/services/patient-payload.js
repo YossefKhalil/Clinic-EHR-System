@@ -18,6 +18,16 @@ const ATTACHMENT_KEYS = [
     'authenticated',
     'resource_type',
     'format',
+    'delivery_type',
+    // Issue #44 derivatives: dropping these on save made every thumbnail
+    // rebuild from public_id, which also lost the original cloud and delivery
+    // type. They are safe display metadata, not file contents.
+    'original_size',
+    'compressed',
+    'width',
+    'height',
+    'thumbnail_url',
+    'preview_url',
 ];
 
 function attachmentForDatabase(attachment) {

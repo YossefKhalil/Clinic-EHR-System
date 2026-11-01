@@ -92,6 +92,13 @@ describe('buildPatientPayload', () => {
                 authenticated: true,
                 resource_type: 'raw',
                 format: 'pdf',
+                delivery_type: 'authenticated',
+                original_size: 4096,
+                compressed: true,
+                width: 1200,
+                height: 1600,
+                thumbnail_url: 'https://example.test/thumb',
+                preview_url: 'https://example.test/preview',
                 uploading: false,
                 progress: 100,
                 error: null,
@@ -108,6 +115,13 @@ describe('buildPatientPayload', () => {
             authenticated: true,
             resource_type: 'raw',
             format: 'pdf',
+            delivery_type: 'authenticated',
+            original_size: 4096,
+            compressed: true,
+            width: 1200,
+            height: 1600,
+            thumbnail_url: 'https://example.test/thumb',
+            preview_url: 'https://example.test/preview',
         }]);
     });
 

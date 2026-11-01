@@ -20,7 +20,8 @@ import { readRememberPreference, saveRememberPreference } from './services/sessi
 import { loadImportEnabled, clearImportFlagCache } from './services/import-flag.js';
 import { dbErrorMessage } from './services/error-message.js';
 import { loadAiSettings as loadAiSettingsApi, saveAiSettings as saveAiSettingsApi, testAiProvider as testAiProviderApi, loadImportLimits as loadImportLimitsApi, saveImportLimits as saveImportLimitsApi, resetCloudConsent as resetCloudConsentApi } from './services/ai-settings.js';
-import { initCloudinary, getImageUrl, isImageAttachment } from './services/cloudinary.js';
+import { initCloudinary, getImageUrl, isImageAttachment, refreshAttachmentUrls } from './services/cloudinary.js';
+import { isProtectedCloudinaryUrl, transformCloudinaryImageUrl } from './services/cloudinary-url.js';
 import { getDashboardStats, getRecentPatients } from './services/dashboard.js';
 import { getPatients, getPatientsPage, getPatient, deletePatient, togglePatientStatus, GOVERNORATES, governorateLabel } from './services/patients.js';
 import { buildPatientPayload } from './services/patient-payload.js';
@@ -2787,6 +2788,9 @@ function app() {
             this.patientAttachments = Array.isArray(full.attachments)
                 ? full.attachments.map((att) => ({ ...att, uploading: false, progress: 100, error: null }))
                 : [];
+            // Older authenticated records may have lost their signed variants
+            // (or never had them). Refresh without blocking the form.
+            this.refreshAttachmentLinks(this.patientAttachments);
             // Check PDF accessibility for authenticated attachments
             this.checkPatientPdfs();
             this.currentPage = 'patient-form';
@@ -2816,14 +2820,26 @@ function app() {
                 user_name: full.registered_by_name || full.user_name || 'Unknown',
             };
             this.currentPage = 'patient-profile';
+            // Repair missing signed variants, then re-check protected PDFs.
+            const attachments = this.selectedPatient.attachments;
+            this.refreshAttachmentLinks(attachments).then(() => {
+                if (epoch === this.sessionEpoch) this.checkPatientPdfs();
+            });
             // Check PDF accessibility for authenticated attachments
             this.checkPatientPdfs();
+        },
+
+        async refreshAttachmentLinks(attachments) {
+            if (!Array.isArray(attachments) || !attachments.length) return;
+            const epoch = this.sessionEpoch;
+            await refreshAttachmentUrls(attachments);
+            if (epoch !== this.sessionEpoch) return;
         },
 
         async checkPatientPdfs() {
             if (!this.selectedPatient?.attachments?.length) return;
             for (const att of this.selectedPatient.attachments) {
-                if (!this.attachmentIsImage(att) && att.authenticated) {
+                if (!this.attachmentIsImage(att) && this.attachmentIsProtected(att)) {
                     const result = await this.checkPdfAccessible(att);
                     att._pdfAccessible = result.accessible;
                     att._pdfError = result.error;
@@ -2909,7 +2925,7 @@ function app() {
                     if (epoch !== this.sessionEpoch || !target) return;
                     Object.assign(target, uploaded, { uploading: false, progress: 100 });
                     // Check PDF accessibility for newly uploaded authenticated PDFs
-                    if (!this.attachmentIsImage(target) && target.authenticated) {
+                    if (!this.attachmentIsImage(target) && this.attachmentIsProtected(target)) {
                         const result = await this.checkPdfAccessible(target);
                         if (epoch !== this.sessionEpoch) return;
                         target._pdfAccessible = result.accessible;
@@ -2935,28 +2951,42 @@ function app() {
             return isImageAttachment(attachment);
         },
         
+        // Authenticated and private assets need the signed URL exactly as
+        // stored. Trust the URL as well as the old flag: records saved before
+        // the flag was persisted can still point at /authenticated/.
+        attachmentIsProtected(attachment) {
+            return Boolean(attachment?.authenticated) || isProtectedCloudinaryUrl(attachment?.url);
+        },
+
         attachmentUrl(attachment, width = 320) {
             if (!attachment) return '';
             if (!this.attachmentIsImage(attachment)) return attachment.url || '';
             const target = Math.max(1, Number(width) || 320);
 
-            // Cards, lists and upload rows always use a signed CDN derivative
-            // when one was stored at upload time. Opening the record is the
-            // only place that asks for the full asset.
+            // Cards, lists and upload rows use the stored CDN derivative. The
+            // full asset is requested only when the record is opened.
             if (target <= 320 && attachment.thumbnail_url) return attachment.thumbnail_url;
             if (target <= 900 && attachment.preview_url) return attachment.preview_url;
 
-            if (attachment.authenticated) {
+            if (this.attachmentIsProtected(attachment)) {
                 return attachment.url || attachment.preview_url || attachment.thumbnail_url || '';
             }
+            // Prefer the uploaded URL: it carries the original cloud, version
+            // and extension. Rebuilding from public_id used the current cloud
+            // and 404'd whenever the environments differed (issue #54).
+            const fromStored = transformCloudinaryImageUrl(attachment.url, { width: target });
+            if (fromStored) return fromStored;
             if (!attachment.public_id) return attachment.url || '';
             return getImageUrl(attachment.public_id, { width: target, quality: 'auto' });
         },
         
         attachmentFullUrl(attachment) {
             if (!attachment) return '';
-            if (attachment.authenticated) return attachment.url || '';
-            if (!this.attachmentIsImage(attachment) || !attachment.public_id) return attachment.url || '';
+            if (this.attachmentIsProtected(attachment)) return attachment.url || '';
+            if (!this.attachmentIsImage(attachment)) return attachment.url || '';
+            const fromStored = transformCloudinaryImageUrl(attachment.url, { width: 1600 });
+            if (fromStored) return fromStored;
+            if (!attachment.public_id) return attachment.url || '';
             return getImageUrl(attachment.public_id, { width: 1600, quality: 'auto' });
         },
 

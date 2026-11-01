@@ -1,4 +1,9 @@
 import { supabase } from './supabase.js';
+import {
+    hasCloudinarySignature,
+    isProtectedCloudinaryUrl,
+    transformCloudinaryImageUrl,
+} from './cloudinary-url.js';
 
 let cloudName = '';
 let uploadPreset = '';
@@ -124,19 +129,25 @@ export async function uploadAttachment(file, { folder = '', onProgress = null } 
             width: prepared?.width ?? null,
             height: prepared?.height ?? null,
             mime: uploadFile.type || result.mime,
+            authenticated: Boolean(result.authenticated),
+            delivery_type: result.delivery_type || (result.authenticated ? 'authenticated' : 'upload'),
         };
 
-        // Unsigned uploads can derive small CDN variants without a signature.
+        // Public uploads can derive small CDN variants without a signature.
+        // Build them from the stored URL, not from the current cloud's public
+        // id: that keeps the original cloud, version and extension (issue #54).
         // Authenticated uploads already carry signed variants from the Edge
         // Function; if that function is older and returned none, the caller
         // must fall back to the signed original rather than store an unsigned
         // (and therefore 401) derivative URL.
-        if (!metadata.authenticated && isImageAttachment(metadata) && metadata.public_id) {
+        if (!metadata.authenticated && isImageAttachment(metadata) && (metadata.url || metadata.public_id)) {
             if (!metadata.thumbnail_url) {
-                metadata.thumbnail_url = getImageUrl(metadata.public_id, { width: 256, quality: 'auto' });
+                metadata.thumbnail_url = transformCloudinaryImageUrl(metadata.url, { width: 256 })
+                    || getImageUrl(metadata.public_id, { width: 256, quality: 'auto' });
             }
             if (!metadata.preview_url) {
-                metadata.preview_url = getImageUrl(metadata.public_id, { width: 800, quality: 'auto' });
+                metadata.preview_url = transformCloudinaryImageUrl(metadata.url, { width: 800 })
+                    || getImageUrl(metadata.public_id, { width: 800, quality: 'auto' });
             }
         }
         return metadata;
@@ -146,22 +157,70 @@ export async function uploadAttachment(file, { folder = '', onProgress = null } 
 }
 
 // Classic public upload through the unsigned preset.
-function uploadUnsigned(file, { folder, onProgress, resourceType }) {
-    return new Promise((resolve, reject) => {
+async function uploadUnsigned(file, { folder, onProgress, resourceType }) {
+    const payload = await new Promise((resolve, reject) => {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('upload_preset', uploadPreset);
         if (folder) formData.append('folder', folder);
 
-        postToCloudinary(resourceType, 'upload', formData, onProgress, resolve, reject, (payload) => ({
-            public_id: payload.public_id,
-            url: payload.secure_url,
-            name: file.name,
-            size: payload.bytes ?? file.size,
-            mime: file.type || (resourceType === 'raw' ? 'application/pdf' : ''),
-            uploaded_at: new Date().toISOString(),
-        }));
+        postToCloudinary(cloudName, resourceType, 'upload', formData, onProgress, resolve, reject, (body) => body);
     });
+
+    const deliveryType = String(payload.type || 'upload');
+    const metadata = {
+        public_id: payload.public_id,
+        url: payload.secure_url,
+        name: file.name,
+        size: payload.bytes ?? file.size,
+        mime: file.type || (resourceType === 'raw' ? 'application/pdf' : ''),
+        format: payload.format || '',
+        resource_type: payload.resource_type || resourceType,
+        delivery_type: deliveryType,
+        authenticated: deliveryType === 'authenticated',
+        uploaded_at: new Date().toISOString(),
+    };
+
+    // A preset can be configured for authenticated delivery even when the
+    // build uses the unsigned path. Such assets are not reachable through
+    // /upload/, so sign their URLs as soon as the upload returns. Without
+    // this the UI would save a public_id whose delivery URL always 404s.
+    if (deliveryType === 'authenticated') {
+        const signed = await requestDeliveryUrls(metadata, metadata.resource_type);
+        return { ...metadata, ...signed, authenticated: true };
+    }
+    if (deliveryType !== 'upload') {
+        throw new Error(
+            `This Cloudinary preset stores ${deliveryType} assets. ` +
+            'Use a public upload preset or enable VITE_CLOUDINARY_AUTHENTICATED=true.',
+        );
+    }
+    return metadata;
+}
+
+// Ask the Edge Function for the signed original URL. Authenticated assets
+// cannot be transformed on the fly, so small derivatives are generated
+// eagerly during upload instead (see uploadAuthenticated).
+async function requestDeliveryUrls(asset, resourceType) {
+    const body = {
+        action: 'url',
+        public_id: asset.public_id,
+        resource_type: resourceType === 'raw' ? 'raw' : 'image',
+        format: asset.format || '',
+    };
+    const { data, error } = await supabase().functions.invoke('cloudinary-sign', { body });
+    if (error || !data?.url) {
+        throw new Error(error?.message || 'Could not sign the file URL');
+    }
+    return { url: data.url };
+}
+
+// Pull one eager transformation's signed URL out of the upload response.
+function eagerUrl(payload, width) {
+    const eager = Array.isArray(payload?.eager) ? payload.eager : [];
+    const match = eager.find((item) => Number(item?.width) === width)
+        || eager.find((item) => String(item?.transformation || '').includes(`w_${width}`));
+    return match?.secure_url || '';
 }
 
 // Signed upload into the `authenticated` delivery type. The API secret never
@@ -170,7 +229,7 @@ function uploadUnsigned(file, { folder, onProgress, resourceType }) {
 // authenticated assets always need one to be viewed.
 async function uploadAuthenticated(file, { folder, onProgress, resourceType }) {
     const { data: signed, error: signError } = await supabase().functions.invoke('cloudinary-sign', {
-        body: { action: 'upload', folder },
+        body: { action: 'upload', folder, resource_type: resourceType },
     });
     if (signError || !signed?.signature) {
         throw new Error(signError?.message || 'Could not sign the upload');
@@ -186,55 +245,41 @@ async function uploadAuthenticated(file, { folder, onProgress, resourceType }) {
     // Every signed parameter must also be sent, or Cloudinary recomputes a
     // different signature and rejects the upload.
     if (signed.allowed_formats) formData.append('allowed_formats', signed.allowed_formats);
+    if (signed.eager) formData.append('eager', signed.eager);
 
     // `type` is a form field, not a URL segment: authenticated uploads still
-    // go to /<resource_type>/upload. The old /authenticated path 404s.
+    // go to /<resource_type>/upload. The old /authenticated path 404s. Use the
+    // cloud name returned by the signer too, so a frontend/Edge Function
+    // environment mismatch cannot upload into one cloud and sign for another.
+    const targetCloud = signed.cloud_name || cloudName;
     const payload = await new Promise((resolve, reject) => {
-        postToCloudinary(resourceType, 'upload', formData, onProgress, resolve, reject, (body) => body);
+        postToCloudinary(targetCloud, resourceType, 'upload', formData, onProgress, resolve, reject, (body) => body);
     });
 
     const usedResourceType = payload.resource_type || resourceType;
-    // One signing round trip returns the original URL and the small variants
-    // used by cards and upload rows. Authenticated assets cannot be
-    // transformed without a signature, so the Edge Function signs each path.
-    const urlRequest = {
-        action: 'url',
-        public_id: payload.public_id,
-        resource_type: usedResourceType,
-        format: payload.format,
-    };
-    if (usedResourceType === 'image') {
-        urlRequest.variants = [
-            { key: 'url' },
-            { key: 'thumbnail_url', width: 256, quality: 'auto' },
-            { key: 'preview_url', width: 800, quality: 'auto' },
-        ];
-    }
-    const { data: signedUrl, error: urlError } = await supabase().functions.invoke('cloudinary-sign', {
-        body: urlRequest,
-    });
-    if (urlError || !signedUrl?.url) {
-        throw new Error(urlError?.message || 'Could not sign the file URL');
-    }
+    const urls = await requestDeliveryUrls(payload, usedResourceType);
 
     return {
         public_id: payload.public_id,
-        url: signedUrl.url,
-        thumbnail_url: signedUrl.urls?.thumbnail_url || '',
-        preview_url: signedUrl.urls?.preview_url || '',
+        ...urls,
+        // Authenticated images get these from eager transformations; PDFs and
+        // older accounts fall back to the signed original.
+        thumbnail_url: eagerUrl(payload, 256),
+        preview_url: eagerUrl(payload, 800),
         name: file.name,
         size: payload.bytes ?? file.size,
         mime: file.type || (usedResourceType === 'raw' ? 'application/pdf' : ''),
         format: payload.format || '',
         resource_type: usedResourceType,
+        delivery_type: payload.type || 'authenticated',
         authenticated: true,
         uploaded_at: new Date().toISOString(),
     };
 }
 
-function postToCloudinary(resourceType, deliveryType, formData, onProgress, resolve, reject, map) {
+function postToCloudinary(cloud, resourceType, deliveryType, formData, onProgress, resolve, reject, map) {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/${deliveryType}`);
+    xhr.open('POST', `https://api.cloudinary.com/v1_1/${cloud}/${resourceType}/${deliveryType}`);
 
     // A stalled connection must not hang an upload - and with it the save
     // form - forever (issue #26). xhr.timeout bounds only the total
@@ -286,4 +331,48 @@ export function getImageUrl(publicId, options = {}) {
     if (options.width || options.height) transforms.push('c_limit');
 
     return `https://res.cloudinary.com/${cloudName}/image/upload/${transforms.join(',')}/${publicId}`;
+}
+
+/**
+ * Repair attachment URLs loaded from older records.
+ *
+ * Records saved before the signed-variant work may carry a protected URL
+ * without a signature (for example an authenticated upload made through an
+ * unsigned preset) or a signed original with no thumbnail. Re-sign them once
+ * when the record is opened. Failures are non-fatal: the stored URL remains
+ * usable if it was already signed, and the caller keeps rendering.
+ */
+export async function refreshAttachmentUrls(attachments) {
+    const list = Array.isArray(attachments) ? attachments : [];
+    let changed = false;
+
+    await Promise.all(list.map(async (attachment) => {
+        if (!attachment?.public_id) return;
+        const protectedAsset = attachment.authenticated === true
+            || isProtectedCloudinaryUrl(attachment.url);
+        if (!protectedAsset) return;
+
+        if (!attachment.authenticated) {
+            attachment.authenticated = true;
+            changed = true;
+        }
+        // A signed original is already deliverable. Older authenticated assets
+        // have no eager derivatives, so cards fall back to that original
+        // rather than requesting an on-the-fly transform Cloudinary rejects.
+        if (hasCloudinarySignature(attachment.url)) return;
+
+        const resourceType = attachment.resource_type
+            || (String(attachment.mime || '').startsWith('image/') ? 'image' : 'raw');
+        try {
+            const urls = await requestDeliveryUrls(attachment, resourceType);
+            if (urls.url && urls.url !== attachment.url) {
+                attachment.url = urls.url;
+                changed = true;
+            }
+        } catch (error) {
+            console.warn('Could not refresh Cloudinary attachment URLs:', error?.message || error);
+        }
+    }));
+
+    return changed;
 }
