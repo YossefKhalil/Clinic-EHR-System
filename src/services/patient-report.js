@@ -189,6 +189,42 @@ function attachmentsBlock(heading, attachments) {
     </section>`;
 }
 
+function reportImagePages(images, { t, name, generated }) {
+    if (!images.length) return '';
+    const total = images.length;
+    const confidentiality = clean(t('Confidential medical record'));
+    return images.map((image, index) => {
+        const type = attachmentType(image);
+        const position = t('Image :index of :count')
+            .replace(':index', String(index + 1))
+            .replace(':count', String(total));
+        return `<section class="sheet report-image-page" aria-label="${escapeHtml(position)}">
+    <header class="masthead">
+        <div>
+            <div class="wordmark">${escapeHtml(t('Clinic EHR'))}</div>
+            <div class="document-kind">${escapeHtml(t('Attachments (:count)').replace(':count', String(total)))}</div>
+        </div>
+        <div class="header-meta">
+            <div>${escapeHtml(name || t('Patient'))}</div>
+            <div>${escapeHtml(position)}</div>
+        </div>
+    </header>
+    <figure class="attachment-figure">
+        <img src="${escapeHtml(image.url)}" alt="${escapeHtml(image.name)}">
+        <div class="image-error">${escapeHtml(t('Image could not be loaded'))}</div>
+        <figcaption>
+            <span>${escapeHtml(image.name)}</span>
+            ${type ? `<span class="attachment-type">${escapeHtml(type)}</span>` : ''}
+        </figcaption>
+    </figure>
+    <footer class="report-footer">
+        ${confidentiality ? `<span>${escapeHtml(confidentiality)}</span>` : ''}
+        <span>${escapeHtml(t('Generated'))}: ${escapeHtml(generated)}</span>
+    </footer>
+</section>`;
+    }).join('');
+}
+
 // The print dialog uses the document title as the suggested filename. Keep
 // it to a predictable, path-safe value; the full patient ID never appears.
 export function patientReportFilename(patient, now = new Date()) {
@@ -276,13 +312,13 @@ function styles(locale) {
         }
         .status.completed { color: var(--success); background: #edf7f1; }
         .status.pending { color: var(--muted); background: var(--soft); }
-        .block { margin-top: 4mm; break-inside: avoid; }
+        .block { margin-top: 3mm; break-inside: avoid; }
         .block h2 {
-            margin: 0 0 2mm;
-            padding-bottom: 1mm;
+            margin: 0 0 1.6mm;
+            padding-bottom: 0.8mm;
             border-bottom: 0.8pt solid var(--line);
             color: var(--accent);
-            font-size: 11pt;
+            font-size: 10.5pt;
             line-height: 1.2;
         }
         .grid {
@@ -291,6 +327,14 @@ function styles(locale) {
             gap: 2.2mm 6mm;
             margin: 0;
         }
+        /* Identity and visit details are short fields; three compact columns
+           leave more vertical room for the clinical text on a busy record. */
+        .grid.compact {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 1.1mm 4mm;
+        }
+        .grid.compact .field dt { font-size: 7pt; margin-bottom: 0.15mm; }
+        .grid.compact .field dd { line-height: 1.2; }
         .field.wide { grid-column: 1 / -1; }
         .field dt {
             margin: 0 0 0.35mm;
@@ -373,15 +417,65 @@ function styles(locale) {
             color: var(--muted);
             font-size: 7.5pt;
         }
+        /* Attached images are an optional appendix. Each one starts on a new
+           page and is contained without cropping, so it never competes with
+           the clinical record on page one. */
+        .report-image-page {
+            display: flex;
+            flex-direction: column;
+            break-before: page;
+            page-break-before: always;
+        }
+        .attachment-figure {
+            flex: 1 1 auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 205mm;
+            margin: 5mm 0 0;
+            text-align: center;
+            break-inside: avoid;
+        }
+        .attachment-figure img {
+            display: block;
+            width: auto;
+            height: auto;
+            max-width: 100%;
+            max-height: 205mm;
+            object-fit: contain;
+        }
+        .attachment-figure figcaption {
+            display: flex;
+            justify-content: space-between;
+            gap: 4mm;
+            width: 100%;
+            margin-top: 3mm;
+            padding-top: 2mm;
+            border-top: 0.8pt solid var(--line);
+            color: var(--muted);
+            font-size: 8pt;
+            text-align: start;
+        }
+        .image-error {
+            display: none;
+            padding: 8mm;
+            color: var(--muted);
+            font-size: 9pt;
+        }
+        .attachment-figure.image-unavailable img { display: none; }
+        .attachment-figure.image-unavailable .image-error { display: block; }
         @page { size: A4 portrait; margin: 12mm; }
         @media screen {
             body { background: #e8ebf0; padding: 12mm 0; }
             .sheet { box-shadow: 0 1pt 5pt rgba(23, 32, 51, 0.18); }
+            .report-image-page { margin-top: 12mm; }
         }
         @media print {
             html, body { background: #fff; }
             body { padding: 0; }
             .sheet { width: auto; min-height: 0; box-shadow: none; }
+            .report-image-page { margin: 0; }
         }
     `;
 }
@@ -395,6 +489,7 @@ export function buildPatientReportHtml(patient, options = {}) {
         : new Date();
     const labels = options.labels || {};
     const generated = formatDateTimeValue(now, locale);
+    const confidentiality = clean(t('Confidential medical record'));
     const name = clean(patient?.name);
     const shortId = shortPatientId(patient);
     const title = patientReportFilename(patient, now);
@@ -404,7 +499,8 @@ export function buildPatientReportHtml(patient, options = {}) {
     const source = clean(labels.sourceOfMoney);
     const governorate = clean(labels.governorate);
     const maritalStatus = clean(labels.maritalStatus);
-    const recordType = clean(labels.recordType) || capitalize(patient?.record_type);
+    const recordType = clean(labels.recordType)
+        || (hasValue(patient?.record_type) ? t(capitalize(patient.record_type)) : '');
 
     const computedAge = ageFromDateOfBirth(patient?.date_of_birth, now);
     const age = computedAge !== null
@@ -447,6 +543,12 @@ export function buildPatientReportHtml(patient, options = {}) {
         t('Attachments (:count)').replace(':count', String(attachmentItems.length)),
         attachmentItems,
     );
+    // Images are an explicit, opt-in appendix: the main record must stay
+    // compact and printable on its own. Only HTTP(S) sources are accepted so
+    // a malformed attachment cannot inject another scheme.
+    const reportImages = options.includeImages === true && Array.isArray(options.images)
+        ? options.images.filter((image) => image && hasValue(image.name) && /^https?:\/\//i.test(clean(image.url)))
+        : [];
 
     return `<!doctype html>
 <html lang="${locale}" dir="${dir}">
@@ -457,10 +559,10 @@ export function buildPatientReportHtml(patient, options = {}) {
 <style>${styles(locale)}</style>
 </head>
 <body>
-<main class="sheet">
+<main class="sheet report-main">
     <header class="masthead">
         <div>
-            <div class="wordmark">Clinic <span>EHR</span></div>
+            <div class="wordmark">${escapeHtml(t('Clinic EHR'))}</div>
             <div class="document-kind">${escapeHtml(t('Patient Record'))}</div>
         </div>
         <div class="header-meta">
@@ -486,12 +588,12 @@ export function buildPatientReportHtml(patient, options = {}) {
 
     ${identityFields ? `<section class="block">
         <h2>${escapeHtml(t('Patient Information'))}</h2>
-        <dl class="grid">${identityFields}</dl>
+        <dl class="grid compact">${identityFields}</dl>
     </section>` : ''}
 
     ${adminFields ? `<section class="block">
         <h2>${escapeHtml(t('Visit & Administration'))}</h2>
-        <dl class="grid">${adminFields}</dl>
+        <dl class="grid compact">${adminFields}</dl>
     </section>` : ''}
 
     ${clinical ? `<section class="block">
@@ -502,10 +604,11 @@ export function buildPatientReportHtml(patient, options = {}) {
     ${attachments}
 
     <footer class="report-footer">
-        <span>${escapeHtml(t('Confidential medical record'))}</span>
+        ${confidentiality ? `<span>${escapeHtml(confidentiality)}</span>` : ''}
         <span>${escapeHtml(t('Generated'))}: ${escapeHtml(generated)}</span>
     </footer>
 </main>
+${reportImagePages(reportImages, { t, name, generated })}
 </body>
 </html>`;
 }
@@ -549,8 +652,37 @@ function waitForDocument(printWindow) {
     });
 }
 
+function waitForImages(document, timeout = 5000) {
+    const images = [...document.querySelectorAll('.report-image-page img')];
+    if (!images.length) return Promise.resolve();
+    return Promise.all(images.map((image) => new Promise((resolve) => {
+        if (image.complete) {
+            resolve();
+            return;
+        }
+        let settled = false;
+        const done = () => {
+            if (settled) return;
+            settled = true;
+            resolve();
+        };
+        image.addEventListener('load', done, { once: true });
+        image.addEventListener('error', done, { once: true });
+        // A slow or blocked image must not hold the print dialog forever.
+        setTimeout(done, timeout);
+    }))).then(() => {
+        images.forEach((image) => {
+            if (!image.complete || image.naturalWidth === 0) {
+                image.closest('.attachment-figure')?.classList.add('image-unavailable');
+            }
+        });
+    });
+}
+
 function fitReportToPage(document) {
-    const sheet = document.querySelector('.sheet');
+    // Only the clinical sheet is auto-fitted. The image appendix has its own
+    // pages and must not trigger the continuation warning on page one.
+    const sheet = document.querySelector('.report-main');
     if (!sheet) return;
     // The screen sheet has a 273mm min-height, so scrollHeight can never tell
     // us whether the content itself fits. Measure with that floor removed,
@@ -601,6 +733,7 @@ export async function openPatientReport(patient, options = {}) {
         document.write(buildPatientReportHtml(patient, options));
         document.close();
         await waitForDocument(printWindow);
+        await waitForImages(document);
         fitReportToPage(document);
         printWindow.focus();
         closeAfterPrint(printWindow);

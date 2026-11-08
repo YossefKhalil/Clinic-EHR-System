@@ -178,6 +178,9 @@ function app() {
         // The patient report opens a print window, so the button stays busy
         // until the document is ready and the dialog has been shown.
         printingPatient: false,
+        // Image attachments are printed only when the user asks for them;
+        // they become an appendix of one full page per image.
+        includeReportImages: false,
         // Excel export: the button writes the table's dataset in Arabic with
         // every column; the caret opens the language, the rows and the
         // columns for a custom workbook.
@@ -524,6 +527,7 @@ function app() {
             // Transient UI state
             this.exporting = false;
             this.printingPatient = false;
+            this.includeReportImages = false;
             this.toasts = [];
             this.loginForm = { identifier: '', password: '', remember: readRememberPreference() };
             this.loginError = null;
@@ -2824,6 +2828,9 @@ function app() {
                 user_name: full.registered_by_name || full.user_name || 'Unknown',
             };
             this.currentPage = 'patient-profile';
+            // Each report is an explicit choice; never carry a previous
+            // patient's image opt-in into this record.
+            this.includeReportImages = false;
             // Repair missing signed variants, then re-check protected PDFs.
             const attachments = this.selectedPatient.attachments;
             this.refreshAttachmentLinks(attachments).then(() => {
@@ -2879,6 +2886,27 @@ function app() {
                     return;
                 }
 
+                const attachments = Array.isArray(full.attachments) ? full.attachments : [];
+                if (this.includeReportImages && attachments.length) {
+                    // Refresh signed URLs before the appendix is built; a
+                    // protected image must not be printed as an unsigned URL.
+                    await this.refreshAttachmentLinks(attachments);
+                    if (epoch !== this.sessionEpoch) {
+                        printWindow.close();
+                        return;
+                    }
+                }
+                const reportImages = this.includeReportImages
+                    ? attachments
+                        .filter((attachment) => this.attachmentIsImage(attachment))
+                        .map((attachment) => ({
+                            name: attachment.name || '',
+                            mime: attachment.mime || '',
+                            url: this.attachmentFullUrl(attachment),
+                        }))
+                        .filter((image) => image.name && /^https?:\/\//i.test(image.url))
+                    : [];
+
                 const { openPatientReport } = await import('./services/patient-report.js');
                 if (epoch !== this.sessionEpoch) {
                     printWindow.close();
@@ -2890,6 +2918,8 @@ function app() {
                     t: (key, params) => this.t(key, params),
                     now: new Date(),
                     printWindow,
+                    includeImages: this.includeReportImages,
+                    images: reportImages,
                     labels: {
                         section: this.optionLabel('section', full.section),
                         follower: full.follower ? this.optionLabel('follower', full.follower) : '',
@@ -3033,6 +3063,11 @@ function app() {
         
         attachmentIsImage(attachment) {
             return isImageAttachment(attachment);
+        },
+
+        hasPrintableImages(patient) {
+            return Array.isArray(patient?.attachments)
+                && patient.attachments.some((attachment) => this.attachmentIsImage(attachment));
         },
         
         // Authenticated and private assets need the signed URL exactly as

@@ -62,7 +62,7 @@ The application is deliberately serverless. The frontend is a static Vite build 
 
 - **Patient registry** with a 17-field intake form: identity, contact details, demographics, address, visit information, diagnosis and treatment plan, funding source, price, and section.
 - **Patient profiles** with editable records, internal notes, completion status, and attachments.
-- **Printable patient record**: **Print / Save PDF** opens a bilingual A4 report with the patient's identity, visit, clinical notes, and attachment names. It auto-fits to one page down to 8pt and adds a labelled continuation instead of truncating clinical text. The report module is lazy-loaded.
+- **Printable patient record**: **Print / Save PDF** opens a bilingual A4 report with the patient's identity, visit, clinical notes, and attachment names. It follows the active app language, compacts the identity and visit grids to fit more data on page one, and can append each attached image as an optional separate page. The main record auto-fits to one page down to 8pt and adds a labelled continuation instead of truncating clinical text. The report module is lazy-loaded.
 - **Attachments** for medical and lab documents. Photos are downscaled to a 1600px long side and re-encoded in the browser (WebP/JPEG, EXIF orientation respected, metadata stripped) before uploading directly to Cloudinary; PDFs upload unchanged. Cards and upload rows load 256/800px signed derivatives, and the original is requested only when the record is opened. The full asset can still be kept with `VITE_COMPRESS_ATTACHMENTS=false`.
 - **Section-aware access**: staff are granted read and/or write access per section; a Super Admin reaches every section and manages accounts.
 
@@ -428,7 +428,7 @@ npm run lint           # ESLint
 npm run check:registry # field registry and schema contract
 ```
 
-The suite currently contains **634 tests across 55 files**. RLS tests run against an in-process Postgres (PGlite) loaded with `supabase/schema.sql`, so policies are exercised against real SQL rather than mocks. Import fixtures cover XLSX, CSV, DOCX, and PDF readers, and property-based tests cover the normalizers. Local AI tests cover the WebGPU engine wrapper, model-folder loading, profile detection, and provider behavior.
+The suite currently contains **637 tests across 55 files**. RLS tests run against an in-process Postgres (PGlite) loaded with `supabase/schema.sql`, so policies are exercised against real SQL rather than mocks. Import fixtures cover XLSX, CSV, DOCX, and PDF readers, and property-based tests cover the normalizers. Local AI tests cover the WebGPU engine wrapper, model-folder loading, profile detection, and provider behavior.
 
 CI runs lint, the registry check, coverage, and the production build on every push and pull request.
 

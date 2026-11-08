@@ -3083,6 +3083,12 @@
                             <i x-show="!printingPatient" class="bi bi-printer me-1" aria-hidden="true"></i>
                             <span x-text="printingPatient ? t('Preparing...') : t('Print / Save PDF')"></span>
                         </button>
+                        <div class="mt-2" x-show="hasPrintableImages(selectedPatient)" x-cloak>
+                            <label class="form-check d-inline-flex align-items-center gap-2 mb-0">
+                                <input class="form-check-input m-0" type="checkbox" x-model="includeReportImages" :disabled="printingPatient">
+                                <span class="form-check-label small" x-text="t('Include attached images (separate pages)')"></span>
+                            </label>
+                        </div>
                     </div>
                 </div>
 

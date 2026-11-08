@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import ar from '../../src/locales/ar.json';
+import en from '../../src/locales/en.json';
 import {
     buildPatientReportHtml,
     escapeHtml,
@@ -60,6 +62,7 @@ describe('patient report', () => {
         expect(html).toContain('<h2>Patient Information</h2>');
         expect(html).toContain('<h2>Visit &amp; Administration</h2>');
         expect(html).toContain('<h2>Clinical Notes</h2>');
+        expect(html.match(/class="grid compact"/g)).toHaveLength(2);
         expect(html).toContain('<h2>Attachments (1)</h2>');
         expect(html).toContain('Fever &amp; &lt;pain&gt;');
         expect(html).toContain('Rest\nFollow up');
@@ -109,6 +112,94 @@ describe('patient report', () => {
         expect(html).toContain('مكتمل');
         expect(html).toContain('المرفقات (1)');
         expect(html).toContain('ج.م');
+    });
+
+    it('uses the active app dictionary for Arabic and English output', () => {
+        const arabic = buildPatientReportHtml(patient, {
+            locale: 'ar',
+            t: (key) => ar[key] ?? key,
+            now: NOW,
+        });
+        expect(arabic).toContain('lang="ar" dir="rtl"');
+        expect(arabic).toContain('بيانات المريض');
+        expect(arabic).toContain('الزيارة والإدارة');
+        expect(arabic).toContain('الملاحظات السريرية');
+        expect(arabic).toContain('<div class="wordmark">الملف الطبي</div>');
+        expect(arabic).not.toContain('Patient Information');
+        const arabicFooter = arabic.match(/<footer class="report-footer">[\s\S]*?<\/footer>/)?.[0] || '';
+        expect(arabicFooter).not.toContain('الملف الطبي');
+        expect(arabicFooter).toContain('تاريخ الإنشاء');
+
+        const english = buildPatientReportHtml(patient, {
+            locale: 'en',
+            t: (key) => en[key] ?? key,
+            now: NOW,
+        });
+        expect(english).toContain('lang="en" dir="ltr"');
+        expect(english).toContain('<div class="wordmark">Clinic EHR</div>');
+        expect(english).toContain('Patient Information');
+        expect(english).not.toContain('بيانات المريض');
+        const englishFooter = english.match(/<footer class="report-footer">[\s\S]*?<\/footer>/)?.[0] || '';
+        expect(englishFooter).toContain('Confidential medical record');
+    });
+
+    it('adds attached images only as an opt-in appendix, one page per image', () => {
+        const images = [
+            {
+                name: 'photo.jpg',
+                mime: 'image/jpeg',
+                url: 'https://res.cloudinary.com/demo/image/upload/v1/photo.jpg',
+            },
+            {
+                name: 'scan.png',
+                mime: 'image/png',
+                url: 'https://res.cloudinary.com/demo/image/upload/v1/scan.png',
+            },
+        ];
+
+        const withoutImages = buildPatientReportHtml(patient, { locale: 'en', t, now: NOW });
+        expect(withoutImages).not.toContain('<section class="sheet report-image-page"');
+        expect(withoutImages).not.toContain('https://');
+
+        const withImages = buildPatientReportHtml(patient, {
+            locale: 'en',
+            t,
+            now: NOW,
+            includeImages: true,
+            images,
+        });
+        expect(withImages.match(/class="sheet report-image-page"/g)).toHaveLength(2);
+        expect(withImages.indexOf('<section class="sheet report-image-page"')).toBeGreaterThan(withImages.indexOf('</main>'));
+        expect(withImages).toContain('src="https://res.cloudinary.com/demo/image/upload/v1/photo.jpg"');
+        expect(withImages).toContain('Image 1 of 2');
+        expect(withImages).toContain('Image 2 of 2');
+        expect(withImages).toContain('photo.jpg');
+        expect(withImages).toContain('JPG');
+        expect(withImages).toContain('scan.png');
+
+        const arabicWithImages = buildPatientReportHtml(patient, {
+            locale: 'ar',
+            t: (key) => ar[key] ?? key,
+            now: NOW,
+            includeImages: true,
+            images,
+        });
+        expect(arabicWithImages).toContain('<div class="wordmark">الملف الطبي</div>');
+        const arabicFooters = [...arabicWithImages.matchAll(/<footer class="report-footer">[\s\S]*?<\/footer>/g)];
+        expect(arabicFooters).toHaveLength(3);
+        expect(arabicFooters.every((footer) => !footer[0].includes('الملف الطبي'))).toBe(true);
+    });
+
+    it('rejects non-HTTP image sources from the appendix', () => {
+        const html = buildPatientReportHtml(patient, {
+            locale: 'en',
+            t,
+            now: NOW,
+            includeImages: true,
+            images: [{ name: 'evil.jpg', mime: 'image/jpeg', url: 'javascript:alert(1)' }],
+        });
+        expect(html).not.toContain('javascript:');
+        expect(html).not.toContain('<section class="sheet report-image-page"');
     });
 
     it('never prints attachment URLs, public IDs, raw UUIDs, or internal IDs', () => {
