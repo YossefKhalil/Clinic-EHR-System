@@ -3114,10 +3114,16 @@
 
                                     <div>
                                         <small class="text-muted d-block fw-semibold" x-text="t('Mobile Number')"></small>
-                                        <template x-if="selectedPatient?.mobile">
-                                            <span class="fw-semibold text-dark"><i class="bi bi-telephone me-1 text-muted"></i><span x-text="selectedPatient?.mobile"></span></span>
+                                        <template x-if="phoneNumbersOf(selectedPatient).length">
+                                            <div class="vstack gap-1">
+                                                <template x-for="phone in phoneNumbersOf(selectedPatient)" :key="phone">
+                                                    <a class="fw-semibold text-dark text-decoration-none" :href="phoneHref(phone)">
+                                                        <i class="bi bi-telephone me-1 text-muted"></i><span x-text="phone"></span>
+                                                    </a>
+                                                </template>
+                                            </div>
                                         </template>
-                                        <template x-if="!selectedPatient?.mobile">
+                                        <template x-if="!phoneNumbersOf(selectedPatient).length">
                                             <span class="text-muted font-monospace"><em x-text="t('Not Provided')"></em></span>
                                         </template>
                                     </div>
@@ -3326,8 +3332,8 @@
                                                 <input type="text" id="pf-name" class="form-control" x-model="patientForm.name" :placeholder="t('First & Last Name')" required>
                                             </div>
                                             <div class="col-md-6">
-                                                <label for="pf-nid" class="form-label fw-semibold"><span x-text="t('National ID')"></span> <span class="text-danger">*</span></label>
-                                                <input type="text" id="pf-nid" maxlength="14" class="form-control" x-model="patientForm.national_id" @input="onNationalIdInput()" @change="onNationalIdChange()" @blur="onNationalIdBlur()" :placeholder="t('14-digit National ID')" required>
+                                                <label for="pf-nid" class="form-label fw-semibold"><span x-text="t('National ID')"></span></label>
+                                                <input type="text" id="pf-nid" maxlength="14" class="form-control" x-model="patientForm.national_id" @input="onNationalIdInput()" @change="onNationalIdChange()" @blur="onNationalIdBlur()" :placeholder="t('14-digit National ID')">
                                             </div>
                                         </div>
                                     </div>
@@ -3339,7 +3345,18 @@
                                         <div class="row g-3">
                                             <div class="col-md-4">
                                                 <label class="form-label fw-semibold" x-text="t('Mobile Phone')"></label>
-                                                <input type="text" class="form-control" x-model="patientForm.mobile" placeholder="e.g., +2010...">
+                                                <template x-for="(phone, index) in patientPhones" :key="index">
+                                                    <div class="input-group mb-2">
+                                                        <span class="input-group-text bg-white"><i class="bi bi-telephone"></i></span>
+                                                        <input type="tel" class="form-control" x-model="patientPhones[index]" placeholder="e.g., +2010..." :aria-label="t('Mobile Phone')">
+                                                        <button type="button" class="btn btn-outline-secondary" x-show="patientPhones.length > 1" @click="removePatientPhone(index)" :title="t('Remove phone number')" :aria-label="t('Remove phone number')">
+                                                            <i class="bi bi-x-lg"></i>
+                                                        </button>
+                                                    </div>
+                                                </template>
+                                                <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" @click="addPatientPhone()">
+                                                    <i class="bi bi-plus-lg me-1"></i><span x-text="t('Add another number')"></span>
+                                                </button>
                                             </div>
                                             <div class="col-md-4">
                                                 <label class="form-label fw-semibold" x-text="t('Date of Birth')"></label>

@@ -24,7 +24,7 @@ import { initCloudinary, getImageUrl, isImageAttachment, refreshAttachmentUrls }
 import { isProtectedCloudinaryUrl, transformCloudinaryImageUrl } from './services/cloudinary-url.js';
 import { getDashboardStats, getRecentPatients } from './services/dashboard.js';
 import { getPatients, getPatientsPage, getPatient, deletePatient, togglePatientStatus, GOVERNORATES, governorateLabel } from './services/patients.js';
-import { buildPatientPayload } from './services/patient-payload.js';
+import { buildPatientPayload, splitPhoneNumbers, joinPhoneNumbers } from './services/patient-payload.js';
 import { emptyPatientFilters, activeFilterKeys } from './services/patient-filters.js';
 import { EXPORT_FIELDS, EXPORT_FIELD_KEYS } from './services/export-fields.js';
 import { patientMatchesQuery } from './services/fuzzy.js';
@@ -326,6 +326,9 @@ function app() {
         patientForm: null,
         selectedPatient: null,
         patientNotes: [''],
+        // One editable row per phone number. The saved value stays in the
+        // existing `mobile` column as a comma-separated list.
+        patientPhones: [''],
         // Cloudinary attachment entries: saved DB shape plus transient
         // uploading/progress/error state while a file is in flight.
         patientAttachments: [],
@@ -513,6 +516,7 @@ function app() {
             this.selectedPatient = null;
             this.editingPatient = null;
             this.patientNotes = [''];
+            this.patientPhones = [''];
             this.patientAttachments = [];
             this.patientForm = this.newPatientForm();
             this.editingUser = null;
@@ -2690,6 +2694,23 @@ function app() {
             this.onNationalIdChange();
         },
 
+        phoneNumbersOf(patient) {
+            return splitPhoneNumbers(patient?.mobile);
+        },
+
+        phoneHref(phone) {
+            return `tel:${String(phone ?? '').replace(/[^\d+]/g, '')}`;
+        },
+
+        addPatientPhone() {
+            this.patientPhones.push('');
+        },
+
+        removePatientPhone(index) {
+            this.patientPhones.splice(index, 1);
+            if (!this.patientPhones.length) this.patientPhones = [''];
+        },
+
         // Same rule for the read-only patient profile.
         patientAgeOf(patient) {
             if (!patient) return 'N/A';
@@ -2748,6 +2769,7 @@ function app() {
             this.patientForm = this.newPatientForm();
             this.refreshAge();
             this.patientNotes = [''];
+            this.patientPhones = [''];
             this.patientAttachments = [];
             this.currentPage = 'patient-form';
         },
@@ -2773,6 +2795,8 @@ function app() {
             if (epoch !== this.sessionEpoch) return;
 
             this.editingPatient = full;
+            this.patientPhones = splitPhoneNumbers(full.mobile);
+            if (!this.patientPhones.length) this.patientPhones = [''];
             this.patientForm = {
                 name: full.name || '',
                 national_id: full.national_id || '',
@@ -3170,6 +3194,7 @@ function app() {
             }
 
             const { createPatient, updatePatient } = await import('./services/patients.js');
+            this.patientForm.mobile = joinPhoneNumbers(this.patientPhones);
             // The coercions live in a pure module so they can be tested
             // without mounting the Alpine component.
             const payload = buildPatientPayload(this.patientForm, {

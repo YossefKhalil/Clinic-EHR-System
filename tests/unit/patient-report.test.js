@@ -124,7 +124,7 @@ describe('patient report', () => {
         expect(arabic).toContain('بيانات المريض');
         expect(arabic).toContain('الزيارة والإدارة');
         expect(arabic).toContain('الملاحظات السريرية');
-        expect(arabic).toContain('<div class="wordmark">الملف الطبي</div>');
+        expect(arabic).toContain('class="wordmark">الملف الطبي</div>');
         expect(arabic).not.toContain('Patient Information');
         const arabicFooter = arabic.match(/<footer class="report-footer">[\s\S]*?<\/footer>/)?.[0] || '';
         expect(arabicFooter).not.toContain('الملف الطبي');
@@ -136,7 +136,7 @@ describe('patient report', () => {
             now: NOW,
         });
         expect(english).toContain('lang="en" dir="ltr"');
-        expect(english).toContain('<div class="wordmark">Clinic EHR</div>');
+        expect(english).toContain('class="wordmark">Clinic EHR</div>');
         expect(english).toContain('Patient Information');
         expect(english).not.toContain('بيانات المريض');
         const englishFooter = english.match(/<footer class="report-footer">[\s\S]*?<\/footer>/)?.[0] || '';
@@ -184,7 +184,7 @@ describe('patient report', () => {
             includeImages: true,
             images,
         });
-        expect(arabicWithImages).toContain('<div class="wordmark">الملف الطبي</div>');
+        expect(arabicWithImages).toContain('class="wordmark">الملف الطبي</div>');
         const arabicFooters = [...arabicWithImages.matchAll(/<footer class="report-footer">[\s\S]*?<\/footer>/g)];
         expect(arabicFooters).toHaveLength(3);
         expect(arabicFooters.every((footer) => !footer[0].includes('الملف الطبي'))).toBe(true);

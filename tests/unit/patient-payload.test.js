@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPatientPayload, toNullableNumber } from '../../src/services/patient-payload.js';
+import { buildPatientPayload, joinPhoneNumbers, splitPhoneNumbers, toNullableNumber } from '../../src/services/patient-payload.js';
 
 function form(overrides = {}) {
     return {
@@ -34,10 +34,25 @@ describe('toNullableNumber', () => {
     });
 });
 
+describe('phone numbers', () => {
+    it('splits common separators and trims blank entries', () => {
+        expect(splitPhoneNumbers('0101, 0102;0103\n0104، 0105')).toEqual([
+            '0101', '0102', '0103', '0104', '0105',
+        ]);
+        expect(splitPhoneNumbers('')).toEqual([]);
+    });
+
+    it('joins numbers once, preserving order', () => {
+        expect(joinPhoneNumbers([' 0101 ', '0102', '0101', '', null])).toBe('0101, 0102');
+        expect(joinPhoneNumbers('0101; 0102')).toBe('0101, 0102');
+    });
+});
+
 describe('buildPatientPayload', () => {
     it('sends null for unset typed and enum fields', () => {
         const payload = buildPatientPayload(form(), { userId: 'user-1' });
 
+        expect(payload.mobile).toBeNull();
         expect(payload.section).toBeNull();
         expect(payload.source_of_money).toBeNull();
         expect(payload.marital_status).toBeNull();
@@ -48,6 +63,18 @@ describe('buildPatientPayload', () => {
         expect(payload.visit_date).toBeNull();
         expect(payload.user_id).toBe('user-1');
         expect(payload.is_completed).toBe(false);
+    });
+
+    it('nulls a blank national ID and trims a provided one', () => {
+        expect(buildPatientPayload(form({ national_id: '' })).national_id).toBeNull();
+        expect(buildPatientPayload(form({ national_id: '   ' })).national_id).toBeNull();
+        expect(buildPatientPayload(form({ national_id: ' 29001011234567 ' })).national_id)
+            .toBe('29001011234567');
+    });
+
+    it('stores multiple phone numbers in the mobile column', () => {
+        const payload = buildPatientPayload(form({ mobile: '0101; 0102, 0101' }));
+        expect(payload.mobile).toBe('0101, 0102');
     });
 
     it('coerces numeric inputs and trims date values', () => {

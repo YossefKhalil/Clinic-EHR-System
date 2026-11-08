@@ -189,6 +189,12 @@ function attachmentsBlock(heading, attachments) {
     </section>`;
 }
 
+function wordmark(t) {
+    // A plain black-and-white wordmark prints cleanly on any printer and
+    // cannot turn into a grey box when a browser disables background colours.
+    return `<div class="wordmark">${escapeHtml(t('Clinic EHR'))}</div>`;
+}
+
 function reportImagePages(images, { t, name, generated }) {
     if (!images.length) return '';
     const total = images.length;
@@ -201,7 +207,7 @@ function reportImagePages(images, { t, name, generated }) {
         return `<section class="sheet report-image-page" aria-label="${escapeHtml(position)}">
     <header class="masthead">
         <div>
-            <div class="wordmark">${escapeHtml(t('Clinic EHR'))}</div>
+            ${wordmark(t)}
             <div class="document-kind">${escapeHtml(t('Attachments (:count)').replace(':count', String(total)))}</div>
         </div>
         <div class="header-meta">
@@ -242,13 +248,13 @@ export function patientReportFilename(patient, now = new Date()) {
 function styles(locale) {
     return `
         :root {
-            --ink: #172033;
-            --muted: #5c6677;
-            --line: #d9dee7;
-            --soft: #f4f6f9;
-            --accent: #1d5fbf;
-            --danger: #a32626;
-            --success: #1f6b45;
+            --ink: #111;
+            --muted: #555;
+            --line: #c9c9c9;
+            --soft: #f4f4f4;
+            --accent: #111;
+            --danger: #111;
+            --success: #111;
             --report-body-size: ${START_BODY_PT}pt;
         }
         * { box-sizing: border-box; }
@@ -272,18 +278,29 @@ function styles(locale) {
             align-items: flex-start;
             justify-content: space-between;
             gap: 8mm;
-            border-bottom: 1.6pt solid var(--accent);
-            padding-bottom: 3mm;
+            border-bottom: 1pt solid #111;
+            padding-bottom: 2.6mm;
         }
-        .wordmark { font-size: 17pt; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
-        .wordmark span { color: var(--accent); }
+        .wordmark {
+            color: #111;
+            font-size: 18.5pt;
+            font-weight: 800;
+            letter-spacing: -0.015em;
+            line-height: 1.08;
+            white-space: nowrap;
+        }
+        /* Arabic is a connected script: negative tracking hurts legibility. */
+        html[dir="rtl"] .wordmark {
+            font-size: 18pt;
+            letter-spacing: 0;
+        }
         .document-kind {
-            margin-top: 1.6mm;
-            font-size: 8pt;
+            margin-top: 1.15mm;
+            font-size: 8.5pt;
             font-weight: 700;
-            letter-spacing: 0.12em;
+            letter-spacing: 0.1em;
             text-transform: uppercase;
-            color: var(--muted);
+            color: #333;
         }
         .header-meta { text-align: end; color: var(--muted); font-size: 8pt; line-height: 1.55; }
         .patient-heading {
@@ -310,7 +327,7 @@ function styles(locale) {
             font-weight: 700;
             white-space: nowrap;
         }
-        .status.completed { color: var(--success); background: #edf7f1; }
+        .status.completed { color: var(--success); background: #eeeeee; }
         .status.pending { color: var(--muted); background: var(--soft); }
         .block { margin-top: 3mm; break-inside: avoid; }
         .block h2 {
@@ -402,9 +419,9 @@ function styles(locale) {
             align-items: baseline;
             margin-top: 3mm;
             padding: 1.8mm 2.4mm;
-            border: 0.8pt solid #d9a441;
-            background: #fff8e8;
-            color: #6b4700;
+            border: 0.8pt solid #111;
+            background: #f2f2f2;
+            color: #111;
             font-size: 8pt;
         }
         .report-footer {
@@ -467,7 +484,7 @@ function styles(locale) {
         .attachment-figure.image-unavailable .image-error { display: block; }
         @page { size: A4 portrait; margin: 12mm; }
         @media screen {
-            body { background: #e8ebf0; padding: 12mm 0; }
+            body { background: #e8e8e8; padding: 12mm 0; }
             .sheet { box-shadow: 0 1pt 5pt rgba(23, 32, 51, 0.18); }
             .report-image-page { margin-top: 12mm; }
         }
@@ -562,7 +579,7 @@ export function buildPatientReportHtml(patient, options = {}) {
 <main class="sheet report-main">
     <header class="masthead">
         <div>
-            <div class="wordmark">${escapeHtml(t('Clinic EHR'))}</div>
+            ${wordmark(t)}
             <div class="document-kind">${escapeHtml(t('Patient Record'))}</div>
         </div>
         <div class="header-meta">
