@@ -205,9 +205,10 @@ function app() {
         priceStats: null,
         priceStatsError: null,
 
-        // AI import entry: the ai_settings flag (fail open) and the job the
-        // "Continue import" dropdown item can resume.
-        importEnabled: true,
+        // AI import entry: the ai_settings flag (fail closed, so AI stays off
+        // until the server explicitly enables it) and the job the "Continue
+        // import" dropdown item can resume.
+        importEnabled: false,
         importResumable: null,
         // Every import of this account that is still open (the "Continue
         // import" entries in the drop-down, one per job).
@@ -523,7 +524,7 @@ function app() {
             this.userForm = this.emptyUserForm();
 
             // Import resume entries
-            this.importEnabled = true;
+            this.importEnabled = false;
             this.importResumable = null;
             this.importOpenJobs = [];
             this.importJobsExpanded = false;
@@ -555,17 +556,17 @@ function app() {
             this.loading = false;
         },
 
-        /** Hide the import entry when ai_settings.enabled says so; fail open. */
+        /** Hide the import entry when ai_settings.enabled says so; fail closed. */
         async refreshImportState() {
             if (!this.isLoggedIn) {
-                this.importEnabled = true;
+                this.importEnabled = false;
                 this.importResumable = null;
                 return;
             }
             const epoch = this.sessionEpoch;
             const enabled = await loadImportEnabled();
             if (epoch !== this.sessionEpoch || !this.isLoggedIn) return;
-            this.importEnabled = enabled !== false;
+            this.importEnabled = enabled === true;
             if (!this.importEnabled) this.importResumable = null;
         },
 

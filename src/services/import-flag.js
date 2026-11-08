@@ -1,9 +1,9 @@
 // The import agent's feature flag lives in `ai_settings.enabled` (the
 // `import_agent_enabled` switch), a service-role-only table. The browser can
 // only ask the `import-job` function for it: a tiny `enabled` action returns
-// `{ enabled, engine, local_enabled }` without touching a job. Failures keep
-// the caller's default (shown), mirroring the v1 behaviour: a flaky network
-// must never hide a working feature.
+// `{ enabled, engine, local_enabled }` without touching a job. A failed check
+// returns null, and callers treat that as off: AI must be explicitly enabled
+// server-side before the import entry appears.
 
 import { supabase, getCurrentUser } from './supabase.js';
 
