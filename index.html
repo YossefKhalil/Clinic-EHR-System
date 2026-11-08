@@ -3078,6 +3078,11 @@
                         <button class="btn btn-outline-primary" @click="editPatient(selectedPatient)">
                             <i class="bi bi-pencil-square me-1"></i> <span x-text="t('Edit Details')"></span>
                         </button>
+                        <button class="btn btn-outline-secondary ms-2" @click="printPatient(selectedPatient)" :disabled="printingPatient" :aria-busy="printingPatient">
+                            <span x-show="printingPatient" class="spinner-border spinner-border-sm me-1" x-cloak aria-hidden="true"></span>
+                            <i x-show="!printingPatient" class="bi bi-printer me-1" aria-hidden="true"></i>
+                            <span x-text="printingPatient ? t('Preparing...') : t('Print / Save PDF')"></span>
+                        </button>
                     </div>
                 </div>
 

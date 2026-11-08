@@ -175,6 +175,9 @@ function app() {
         // Navbar search
         globalSearch: '',
         exporting: false,
+        // The patient report opens a print window, so the button stays busy
+        // until the document is ready and the dialog has been shown.
+        printingPatient: false,
         // Excel export: the button writes the table's dataset in Arabic with
         // every column; the caret opens the language, the rows and the
         // columns for a custom workbook.
@@ -520,6 +523,7 @@ function app() {
 
             // Transient UI state
             this.exporting = false;
+            this.printingPatient = false;
             this.toasts = [];
             this.loginForm = { identifier: '', password: '', remember: readRememberPreference() };
             this.loginError = null;
@@ -2827,6 +2831,86 @@ function app() {
             });
             // Check PDF accessibility for authenticated attachments
             this.checkPatientPdfs();
+        },
+
+        // Issue #57: a one-page, print-ready record. The blank window is
+        // opened before the first await so Chrome does not treat it as a
+        // popup; the report module replaces its contents once the fresh row
+        // and its lazy chunk are ready.
+        async printPatient(patient) {
+            if (!this.isLoggedIn || this.printingPatient) return;
+            const id = patient?.id;
+            if (!id) return;
+
+            const epoch = this.sessionEpoch;
+            let printWindow = null;
+            try {
+                printWindow = window.open('', '_blank');
+            } catch {
+                printWindow = null;
+            }
+            if (!printWindow) {
+                this.showAlert(this.t('Please allow pop-ups for this site to print the patient report.'), 'warning');
+                return;
+            }
+
+            this.printingPatient = true;
+            // A neutral placeholder keeps the new tab from looking broken
+            // while the authorized row and the lazy report chunk load. Some
+            // browsers expose a blank document before its body is ready, so
+            // never let the placeholder stop the real report.
+            try {
+                printWindow.document.title = this.t('Preparing...');
+                if (printWindow.document.body) {
+                    printWindow.document.body.textContent = this.t('Preparing...');
+                    printWindow.document.body.style.cssText = 'font: 16px system-ui, sans-serif; padding: 2rem; color: #172033;';
+                }
+            } catch { /* openPatientReport will replace the document */ }
+
+            const capitalize = (value) => {
+                const text = String(value || '').trim();
+                return text ? text.charAt(0).toUpperCase() + text.slice(1) : '';
+            };
+
+            try {
+                const full = await getPatient(id);
+                if (epoch !== this.sessionEpoch) {
+                    printWindow.close();
+                    return;
+                }
+
+                const { openPatientReport } = await import('./services/patient-report.js');
+                if (epoch !== this.sessionEpoch) {
+                    printWindow.close();
+                    return;
+                }
+
+                await openPatientReport(full, {
+                    locale: getLocale(),
+                    t: (key, params) => this.t(key, params),
+                    now: new Date(),
+                    printWindow,
+                    labels: {
+                        section: this.optionLabel('section', full.section),
+                        follower: full.follower ? this.optionLabel('follower', full.follower) : '',
+                        sourceOfMoney: this.optionLabel('source', full.source_of_money),
+                        governorate: governorateLabel(full.governorate),
+                        maritalStatus: full.marital_status ? this.t(capitalize(full.marital_status)) : '',
+                        recordType: full.record_type ? this.t(capitalize(full.record_type)) : '',
+                    },
+                });
+            } catch (error) {
+                try { printWindow.close(); } catch { /* the window may already be gone */ }
+                if (epoch !== this.sessionEpoch) return;
+                console.error(error);
+                if (error?.code === 'POPUP_BLOCKED') {
+                    this.showAlert(this.t('Please allow pop-ups for this site to print the patient report.'), 'warning');
+                } else {
+                    this.showAlert(this.t('Could not prepare the patient report. Please try again.'), 'danger');
+                }
+            } finally {
+                if (epoch === this.sessionEpoch) this.printingPatient = false;
+            }
         },
 
         async refreshAttachmentLinks(attachments) {
