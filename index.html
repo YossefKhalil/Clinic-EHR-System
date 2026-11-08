@@ -159,7 +159,13 @@
                                             <div class="fw-semibold" x-text="patient.name"></div>
                                             <div class="small text-muted d-flex flex-wrap gap-2">
                                                 <span x-show="patient.national_id"><i class="bi bi-credit-card-2-front"></i> <span x-text="patient.national_id"></span></span>
-                                                <span x-show="patient.mobile"><i class="bi bi-telephone"></i> <span x-text="patient.mobile"></span></span>
+                                                <span x-show="primaryPhoneOf(patient)" class="text-nowrap"><i class="bi bi-telephone"></i> <span dir="ltr" x-text="primaryPhoneOf(patient)"></span>
+                                                    <span class="badge rounded-pill bg-light text-dark border ms-1"
+                                                        x-show="extraPhoneCount(patient) > 0"
+                                                        x-text="'+' + extraPhoneCount(patient)"
+                                                        :title="extraPhonesTitle(patient)"
+                                                        :aria-label="t('More phone numbers')"></span>
+                                                </span>
                                                 <span x-show="patient.section"><i class="bi bi-building"></i> <span x-text="optionLabel('section', patient.section)"></span></span>
                                                 <span x-show="patient.governorate"><i class="bi bi-geo-alt"></i> <span x-text="governorateLabel(patient.governorate)"></span></span>
                                             </div>
@@ -1037,10 +1043,18 @@
                                             </td>
                                             <td x-show="isColumnVisible('national_id')"><code x-text="patient.national_id"></code></td>
                                             <td x-show="isColumnVisible('mobile')">
-                                                <template x-if="patient.mobile">
-                                                    <span><i class="bi bi-telephone text-muted me-1"></i><span x-text="patient.mobile"></span></span>
+                                                <template x-if="primaryPhoneOf(patient)">
+                                                    <span class="d-inline-flex align-items-center gap-1 text-nowrap">
+                                                        <i class="bi bi-telephone text-muted"></i>
+                                                        <span dir="ltr" x-text="primaryPhoneOf(patient)"></span>
+                                                        <span class="badge rounded-pill bg-light text-dark border fw-semibold"
+                                                            x-show="extraPhoneCount(patient) > 0"
+                                                            x-text="'+' + extraPhoneCount(patient)"
+                                                            :title="extraPhonesTitle(patient)"
+                                                            :aria-label="t('More phone numbers')"></span>
+                                                    </span>
                                                 </template>
-                                                <template x-if="!patient.mobile">
+                                                <template x-if="!primaryPhoneOf(patient)">
                                                     <span class="text-muted"><em x-text="t('None')"></em></span>
                                                 </template>
                                             </td>

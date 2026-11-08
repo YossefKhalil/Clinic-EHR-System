@@ -2703,6 +2703,20 @@ function app() {
             return `tel:${String(phone ?? '').replace(/[^\d+]/g, '')}`;
         },
 
+        // Tables stay one line per patient: show the first number and only a
+        // compact "+N" hint when more exist. The full list is in the title.
+        primaryPhoneOf(patient) {
+            return this.phoneNumbersOf(patient)[0] || '';
+        },
+
+        extraPhoneCount(patient) {
+            return Math.max(0, this.phoneNumbersOf(patient).length - 1);
+        },
+
+        extraPhonesTitle(patient) {
+            return this.phoneNumbersOf(patient).slice(1).join(', ');
+        },
+
         addPatientPhone() {
             this.patientPhones.push('');
         },
