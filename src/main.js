@@ -2951,7 +2951,6 @@ function app() {
                         sourceOfMoney: this.optionLabel('source', full.source_of_money),
                         governorate: governorateLabel(full.governorate),
                         maritalStatus: full.marital_status ? this.t(capitalize(full.marital_status)) : '',
-                        recordType: full.record_type ? this.t(capitalize(full.record_type)) : '',
                     },
                 });
             } catch (error) {

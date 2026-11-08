@@ -64,6 +64,7 @@ describe('patient report', () => {
         expect(html).toContain('<h2>Clinical Notes</h2>');
         expect(html.match(/class="grid compact"/g)).toHaveLength(2);
         expect(html).toContain('<h2>Attachments (1)</h2>');
+        expect(html).not.toContain('Record Type');
         expect(html).toContain('Fever &amp; &lt;pain&gt;');
         expect(html).toContain('Rest\nFollow up');
         expect(html).toContain('Note &lt;one&gt;');

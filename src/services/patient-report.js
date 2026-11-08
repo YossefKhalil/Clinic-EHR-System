@@ -12,7 +12,7 @@
 const A4_CONTENT_HEIGHT_MM = 273; // 297mm page - 12mm top and bottom margins
 const MM_TO_PX = 96 / 25.4;
 const MIN_BODY_PT = 8;
-const START_BODY_PT = 9.5;
+const START_BODY_PT = 10;
 
 const ARABIC_FONT_STACK = '"Segoe UI", Tahoma, "Noto Naskh Arabic", "Traditional Arabic", Arial, sans-serif';
 const LATIN_FONT_STACK = '"Segoe UI", Arial, Helvetica, sans-serif';
@@ -35,11 +35,6 @@ function clean(value) {
 
 function hasValue(value) {
     return value !== null && value !== undefined && String(value).trim() !== '';
-}
-
-function capitalize(value) {
-    const text = clean(value);
-    return text ? text.charAt(0).toUpperCase() + text.slice(1) : '';
 }
 
 function shortPatientId(patient) {
@@ -262,7 +257,7 @@ function styles(locale) {
         body {
             font-family: ${locale === 'ar' ? ARABIC_FONT_STACK : LATIN_FONT_STACK};
             font-size: var(--report-body-size);
-            line-height: 1.38;
+            line-height: 1.42;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
         }
@@ -329,14 +324,14 @@ function styles(locale) {
         }
         .status.completed { color: var(--success); background: #eeeeee; }
         .status.pending { color: var(--muted); background: var(--soft); }
-        .block { margin-top: 3mm; break-inside: avoid; }
+        .block { margin-top: 3.4mm; break-inside: avoid; }
         .block h2 {
-            margin: 0 0 1.6mm;
-            padding-bottom: 0.8mm;
+            margin: 0 0 1.8mm;
+            padding-bottom: 0.9mm;
             border-bottom: 0.8pt solid var(--line);
             color: var(--accent);
-            font-size: 10.5pt;
-            line-height: 1.2;
+            font-size: 11pt;
+            line-height: 1.25;
         }
         .grid {
             display: grid;
@@ -348,15 +343,17 @@ function styles(locale) {
            leave more vertical room for the clinical text on a busy record. */
         .grid.compact {
             grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 1.1mm 4mm;
+            gap: 1.5mm 5mm;
         }
-        .grid.compact .field dt { font-size: 7pt; margin-bottom: 0.15mm; }
-        .grid.compact .field dd { line-height: 1.2; }
-        .field.wide { grid-column: 1 / -1; }
+        .grid.compact .field dt { font-size: 8pt; margin-bottom: 0.25mm; }
+        .grid.compact .field dd { line-height: 1.32; }
+        /* The address follows the governorate, so let it take the other two
+           columns instead of starting a mostly-empty new row. */
+        .field.wide { grid-column: span 2; }
         .field dt {
-            margin: 0 0 0.35mm;
+            margin: 0 0 0.4mm;
             color: var(--muted);
-            font-size: 7.5pt;
+            font-size: 7.8pt;
             font-weight: 700;
             letter-spacing: 0.025em;
         }
@@ -366,17 +363,17 @@ function styles(locale) {
             font-weight: 600;
             overflow-wrap: anywhere;
         }
-        .clinical-block { margin-top: 2.6mm; break-inside: avoid; }
+        .clinical-block { margin-top: 3mm; break-inside: avoid; }
         .clinical-block:first-of-type { margin-top: 0; }
         .clinical-block h3 {
-            margin: 0 0 1mm;
+            margin: 0 0 1.2mm;
             color: var(--ink);
-            font-size: 9pt;
+            font-size: 9.4pt;
             font-weight: 800;
         }
         .prose {
             margin: 0;
-            padding: 2mm 2.6mm;
+            padding: 2.2mm 2.8mm;
             border-inline-start: 2.2pt solid var(--line);
             background: var(--soft);
             white-space: pre-line;
@@ -384,8 +381,8 @@ function styles(locale) {
         }
         .notes { margin: 0; padding: 0; list-style: none; }
         .notes li {
-            margin-top: 1.4mm;
-            padding: 1.4mm 2.4mm;
+            margin-top: 1.8mm;
+            padding: 1.8mm 2.6mm;
             border-inline-start: 2pt solid var(--line);
             background: var(--soft);
             white-space: pre-line;
@@ -516,8 +513,6 @@ export function buildPatientReportHtml(patient, options = {}) {
     const source = clean(labels.sourceOfMoney);
     const governorate = clean(labels.governorate);
     const maritalStatus = clean(labels.maritalStatus);
-    const recordType = clean(labels.recordType)
-        || (hasValue(patient?.record_type) ? t(capitalize(patient.record_type)) : '');
 
     const computedAge = ageFromDateOfBirth(patient?.date_of_birth, now);
     const age = computedAge !== null
@@ -534,7 +529,6 @@ export function buildPatientReportHtml(patient, options = {}) {
         field(t('Marital Status'), maritalStatus),
         field(t('Dependents / Children'), hasValue(patient?.children_count) ? String(patient.children_count) : ''),
         field(t('Governorate'), governorate),
-        field(t('Record Type'), recordType),
         field(t('Home Address'), patient?.address, 'wide'),
     ].filter(Boolean).join('');
 
