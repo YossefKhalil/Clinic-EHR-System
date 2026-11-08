@@ -3078,16 +3078,24 @@
                         <button class="btn btn-outline-primary" @click="editPatient(selectedPatient)">
                             <i class="bi bi-pencil-square me-1"></i> <span x-text="t('Edit Details')"></span>
                         </button>
-                        <button class="btn btn-outline-secondary ms-2" @click="printPatient(selectedPatient)" :disabled="printingPatient" :aria-busy="printingPatient">
-                            <span x-show="printingPatient" class="spinner-border spinner-border-sm me-1" x-cloak aria-hidden="true"></span>
-                            <i x-show="!printingPatient" class="bi bi-printer me-1" aria-hidden="true"></i>
-                            <span x-text="printingPatient ? t('Preparing...') : t('Print / Save PDF')"></span>
-                        </button>
-                        <div class="mt-2" x-show="hasPrintableImages(selectedPatient)" x-cloak>
-                            <label class="form-check d-inline-flex align-items-center gap-2 mb-0">
-                                <input class="form-check-input m-0" type="checkbox" x-model="includeReportImages" :disabled="printingPatient">
-                                <span class="form-check-label small" x-text="t('Include attached images (separate pages)')"></span>
-                            </label>
+                        <div class="btn-group ms-2" role="group">
+                            <button class="btn btn-outline-secondary" @click="printPatient(selectedPatient)" :disabled="printingPatient" :aria-busy="printingPatient">
+                                <span x-show="printingPatient" class="spinner-border spinner-border-sm me-1" x-cloak aria-hidden="true"></span>
+                                <i x-show="!printingPatient" class="bi bi-printer me-1" aria-hidden="true"></i>
+                                <span x-text="printingPatient ? t('Preparing...') : t('Print / Save PDF')"></span>
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false" x-show="hasPrintableImages(selectedPatient)" :disabled="printingPatient" x-cloak>
+                                <span class="visually-hidden" x-text="t('Print options')"></span>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end" style="min-width: 19rem" x-show="hasPrintableImages(selectedPatient)" x-cloak>
+                                <li>
+                                    <label class="dropdown-item d-flex align-items-center gap-2" @click.stop>
+                                        <input class="form-check-input m-0" type="checkbox" x-model="includeReportImages" :disabled="printingPatient">
+                                        <i class="bi bi-images text-secondary" aria-hidden="true"></i>
+                                        <span class="small" x-text="t('Include attached images (separate pages)')"></span>
+                                    </label>
+                                </li>
+                            </ul>
                         </div>
                     </div>
                 </div>
