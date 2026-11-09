@@ -69,6 +69,21 @@ export function searchTermVariants(term, dictionary = []) {
     return variants;
 }
 
+/**
+ * Make a typed term safe inside a PostgREST `ilike` pattern.
+ *
+ * `%`, `_` and `\` are LIKE metacharacters; a term such as `100%` must match
+ * the literal text, not every row. The characters that split a PostgREST
+ * `.or()` list (comma, brackets, star, quote) become spaces so the filter
+ * cannot be bent into another condition.
+ */
+export function escapeSearchTerm(term) {
+    return String(term)
+        .replace(/[\\%_]/g, '\\$&')
+        .replace(/[,()*"]/g, ' ')
+        .trim();
+}
+
 /** The Arabic name of a marital status (the app stores 'married' and so on). */
 export function maritalStatusLabel(value) {
     const key = String(value || '').trim().toLowerCase();

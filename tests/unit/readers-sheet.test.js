@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { readWorkbook } from '../../src/features/import-agent/readers/spreadsheet.js';
 import { applyColumnSelection, columnCount } from '../../src/features/import-agent/readers/table.js';
-import { prepareSources } from '../../src/features/import-agent/chunker.js';
+import { prepareSources } from '../../supabase/functions/_shared/import-core/chunker.js';
 
 const bytesOf = (name) => new Uint8Array(readFileSync(new URL(`../fixtures/readers/${name}`, import.meta.url)));
 const patients = () => readWorkbook(bytesOf('patients.xlsx'), { name: 'patients.xlsx' });

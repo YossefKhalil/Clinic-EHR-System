@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint src supabase/functions scripts tests",
-    "check:edge": "deno check supabase/functions/ai-settings/index.ts supabase/functions/cloudinary-sign/index.ts supabase/functions/import-cleanup/index.ts supabase/functions/import-extract/run-chunk.js supabase/functions/login/index.ts supabase/functions/manage-user/index.ts",
+    "check:edge": "deno check supabase/functions/ai-settings/index.ts supabase/functions/cloudinary-sign/index.ts supabase/functions/import-cleanup/index.ts supabase/functions/import-extract/run-chunk.js supabase/functions/import-job/index.ts supabase/functions/login/index.ts supabase/functions/manage-user/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

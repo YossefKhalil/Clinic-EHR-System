@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
-    buildSearchDictionary, searchTermVariants, maritalStatusLabel,
+    buildSearchDictionary, searchTermVariants, maritalStatusLabel, escapeSearchTerm,
 } from '../../src/services/search-terms.js';
 
 const options = {
@@ -68,6 +68,18 @@ describe('the terms of a search', () => {
 
     it('is empty for an empty term', () => {
         expect(searchTermVariants('   ', dictionary)).toEqual([]);
+    });
+});
+
+describe('escaping a search term', () => {
+    it('turns LIKE wildcards into literal characters', () => {
+        expect(escapeSearchTerm('100%')).toBe('100\\%');
+        expect(escapeSearchTerm('a_b')).toBe('a\\_b');
+        expect(escapeSearchTerm('back\\slash')).toBe('back\\\\slash');
+    });
+
+    it('turns PostgREST list separators into spaces', () => {
+        expect(escapeSearchTerm('Cairo, (Giza)*"')).toBe('Cairo   Giza');
     });
 });
 

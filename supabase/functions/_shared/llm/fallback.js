@@ -36,11 +36,11 @@ function syntheticFailure(entry, err) {
 
 /**
  * @param {{
- *   chain: {provider: string, model: string}[],
- *   run: (entry: {provider: string, model: string}) => Promise<any>,
+ *   chain: {provider: string, model: string, client?: unknown}[],
+ *   run: (entry: {provider: string, model: string, client?: unknown}) => Promise<any>,
  *   signal?: AbortSignal|null,
  * }} input
- * @returns {Promise<{result: any, attempts: object[], fallback: object[]}>}
+ * @returns {Promise<{result: any, attempts: {provider: string, model: string, status: string, errorCode?: string|null}[], fallback: object[]}>}
  */
 export async function runChunkWithFallback({ chain, run, signal = null }) {
     const attempts = [];

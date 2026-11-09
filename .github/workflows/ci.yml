@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master, ai-import-rebuild]
+    branches: [master, preview, ai-import-rebuild]
   pull_request:
   workflow_dispatch:
 

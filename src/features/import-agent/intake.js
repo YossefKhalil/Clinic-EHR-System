@@ -86,25 +86,3 @@ export async function analyzeFile({ bytes, name, limits = LIMITS }) {
     const sha256 = await sha256Hex(bytes);
     return { ok: true, kind: verdict.kind, detail: verdict.detail, sha256, size: bytes.length };
 }
-
-/**
- * Warning shown when the same file hash was imported before. `seen` accepts
- * a Map, an array of `{ sha256, date }` or a plain object keyed by hash — as
- * long as it can be answered from the data the caller already has (usually a
- * query over `import_sources.sha256`).
- */
-export function hashWarning(sha256, seen) {
-    let date = null;
-    if (seen instanceof Map) {
-        const value = seen.get(sha256);
-        date = typeof value === 'string' ? value : value?.date ?? null;
-    } else if (Array.isArray(seen)) {
-        const hit = seen.find((entry) => entry.sha256 === sha256);
-        date = hit?.date ?? hit?.imported_at ?? null;
-    } else if (seen && typeof seen === 'object') {
-        const value = seen[sha256];
-        date = typeof value === 'string' ? value : value?.date ?? null;
-    }
-    if (!date) return null;
-    return { code: 'FILE_SEEN_BEFORE', params: { date: String(date).slice(0, 10) } };
-}

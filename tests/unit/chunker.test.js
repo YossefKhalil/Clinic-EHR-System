@@ -8,7 +8,7 @@ import {
     poolSources,
     prepareSources,
     splitRecords,
-} from '../../src/features/import-agent/chunker.js';
+} from '../../supabase/functions/_shared/import-core/chunker.js';
 
 const limit = (overrides) => ({ ...LIMITS, ...overrides });
 const ln = (id, text) => ({ id, text });

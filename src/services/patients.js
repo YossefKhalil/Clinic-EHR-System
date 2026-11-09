@@ -1,5 +1,6 @@
 import { supabase } from './supabase.js';
 import { getLocale } from './i18n.js';
+import { escapeSearchTerm } from './search-terms.js';
 // The governorate table of the import (the single source of truth): the
 // stored value is the English name, the Arabic name comes with it.
 import { GOVERNORATES as GOVERNORATE_ENTRIES } from '@import-core/enums.js';
@@ -32,12 +33,6 @@ const PATIENT_COLUMNS = [
 export const PATIENT_LIST_COLUMNS = PATIENT_COLUMNS.join(',');
 export const PATIENT_FULL_COLUMNS = [...PATIENT_COLUMNS, 'notes', 'attachments'].join(',');
 
-// The filter of PostgREST is a list, so a comma, a bracket or a quote
-// inside the term would cut the list in two. They are spaces in a search.
-function escapeSearchTerm(term) {
-    return String(term).replace(/[,()*"]/g, ' ').trim();
-}
-
 // One query builder for the full export and the paginated table, so the
 // filters and sort can never drift between them.
 function patientsQuery(filters = {}, options = {}) {
@@ -69,10 +64,10 @@ function patientsQuery(filters = {}, options = {}) {
                     .join(',');
                 query = query.or(filter);
             } else {
-                query = query.ilike('search_text', `%${filters.search}%`);
+                query = query.ilike('search_text', `%${escapeSearchTerm(filters.search)}%`);
             }
         } else if (['name', 'national_id', 'mobile'].includes(field)) {
-            query = query.ilike(field, `%${filters.search}%`);
+            query = query.ilike(field, `%${escapeSearchTerm(filters.search)}%`);
         }
     }
 

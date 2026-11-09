@@ -7,11 +7,13 @@ import {
 
 let cloudName = '';
 let uploadPreset = '';
-// When true, uploads are signed by the `cloudinary-sign` Edge Function and
-// stored with Cloudinary's `authenticated` delivery type: the returned URL
-// only works because it carries a signature generated with the API secret.
-// Toggle with VITE_CLOUDINARY_AUTHENTICATED=true.
-let authenticated = false;
+// Uploads are signed by the `cloudinary-sign` Edge Function and stored with
+// Cloudinary's `authenticated` delivery type: the returned URL only works
+// because it carries a signature generated with the API secret. This is the
+// default because the bucket holds patient attachments; set
+// VITE_CLOUDINARY_AUTHENTICATED=false only for a local setup that explicitly
+// uses an unsigned preset.
+let authenticated = true;
 
 // Client-side guard only; Cloudinary enforces the real limits server-side.
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -19,7 +21,7 @@ const MAX_FILE_BYTES = 10 * 1024 * 1024;
 export async function initCloudinary() {
     cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || '';
     uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || '';
-    authenticated = String(import.meta.env.VITE_CLOUDINARY_AUTHENTICATED || '').toLowerCase() === 'true';
+    authenticated = String(import.meta.env.VITE_CLOUDINARY_AUTHENTICATED ?? 'true').toLowerCase() !== 'false';
 
     if (!cloudName || (!uploadPreset && !authenticated)) {
         console.warn('Cloudinary not configured. Set VITE_CLOUDINARY_CLOUD_NAME and either VITE_CLOUDINARY_UPLOAD_PRESET or VITE_CLOUDINARY_AUTHENTICATED=true in .env');

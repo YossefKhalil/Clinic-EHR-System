@@ -38,13 +38,6 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Split a list into groups of `size` (the saves go out in parallel). */
-function chunksOf(list, size) {
-    const groups = [];
-    for (let i = 0; i < list.length; i += size) groups.push(list.slice(i, i + size));
-    return groups;
-}
-
 function isPlainDateValue(value) {
     return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
@@ -236,6 +229,11 @@ export function importAgentWizard() {
         loadId: 0,
         // The save queue: one batch at a time.
         saveQueue: null,
+        // Changes the server refused or the network lost. They stay here
+        // until a retry succeeds, so re-entering review cannot silently
+        // replace them with the server's older copy.
+        failedChanges: [],
+        retrying: false,
         // The commit: the key makes a retry idempotent.
         commitKey: null,
         committing: false,
@@ -628,6 +626,13 @@ export function importAgentWizard() {
             this.pumpFailed = false;
             this.pumpError = null;
             this.cancelRequested = true;
+            this.drafts = {};
+            this.editTimers = {};
+            this.failedChanges = [];
+            this.saveState = 'saved';
+            this.undoStack = [];
+            this.redoStack = [];
+            this.commitKey = null;
             await this.loadOpenJobs();
         },
 
@@ -732,6 +737,18 @@ export function importAgentWizard() {
             const loadId = (this.loadId ?? 0) + 1;
             this.loadId = loadId;
             try {
+                // Re-entering review must not replace local edits with the
+                // server's older copy. Flush the debounced cells and retry
+                // any failed save first; if it still fails, stay on the
+                // current screen so the reviewer can retry deliberately.
+                if (this.reviewState) {
+                    await this.flushAllDrafts();
+                    if ((this.failedChanges?.length ?? 0) > 0) {
+                        this.loadError = 'importAgent.error.SAVE_FAILED';
+                        this.errorBanner = { messageKey: 'importAgent.error.SAVE_FAILED' };
+                        return;
+                    }
+                }
                 const [job, sources, chunks, rows, rejects] = await Promise.all([
                     api.fetchJob(this.job.id),
                     api.fetchSources(this.job.id),
@@ -746,6 +763,10 @@ export function importAgentWizard() {
                 this.rejects = rejects;
 
                 const context = await api.loadExistingContext(rows);
+                if (context.truncated
+                    && !(this.banners ?? []).some((banner) => banner.code === 'DUPLICATE_LOOKUP_TRUNCATED')) {
+                    this.banners = [...(this.banners ?? []), { code: 'DUPLICATE_LOOKUP_TRUNCATED' }];
+                }
                 const defaults = review.defaultsFromRows(
                     rows,
                     job.config?.defaults ?? {},
@@ -769,6 +790,12 @@ export function importAgentWizard() {
                 this.errorBanner = null;
                 this.loadError = null;
                 this.step = 'review';
+                this.drafts = {};
+                this.editTimers = {};
+                this.saveState = 'saved';
+                this.failedChanges = [];
+                this.undoStack = [];
+                this.redoStack = [];
                 this.$nextTick(() => this.measureGrid());
 
                 if (changes.length > 0) {
@@ -1045,11 +1072,14 @@ export function importAgentWizard() {
         },
 
         rowTint(row) {
-            if (row?.dup?.kind && !row.removed) return 'ia-row-dup';
-            const status = review.effectiveStatus(row);
-            if (status === 'error') return 'ia-row-bad';
-            if (status === 'review') return 'ia-row-check';
-            return '';
+            const tint = (() => {
+                if (row?.dup?.kind && !row.removed) return 'ia-row-dup';
+                const status = review.effectiveStatus(row);
+                if (status === 'error') return 'ia-row-bad';
+                if (status === 'review') return 'ia-row-check';
+                return '';
+            })();
+            return this.rowHasFailedSave(row) ? `ia-row-unsaved ${tint}`.trim() : tint;
         },
 
         /** The row's number in the extracted order (1-based, whole job). */
@@ -1369,7 +1399,12 @@ export function importAgentWizard() {
             const key = `${row.id}:${fieldKey}`;
             this.drafts[key] = value;
             clearTimeout(this.editTimers[key]);
-            this.editTimers[key] = setTimeout(() => this.flushCell(row, fieldKey), 400);
+            // The timer fires outside Alpine's event handling: catch the
+            // rejection here or a row that disappeared turns into an
+            // unhandled promise rejection and the cell keeps a phantom draft.
+            this.editTimers[key] = setTimeout(() => {
+                this.flushCell(row, fieldKey).catch((error) => this.showFailure(error));
+            }, 400);
         },
 
         onEditorBlur(row, fieldKey) {
@@ -1398,15 +1433,18 @@ export function importAgentWizard() {
             if (!value) return;
             const [year, month, day] = value.split('-');
             this.drafts[key] = `${day}/${month}/${year}`;
-            this.flushCell(row, fieldKey);
+            this.flushCell(row, fieldKey).catch((error) => this.showFailure(error));
             event.target.value = '';
         },
 
         async flushCell(row, fieldKey) {
-            const key = `${row.id}:${fieldKey}`;
+            const key = `${row?.id}:${fieldKey}`;
             const value = this.drafts[key];
             if (value === undefined) return;
             this.clearDraft(key);
+            // The row can be gone by the time a debounce fires (removed in
+            // another tab, or the review was replaced). Nothing to save.
+            if (!row || !this.reviewState) return;
             const typed = typeof value === 'string' ? value : String(value ?? '');
             const current = row.cells?.[fieldKey]?.raw;
             if (this.editorType(fieldKey) === 'date' || typeof current === 'string') {
@@ -1465,16 +1503,26 @@ export function importAgentWizard() {
          */
         async saveChanges(changes) {
             if (!this.reviewState || !changes || changes.length === 0) {
-                this.saveState = 'saved';
+                if (!this.failedChanges?.length) this.saveState = 'saved';
                 return;
             }
             const run = async () => {
                 this.saveState = 'saving';
-                let failed = false;
-                for (const group of chunksOf(changes, 8)) {
+                let failedAt = -1;
+                for (let offset = 0; offset < changes.length; offset += 8) {
+                    const group = changes.slice(offset, offset + 8);
                     const results = await Promise.all(group.map(async (change) => {
                         const row = review.rowById(this.reviewState, change.id);
-                        if (!row) return null;
+                        // A missing row used to be reported as success: the
+                        // reviewer saw "Saved" while the edit was gone. Treat
+                        // it as a failed save so the commit is blocked.
+                        if (!row) {
+                            return new api.ImportApiError(
+                                'ROW_MISSING',
+                                'importAgent.error.ROW_MISSING',
+                                { id: change.id },
+                            );
+                        }
                         try {
                             // The snapshot's stored version can go stale
                             // (undo/redo restore, or a snapshot taken before
@@ -1489,9 +1537,10 @@ export function importAgentWizard() {
                             return error;
                         }
                     }));
-                    const error = results.find((entry) => entry);
-                    if (error) {
-                        failed = true;
+                    const failedGroup = group.filter((_, index) => results[index]);
+                    if (failedGroup.length > 0) {
+                        failedAt = offset;
+                        const error = results.find(Boolean);
                         if (error.code === 'SAVE_CONFLICT') {
                             this.errorBanner = { messageKey: 'importAgent.error.SAVE_CONFLICT' };
                         } else {
@@ -1500,14 +1549,85 @@ export function importAgentWizard() {
                                 params: error.params ?? {},
                             };
                         }
+                        // Keep the failed snapshots plus every batch that
+                        // was never attempted. A newer snapshot for the same
+                        // row replaces an older failed one.
+                        const unsaved = [...failedGroup, ...changes.slice(offset + 8)];
+                        const unsavedIds = new Set(unsaved.map((change) => change.id));
+                        this.failedChanges = [
+                            ...(this.failedChanges ?? []).filter((change) => !unsavedIds.has(change.id)),
+                            ...unsaved,
+                        ];
                         break;
                     }
+                    // This batch is on the server; drop any older failed
+                    // copy of the same rows so a retry cannot overwrite it.
+                    const savedIds = new Set(group.map((change) => change.id));
+                    this.failedChanges = (this.failedChanges ?? [])
+                        .filter((change) => !savedIds.has(change.id));
                 }
-                this.saveState = failed ? 'failed' : 'saved';
+                if (failedAt >= 0 || (this.failedChanges?.length ?? 0) > 0) {
+                    this.saveState = 'failed';
+                } else {
+                    this.saveState = 'saved';
+                    this.errorBanner = null;
+                }
             };
             // Chain onto the queue: the next batch starts when this one is done.
             this.saveQueue = (this.saveQueue ?? Promise.resolve()).then(run, run);
             return this.saveQueue;
+        },
+
+        /**
+         * Retry every change the server did not accept. The snapshots stay
+         * in `failedChanges` until their batch lands, so leaving and
+         * re-entering review cannot replace them with older server rows.
+         */
+        async retrySaves() {
+            if (this.retrying || this.saveState === 'saving') return;
+            const pending = [...(this.failedChanges ?? [])];
+            if (pending.length === 0) {
+                this.saveState = 'saved';
+                this.errorBanner = null;
+                return;
+            }
+            this.retrying = true;
+            try {
+                await this.saveChanges(pending);
+            } finally {
+                this.retrying = false;
+            }
+        },
+
+        /** Flush every debounced cell edit and wait for its save. */
+        async flushAllDrafts() {
+            if (!this.reviewState) return;
+            for (const key of Object.keys(this.drafts ?? {})) {
+                const separator = key.indexOf(':');
+                if (separator < 0) continue;
+                const row = review.rowById(this.reviewState, key.slice(0, separator));
+                if (!row) {
+                    this.clearDraft(key);
+                    continue;
+                }
+                await this.flushCell(row, key.slice(separator + 1));
+            }
+            await this.saveQueue;
+        },
+
+        get hasPendingSaves() {
+            return Object.keys(this.drafts ?? {}).length > 0
+                || this.saveState === 'saving'
+                || this.saveState === 'failed'
+                || (this.failedChanges?.length ?? 0) > 0;
+        },
+
+        get failedSaveCount() {
+            return this.failedChanges?.length ?? 0;
+        },
+
+        rowHasFailedSave(row) {
+            return (this.failedChanges ?? []).some((change) => change.id === row?.id);
         },
 
         async undo() {
@@ -1857,9 +1977,21 @@ export function importAgentWizard() {
          */
         async confirmImportNow() {
             if (!this.job || this.committing) return;
+            if ((this.failedChanges?.length ?? 0) > 0) {
+                this.errorBanner = { messageKey: 'importAgent.error.SAVE_FAILED' };
+                return;
+            }
             this.committing = true;
             this.confirmNote = '';
             try {
+                // The commit reads the rows on the server. Flush the last
+                // debounced keystrokes and wait for every queued save first;
+                // otherwise the reviewed edit is not in the batch and the
+                // row can disappear from review with the edit lost.
+                await this.flushAllDrafts();
+                if ((this.failedChanges?.length ?? 0) > 0) {
+                    throw new api.ImportApiError('SAVE_FAILED', 'importAgent.error.SAVE_FAILED');
+                }
                 if (!this.commitKey) this.commitKey = crypto.randomUUID();
                 const result = await api.commitJob(this.job.id, this.commitKey);
                 this.commitResult = {
@@ -1885,17 +2017,35 @@ export function importAgentWizard() {
         },
 
         get confirmImportDisabled() {
-            return (this.confirmCounts?.unreviewed ?? 0) > 0;
+            return (this.confirmCounts?.unreviewed ?? 0) > 0
+                || this.hasPendingSaves;
         },
 
         confirmImportTitle() {
             const count = this.confirmCounts?.unreviewed ?? 0;
-            return this.confirmImportDisabled
-                ? this.t('importAgent.review.confirm.reviewFirst', { count })
-                : '';
+            if (count > 0) return this.t('importAgent.review.confirm.reviewFirst', { count });
+            if (this.hasPendingSaves) return this.t('importAgent.review.confirm.saveFirst');
+            return '';
         },
 
         // ------------------------------------------------------ keyboard
+        /**
+         * Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z on the review screen. The handler
+         * stays out of the way while the reviewer is typing in a cell, where
+         * the browser's own text undo is the expected behaviour.
+         */
+        onReviewKeydown(event) {
+            if (this.step !== 'review' || this.committing) return;
+            const key = String(event.key ?? '').toLowerCase();
+            if (key !== 'z' || !(event.ctrlKey || event.metaKey)) return;
+            const tag = event.target?.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target?.isContentEditable) return;
+            if (this.hasPendingSaves) return;
+            event.preventDefault();
+            if (event.shiftKey) this.redo();
+            else this.undo();
+        },
+
         onCellKeydown(event, row, fieldKey) {
             const type = this.editorType(fieldKey);
             const target = event.target;

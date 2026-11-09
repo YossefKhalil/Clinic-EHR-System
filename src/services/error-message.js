@@ -25,7 +25,7 @@ const USER_SERVICE_MESSAGES = {
     'Full name is required': 'Full name is required',
     'A valid email address is required': 'A valid email address is required',
     'Password is required': 'Password is required',
-    'Password must be at least 6 characters': 'Password must be at least 6 characters',
+    'Password must be at least 12 characters': 'Password must be at least 12 characters',
     'A user with this email address has already been registered': 'A user with this email address already exists.',
 };
 

@@ -1,8 +1,8 @@
 import './styles/main.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
 // Both builds of Bootstrap are loaded as separate assets, and only ONE of
-// them is in the page at a time: the LTR one for the other languages, the
-// RTL one for Arabic.
+// them is applied at a time: the LTR one for the other languages, the RTL
+// one for Arabic.
 //
 // Two builds at once fight each other: they define the same physical
 // utilities, and both of them are `!important`, so `.ms-auto` would leave
@@ -10,6 +10,11 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 // floats in the middle of its row instead of hugging the end - that was the
 // empty strip in the Arabic navbar - and every icon would get a margin on
 // the wrong side as well.
+//
+// Both links are created before the first Alpine render; the inactive one is
+// downloaded with media="not all" and only toggled on a language switch. The
+// old code changed one link's href, which removed the active stylesheet until
+// the other hashed asset arrived (the unstyled flash in issue #58).
 import bootstrapLtrUrl from 'bootstrap/dist/css/bootstrap.min.css?url';
 import bootstrapRtlUrl from 'bootstrap/dist/css/bootstrap.rtl.min.css?url';
 import bootstrapBundle from 'bootstrap/dist/js/bootstrap.bundle.min.js';
@@ -33,7 +38,22 @@ import { loadOptions as fetchOptions, allOptions, createOption, updateOption, co
 import { buildSearchDictionary, searchTermVariants, maritalStatusLabel } from './services/search-terms.js';
 import { importAgentWizard, importAgentEnter } from './features/import-agent/ui.js';
 import { localAiV2 } from './features/import-agent/local-v2/settings.js';
+import { applyBootstrapDirectionToDocument, ensureBootstrapLinks } from './services/bootstrap-direction.js';
 import { GOVERNORATE_BY_ID_CODE, BORN_ABROAD_ID_CODE } from '@import-core/enums.js';
+
+// Read the saved language before Alpine starts, so the first paint already
+// has the right build. Both links are in the document from this point on.
+function savedLocaleIsRtl() {
+    try {
+        return (localStorage.getItem('locale') || 'en') === 'ar';
+    } catch {
+        return false;
+    }
+}
+ensureBootstrapLinks(document, {
+    ltrUrl: bootstrapLtrUrl,
+    rtlUrl: bootstrapRtlUrl,
+}, savedLocaleIsRtl());
 
 // The engine tab this browser is on. The Local tab hosts the on-device card,
 // and its model lives in this browser's storage, so the choice belongs here
@@ -853,22 +873,12 @@ function app() {
          * the Arabic interface, the LTR one for the others, so the physical
          * utilities mirror with the text order.
          *
-         * The link sits at the end of the head, where the stylesheet of
-         * Bootstrap used to be bundled, so the order of the rules stays the
-         * same as before.
+         * Both links sit at the end of the head, where the stylesheet of
+         * Bootstrap used to be bundled. Only the media attribute changes, so
+         * the order of the rules stays the same and the switch is instant.
          */
         applyBootstrapDirection() {
-            const rtl = getLocale() === 'ar';
-            const url = rtl ? bootstrapRtlUrl : bootstrapLtrUrl;
-            let link = document.getElementById('bs-core');
-            if (!link) {
-                link = document.createElement('link');
-                link.id = 'bs-core';
-                link.rel = 'stylesheet';
-                document.head.appendChild(link);
-            }
-            const wanted = new URL(url, window.location.href).href;
-            if (link.href !== wanted) link.href = wanted;
+            applyBootstrapDirectionToDocument(document, getLocale() === 'ar');
         },
 
         // Whether the dashboard cards are folded is remembered per browser.
@@ -3367,8 +3377,8 @@ function app() {
                 this.userFormError = this.t('Password is required');
                 return;
             }
-            if (this.userForm.password && this.userForm.password.length < 6) {
-                this.userFormError = this.t('Password must be at least 6 characters');
+            if (this.userForm.password && this.userForm.password.length < 12) {
+                this.userFormError = this.t('Password must be at least 12 characters');
                 return;
             }
             if (!this.userForm.is_super_admin && !this.userForm.read_sections?.length) {

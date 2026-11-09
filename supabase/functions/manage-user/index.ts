@@ -17,7 +17,7 @@ const CORS_HEADERS = {
 // The shape the client renders; never leaks auth internals.
 const USER_COLUMNS = 'id, name, email, is_super_admin, read_sections, write_sections, created_at';
 
-const MIN_PASSWORD_LENGTH = 6;
+const MIN_PASSWORD_LENGTH = 12;
 
 const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
     ?? Deno.env.get('SERVICE_ROLE_KEY')
@@ -28,6 +28,26 @@ const supabase = createClient(
     serviceRoleKey,
     { auth: { persistSession: false } },
 );
+
+/**
+ * One audit row per account change. Only field names and boolean changes go
+ * here: never the password, and never a credential of any kind.
+ */
+async function audit(
+    actor: string,
+    action: string,
+    entityId: string,
+    meta: Record<string, unknown> = {},
+): Promise<void> {
+    const { error } = await supabase.from('audit_log').insert({
+        actor,
+        action,
+        entity: 'user',
+        entity_id: entityId,
+        meta,
+    });
+    if (error) console.error('manage-user audit failed', action, entityId, error.message);
+}
 
 /** An error whose message is safe to show the caller. */
 class RequestError extends Error {
@@ -54,7 +74,7 @@ Deno.serve(async (req) => {
         const body = await readBody(req);
         const action = text(body.action);
 
-        if (action === 'create') return json({ user: await createUser(body) });
+        if (action === 'create') return json({ user: await createUser(caller.id, body) });
         if (action === 'update') return json({ user: await updateUser(caller.id, body) });
         if (action === 'delete') return json(await deleteUser(caller.id, body));
 
@@ -105,7 +125,7 @@ async function readBody(req: Request): Promise<Body> {
 
 // --------------------------------------------------------------- create ----
 
-async function createUser(body: Body) {
+async function createUser(callerId: string, body: Body) {
     const account = readAccount(body, { passwordRequired: true });
     const permissions = await readPermissions(body);
 
@@ -141,6 +161,11 @@ async function createUser(body: Body) {
         throw new RequestError(profileError.message);
     }
 
+    await audit(callerId, 'user.created', profile.id, {
+        is_super_admin: permissions.isSuperAdmin,
+        read_sections: permissions.readSections,
+        write_sections: permissions.writeSections,
+    });
     return profile;
 }
 
@@ -203,6 +228,18 @@ async function updateUser(callerId: string, body: Body) {
         }
     }
 
+    const changed: string[] = [];
+    if (account.name !== before.name) changed.push('name');
+    if (account.email !== before.email) changed.push('email');
+    if (account.password) changed.push('password');
+    if (permissions.isSuperAdmin !== before.is_super_admin) changed.push('is_super_admin');
+    if (JSON.stringify(permissions.readSections) !== JSON.stringify(before.read_sections ?? [])) {
+        changed.push('read_sections');
+    }
+    if (JSON.stringify(permissions.writeSections) !== JSON.stringify(before.write_sections ?? [])) {
+        changed.push('write_sections');
+    }
+    await audit(callerId, 'user.updated', id, { changed });
     return profile;
 }
 
@@ -227,6 +264,7 @@ async function deleteUser(callerId: string, body: Body) {
         console.error('manage-user profile cleanup failed after auth delete', id, profileError.message);
     }
 
+    await audit(callerId, 'user.deleted', id);
     return { ok: true };
 }
 

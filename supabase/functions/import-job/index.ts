@@ -8,7 +8,7 @@
 // Nothing PHI leaves this function except through the provider call itself:
 // responses carry counts, labels and codes — never patient values.
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import yaml from 'https://esm.sh/js-yaml@4.1.0';
 import { LIMITS, LOCAL_RUNTIME_BOUNDS, leaseSecondsFor, pumpParallelFor, resolveLimits } from '../_shared/import-core/limits.js';
 import { isValidChunkPayload } from '../_shared/import-core/chunk-payload.ts';
@@ -169,7 +169,10 @@ async function tokenCapForPrimary(
     return cap;
 }
 
-type Service = ReturnType<typeof createClient>;
+// The generic defaults of ReturnType<typeof createClient> resolve to never,
+// so every column read looks like an error. Pin the shape the actual client
+// has, like ai-settings does.
+type Service = SupabaseClient<any, 'public', any, any, any>;
 
 async function audit(service: Service, actor: string, action: string, entityId: string, meta: Record<string, unknown> = {}) {
     try {
@@ -179,7 +182,9 @@ async function audit(service: Service, actor: string, action: string, entityId: 
     }
 }
 
-async function loadJobForUser(service: Service, userId: string, jobId: string) {
+type LoadedJob = { error: 'NOT_FOUND' | 'FORBIDDEN' } | { job: Record<string, any> & { id: string } };
+
+async function loadJobForUser(service: Service, userId: string, jobId: string): Promise<LoadedJob> {
     const { data, error } = await service.from('import_jobs').select('*').eq('id', jobId).maybeSingle();
     if (error || !data) return { error: 'NOT_FOUND' as const };
     if (data.created_by !== userId) return { error: 'FORBIDDEN' as const };
@@ -206,6 +211,15 @@ type OpenRouterFreeQuota = {
     remaining: number | null;
     limit: number | null;
     used: number | null;
+};
+
+type ProviderFailure = {
+    code: string;
+    detail: string | null;
+    retryAfterMs: number | null;
+    model: string | null;
+    provider: string | null;
+    freeDaily?: OpenRouterFreeQuota | null;
 };
 
 /**
@@ -477,7 +491,7 @@ async function actionStart(body: Record<string, unknown>, ctx: Context) {
 
     // Preflight the real chain before marking the job as extracting (cloud only).
     if (!isLocal) {
-        let chain;
+        let chain: Awaited<ReturnType<typeof loadReadyChain>>;
         try {
             chain = await loadReadyChain(settingsRow, String(job.id), limits);
         } catch (err) {
@@ -905,7 +919,7 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
     // progress bar shows (the model's context window), but it never cuts a
     // job short.
 
-    let chain;
+    let chain: Awaited<ReturnType<typeof loadReadyChain>>;
     try {
         chain = await loadReadyChain(settingsRow, String(job.id), limits);
     } catch (err) {
@@ -984,14 +998,7 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
             return fail('INTERNAL', 500);
         }
         const claimed = (data ?? []) as { id: string; idx: number; payload: Record<string, unknown>; source_id?: string | null }[];
-        let lastProviderFailure: {
-            code: string;
-            detail: string | null;
-            retryAfterMs: number | null;
-            model: string | null;
-            provider: string | null;
-            freeDaily?: OpenRouterFreeQuota | null;
-        } | null = null;
+        let lastProviderFailure: ProviderFailure | null = null;
 
         await Promise.all(claimed.map(async (row) => {
             try {
@@ -1029,7 +1036,7 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
                     chain: chunkChain,
                     run: (entry) => runChunk({
                         provider: entry.client as never,
-                        chunk: row.payload,
+                        chunk: row.payload as never,
                         hints: String(job.hints ?? ''),
                         limits,
                         yaml,
@@ -1090,13 +1097,17 @@ async function actionPump(body: Record<string, unknown>, ctx: Context) {
         // provider's own 429 body instead of a generic code, including after
         // a page reload. Clear it once a later pump has no failure.
         const currentConfig = { ...(job.config ?? {}) } as Record<string, unknown>;
-        if (lastProviderFailure) {
-            if (lastProviderFailure.code === 'PROVIDER_RATE_LIMITED'
-                && lastProviderFailure.provider === 'openrouter') {
-                lastProviderFailure.freeDaily = await openRouterFreeQuota(chain);
+        // The assignments happen inside `Promise.all` callbacks, which the
+        // outer control-flow analysis does not track; alias the declared
+        // type so the field reads below are not narrowed to `never`.
+        const providerFailure = lastProviderFailure as ProviderFailure | null;
+        if (providerFailure) {
+            if (providerFailure.code === 'PROVIDER_RATE_LIMITED'
+                && providerFailure.provider === 'openrouter') {
+                providerFailure.freeDaily = await openRouterFreeQuota(chain);
             }
             currentConfig.last_provider_error = {
-                ...lastProviderFailure,
+                ...providerFailure,
                 at: new Date().toISOString(),
             };
             await service.from('import_jobs').update({ config: currentConfig }).eq('id', job.id);
@@ -1295,7 +1306,7 @@ async function commitAction(body: Record<string, unknown>, ctx: Context) {
     const plan: unknown[] = [];
     for (const [chunkId, group] of byChunk) {
         const chunk = chunks.find((entry) => entry.id === chunkId);
-        const payload = (chunk?.payload ?? {}) as { lines?: { id: string; text: string }[]; kind?: string; source_id?: string };
+        const payload = (chunk?.payload ?? {}) as { lines?: { id: string; text: string; canonical?: string }[]; kind?: string; source_id?: string };
         const lines = Array.isArray(payload.lines) ? payload.lines : [];
         const lineRecords = lines.map((line) => ({
             id: line.id,
@@ -1344,7 +1355,7 @@ async function commitAction(body: Record<string, unknown>, ctx: Context) {
                     ? { ...(stored.dup as object), kind: (fresh.dup as { kind?: string } | null)?.kind ?? (stored.dup as { kind?: string }).kind }
                     : fresh.dup,
             };
-            const entry = planRow(row as never) as { values: Record<string, unknown> };
+            const entry = planRow(row as never) as unknown as { values: Record<string, unknown> };
             if (!entry.values.section && jobSection) entry.values.section = jobSection;
             plan.push(entry);
         });

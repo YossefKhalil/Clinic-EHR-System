@@ -1,0 +1,5 @@
+# The reader fixtures are compared byte-for-byte and can contain a newline
+# inside a quoted CSV field; keep them LF on every platform so the expected
+# value does not change with the checkout.
+tests/fixtures/readers/*.csv text eol=lf
+tests/fixtures/readers/*.txt text eol=lf

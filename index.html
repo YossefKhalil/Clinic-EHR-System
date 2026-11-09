@@ -1350,7 +1350,7 @@
 
                                 <!-- STEP: REVIEW (v6 mockup: Simple / Advanced) -->
                 <template x-if="step === 'review'">
-                    <div class="ia-review">
+                    <div class="ia-review" @keydown.window="onReviewKeydown($event)">
                         <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
                             <button type="button" class="btn btn-sm btn-outline-secondary" @click="navigate('patients')">
                                 <i class="bi bi-arrow-left me-1"></i><span x-text="t('importAgent.review.back')"></span>
@@ -1361,6 +1361,20 @@
                             <span class="small text-muted" x-text="t('importAgent.review.counts', { total: counts.all, attention: counts.attention })"></span>
                             <span class="small text-success ms-auto" role="status"
                                 x-text="saveState === 'saving' ? t('importAgent.review.autosave.saving') : saveState === 'failed' ? t('importAgent.review.autosave.failed') : t('importAgent.review.autosave.saved')"></span>
+                            <button type="button" class="btn btn-sm btn-outline-danger" x-show="saveState === 'failed'" x-cloak
+                                @click="retrySaves()" x-text="t('importAgent.review.autosave.retry')"></button>
+                            <div class="btn-group btn-group-sm ms-2" role="group" :aria-label="t('importAgent.review.undo')">
+                                <button type="button" class="btn btn-outline-secondary" @click="undo()" :disabled="undoStack.length === 0 || hasPendingSaves"
+                                    :title="t('importAgent.review.undo')">
+                                    <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
+                                    <span class="visually-hidden" x-text="t('importAgent.review.undo')"></span>
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary" @click="redo()" :disabled="redoStack.length === 0 || hasPendingSaves"
+                                    :title="t('importAgent.review.redo')">
+                                    <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                                    <span class="visually-hidden" x-text="t('importAgent.review.redo')"></span>
+                                </button>
+                            </div>
                             <div class="btn-group btn-group-sm ms-2" role="group" :aria-label="t('importAgent.review.mode')">
                                 <button type="button" class="btn"
                                     :class="reviewMode === 'simple' ? 'btn-primary' : 'btn-outline-secondary'"
@@ -1403,7 +1417,11 @@
                                     x-text="t('importAgent.warn.openSettings')"></button>
                             </div>
                         </div>
-                        <div class="alert alert-danger py-2 small" role="alert" x-show="saveState === 'failed'" x-cloak x-text="t('importAgent.review.autosave.failed')"></div>
+                        <div class="alert alert-danger py-2 small d-flex flex-wrap align-items-center gap-2" role="alert" x-show="saveState === 'failed'" x-cloak>
+                            <span x-text="t('importAgent.review.autosave.failed')"></span>
+                            <button type="button" class="btn btn-sm btn-outline-danger ms-auto" @click="retrySaves()"
+                                x-text="t('importAgent.review.autosave.retry')"></button>
+                        </div>
                         <div class="alert alert-warning py-2 small" role="alert" x-show="banners.some(b => b.code !== 'CHUNKS_FAILED' || failedChunks.length === 0)">
                             <template x-for="(banner, bIndex) in banners" :key="bIndex">
                                 <div x-show="banner.code !== 'CHUNKS_FAILED' || failedChunks.length === 0">
@@ -2087,7 +2105,7 @@
                                                 <option :value="option.key" x-text="optionDisplay(option)"></option>
                                             </template>
                                         </select>
-                                        <button type="button" class="btn btn-primary" @click="openConfirmStrip()" :disabled="(confirmCounts?.importable ?? 0) === 0">
+                                        <button type="button" class="btn btn-primary" @click="openConfirmStrip()" :disabled="(confirmCounts?.importable ?? 0) === 0 || hasPendingSaves" :title="confirmImportTitle()">
                                             <i class="bi bi-box-arrow-down me-1" aria-hidden="true"></i>
                                             <span x-text="t('importAgent.review.confirm.import', { count: confirmCounts?.importable ?? 0 })"></span>
                                         </button>
@@ -2375,6 +2393,7 @@
                     .ia-row-bad > td { background-color: #fdf0ef !important; }
                     .ia-row-check > td { background-color: #fff8e6 !important; }
                     .ia-row-dup > td { background-color: #f0f7ff !important; }
+                    .ia-row-unsaved > td:first-child { box-shadow: inset 3px 0 0 #dc3545; }
                     .record-panel { background: #fff; }
                     .record-panel h6 { font-size: .95rem; }
                     .quote-box {
@@ -2409,7 +2428,7 @@
                         <button type="button" id="settings-tab-users" class="nav-link" :class="{ active: settingsTab === 'users' }" role="tab" :aria-selected="settingsTab === 'users' ? 'true' : 'false'" aria-controls="settings-panel-users" @click="openSettingsTab('users')" x-text="t('Users')"></button>
                     </li>
                     <li class="nav-item" role="presentation">
-                        <button type="button" id="settings-tab-ai" class="nav-link" :class="{ active: settingsTab === 'ai' }" role="tab" :aria-selected="settingsTab === 'ai' ? 'true' : 'false'" aria-controls="settings-panel-ai" @click="openSettingsTab('ai')" x-text="t('AI &amp; Import')"></button>
+                        <button type="button" id="settings-tab-ai" class="nav-link" :class="{ active: settingsTab === 'ai' }" role="tab" :aria-selected="settingsTab === 'ai' ? 'true' : 'false'" aria-controls="settings-panel-ai" @click="openSettingsTab('ai')" x-text="t('AI & Import')"></button>
                     </li>
                 </ul>
 

@@ -243,7 +243,7 @@ flowchart LR
 
 ### Operational notes
 
-- **Cloudinary:** signed uploads through `cloudinary-sign` are the recommended mode (`VITE_CLOUDINARY_AUTHENTICATED=true`); the unsigned preset remains a fallback for local setups. A preset is not an authentication boundary, so scope it to the expected types and size. Client-side compression is on by default and can be disabled with `VITE_COMPRESS_ATTACHMENTS=false` when the untouched original is required. Authenticated assets cannot be transformed on the fly, so 256/800px card images are generated as eager transformations during upload; existing authenticated assets without eager derivatives fall back to the signed original.
+- **Cloudinary:** signed uploads through `cloudinary-sign` are the default (`VITE_CLOUDINARY_AUTHENTICATED` defaults to true); the unsigned preset is an explicit local-only fallback (`VITE_CLOUDINARY_AUTHENTICATED=false`). A preset is not an authentication boundary, so never use it for patient data. Client-side compression is on by default and can be disabled with `VITE_COMPRESS_ATTACHMENTS=false` when the untouched original is required. Authenticated assets cannot be transformed on the fly, so 256/800px card images are generated as eager transformations during upload; existing authenticated assets without eager derivatives fall back to the signed original.
 - **Cloudinary usage:** turn backup storage off (the database/attachment backup workflows below are the backup), and set a usage alert at about 70% in the Cloudinary console. Client-side downscaling plus 256/800px signed delivery variants keep one photo from consuming several credits per view.
 - **Cloudinary PDF delivery:** Free product environments block PDF delivery by default. Patient PDFs upload fine and then return `401` with `X-Cld-Error: deny or ACL failure` on open, while images keep working, and the delivery signature is not the cause. Enable **Settings → Security → Allow delivery of PDF and ZIP files** for the product environment that `VITE_CLOUDINARY_CLOUD_NAME` points at (paid plans have no such block). Cloudinary caches the denied response per URL, so retry after the change or bust the cache before concluding it did not help.
 - **Backups:** the daily database dump is encrypted and kept as a 30-day artifact; a restore drill restores every successful dump into a throwaway Postgres and runs the schema verification. Cloudinary originals are downloaded weekly and encrypted the same way. Long-term copies must go to private storage, never to a branch of this public repository. See [Backup and restore](docs/backup-restore.md).
@@ -289,7 +289,7 @@ VITE_CLOUDINARY_UPLOAD_PRESET=clinic_ehr_uploads
 | `VITE_SUPABASE_ANON_KEY` | Yes | Public anon key; RLS enforces access |
 | `VITE_CLOUDINARY_CLOUD_NAME` | For attachments | Cloudinary cloud name |
 | `VITE_CLOUDINARY_UPLOAD_PRESET` | For unsigned attachments | Unsigned upload preset |
-| `VITE_CLOUDINARY_AUTHENTICATED` | No | `true` uses signed uploads and authenticated delivery through `cloudinary-sign` |
+| `VITE_CLOUDINARY_AUTHENTICATED` | No | Defaults to `true`: signed uploads and authenticated delivery through `cloudinary-sign`. Set `false` only for a local unsigned-preset setup. |
 | `VITE_COMPRESS_ATTACHMENTS` | No | `false` uploads photos untouched; compression is on by default |
 
 These values are public and are embedded at build time. Never put a service-role key or an AI provider secret in a `VITE_*` variable.

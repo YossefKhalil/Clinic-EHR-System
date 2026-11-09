@@ -15,6 +15,7 @@
 
 import { supabase, getCurrentUser } from '../../services/supabase.js';
 import { foldForMatch } from '@import-core/canonicalize.js';
+import { LIMITS } from '@import-core/limits.js';
 
 export const ROW_PAGE = 500;
 
@@ -255,18 +256,6 @@ export async function saveRow(row, snapshot) {
 }
 
 /**
- * Save a list of change snapshots sequentially; rows keep an order-safe pace
- * and one failure stops the run (the caller re-checks state).
- */
-export async function saveRows(changes) {
-    const saved = [];
-    for (const change of changes) {
-        saved.push(await saveRow(change, change.after));
-    }
-    return saved;
-}
-
-/**
  * Load the existence context for dedupe (spec §8.6):
  *   - `existing`: every national ID that exists in `patients` at all (the RPC
  *     is SECURITY DEFINER, so it sees other sections: invisible to the user),
@@ -278,21 +267,27 @@ export async function saveRows(changes) {
  */
 export async function loadExistingContext(rows) {
     const client = supabase();
-    if (!client) return { existing: new Map(), nameDobMatches: new Set() };
+    if (!client) return { existing: new Map(), nameDobMatches: new Set(), truncated: false };
 
     const existing = new Map();
     const nameDobMatches = new Set();
 
-    const ids = [...new Set(rows
+    // The same cap as the import itself. The old 400-DOB slice silently
+    // stopped checking rows 401-500 and could miss a duplicate. Both lists
+    // are already de-duplicated; keep every unique value up to MAX_ROWS and
+    // tell the caller when a larger job was cut.
+    const allIds = [...new Set(rows
         .map((row) => row.cells?.national_id?.value)
-        .filter((value) => typeof value === 'string' && /^\d{14}$/.test(value)))].slice(0, 2000);
-
-    const dobs = [...new Set(rows
+        .filter((value) => typeof value === 'string' && /^\d{14}$/.test(value)))];
+    const allDobs = [...new Set(rows
         .map((row) => row.cells?.date_of_birth?.value)
-        .filter((value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)))].slice(0, 400);
+        .filter((value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)))];
+    const ids = allIds.slice(0, LIMITS.MAX_ROWS);
+    const dobs = allDobs.slice(0, LIMITS.MAX_ROWS);
+    const truncated = allIds.length > ids.length || allDobs.length > dobs.length;
 
     if (ids.length === 0 && dobs.length === 0) {
-        return { existing, nameDobMatches };
+        return { existing, nameDobMatches, truncated };
     }
 
     for (let from = 0; from < ids.length; from += 200) {
@@ -333,26 +328,7 @@ export async function loadExistingContext(rows) {
         }
     }
 
-    return { existing, nameDobMatches };
-}
-
-/** Hashes this account imported before, for the "seen before" warning. */
-export async function fetchSeenHashes(hashes) {
-    const client = supabase();
-    const seen = new Map();
-    if (!client || hashes.length === 0) return seen;
-    for (let from = 0; from < hashes.length; from += 100) {
-        const slice = hashes.slice(from, from + 100);
-        const { data } = await client
-            .from('import_sources')
-            .select('sha256, created_at')
-            .in('sha256', slice)
-            .order('created_at', { ascending: true });
-        for (const source of data ?? []) {
-            if (source.sha256) seen.set(source.sha256, source.created_at);
-        }
-    }
-    return seen;
+    return { existing, nameDobMatches, truncated };
 }
 
 /**

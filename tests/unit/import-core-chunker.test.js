@@ -1,20 +1,9 @@
-// M4 moved the chunker into import-core so the Edge Function can reuse it;
-// the browser keeps importing src/features/import-agent/chunker.js, which now
-// re-exports the shared module. This test pins that identity and the §7.4
-// split helper.
+// M4 moved the chunker into import-core so the Edge Function and the browser
+// share one implementation. This test pins the §7.4 split helper.
 import { describe, expect, it } from 'vitest';
 import * as core from '../../supabase/functions/_shared/import-core/chunker.js';
-import * as shim from '../../src/features/import-agent/chunker.js';
 
-describe('chunker moved to import-core', () => {
-    it('re-exports identical bindings through the browser shim', () => {
-        expect(shim.prepareSources).toBe(core.prepareSources);
-        expect(shim.poolSources).toBe(core.poolSources);
-        expect(shim.chunkPool).toBe(core.chunkPool);
-        expect(shim.splitRecords).toBe(core.splitRecords);
-        expect(shim.splitChunkPayload).toBe(core.splitChunkPayload);
-    });
-
+describe('chunker in import-core', () => {
     it('splits a rows chunk in half and keeps the header', () => {
         const chunk = {
             chunk_id: 'c1',

@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest';
 import {
     analyzeFile,
     formatBytes,
-    hashWarning,
     sha256Hex,
     validateIntake,
 } from '../../src/features/import-agent/intake.js';
@@ -167,24 +166,6 @@ describe('analyzeFile and hashing', () => {
     it('returns rejections instead of throwing', async () => {
         const verdict = await analyzeFile({ bytes: new Uint8Array(0), name: 'empty.csv' });
         expect(verdict).toMatchObject({ ok: false, code: 'EMPTY_FILE' });
-    });
-
-    it('warns about a hash seen before, whatever shape the lookup takes', () => {
-        const hash = 'a'.repeat(64);
-        expect(hashWarning(hash, null)).toBeNull();
-        expect(hashWarning(hash, new Map([[hash, '2026-10-01T09:00:00Z']]))).toEqual({
-            code: 'FILE_SEEN_BEFORE',
-            params: { date: '2026-10-01' },
-        });
-        expect(hashWarning(hash, [{ sha256: hash, date: '2026-09-30' }])).toEqual({
-            code: 'FILE_SEEN_BEFORE',
-            params: { date: '2026-09-30' },
-        });
-        expect(hashWarning(hash, { [hash]: { date: '2026-09-30T12:00:00Z' } })).toEqual({
-            code: 'FILE_SEEN_BEFORE',
-            params: { date: '2026-09-30' },
-        });
-        expect(hashWarning(hash, new Map([['other', '2026-10-01']]))).toBeNull();
     });
 
     it('formats sizes for messages', () => {

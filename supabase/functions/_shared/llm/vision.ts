@@ -58,12 +58,17 @@ export function isVisionModel(model: string): boolean {
     return VISION_PATTERNS.some((pattern) => pattern.test(id));
 }
 
-/** The vision-capable entries of a chain. */
-export function visionEntries(chain) {
-    return (chain ?? []).filter((entry) => isVisionModel(entry?.model));
+/** The part of a chain entry this module needs. */
+export interface ChainEntry {
+    model?: string;
+}
+
+/** The vision-capable entries of a chain, keeping the caller's entry type. */
+export function visionEntries<T extends ChainEntry>(chain: T[]): T[] {
+    return (chain ?? []).filter((entry) => isVisionModel(entry?.model ?? ''));
 }
 
 /** A readable list of the models that cannot see images (for the message). */
-export function modelList(chain) {
+export function modelList<T extends ChainEntry>(chain: T[]): string {
     return (chain ?? []).map((entry) => entry?.model).filter(Boolean).join(', ');
 }

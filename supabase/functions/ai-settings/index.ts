@@ -97,7 +97,28 @@ function normalizeBaseUrl(raw: string): string {
     if (parsed.username || parsed.password) {
         throw new SettingsError('INVALID_BASE_URL', 'Base URL must not contain credentials');
     }
+    const host = parsed.hostname.toLowerCase();
+    // The provider key is sent to this host. Never let it reach link-local
+    // metadata services, private networks, or plain HTTP on a public host.
+    // Loopback HTTP is kept for a local OpenAI-compatible server.
+    const loopback = host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+    if (parsed.protocol === 'http:' && !loopback) {
+        throw new SettingsError('INVALID_BASE_URL', 'Base URL must use https (http is allowed only for localhost)');
+    }
+    if (isPrivateHost(host) && !loopback) {
+        throw new SettingsError('INVALID_BASE_URL', 'Base URL must not point at a private or link-local address');
+    }
     return value;
+}
+
+/** Literal private/link-local hosts; a DNS name that resolves privately is not visible here. */
+function isPrivateHost(host: string): boolean {
+    const bare = host.replace(/^\[|\]$/g, '');
+    if (/^(10\.|192\.168\.|169\.254\.|0\.0\.0\.0$)/.test(bare)) return true;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(bare)) return true;
+    if (/^127\./.test(bare)) return true;
+    if (/^(fc|fd|fe8|fe9|fea|feb)/i.test(bare)) return true;
+    return false;
 }
 
 function normalizeAccountId(raw: string): string {
@@ -592,7 +613,9 @@ Deno.serve(async (req) => {
         .select('is_admin, is_super_admin')
         .eq('id', user.id)
         .maybeSingle();
-    if (!profile?.is_super_admin && !profile?.is_admin) return fail('FORBIDDEN', 403);
+    // One authorization rule across user and AI settings: the legacy
+    // `is_admin` flag must not keep control of provider credentials.
+    if (!profile?.is_super_admin) return fail('FORBIDDEN', 403);
 
     let body: Record<string, unknown>;
     try {

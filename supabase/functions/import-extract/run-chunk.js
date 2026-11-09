@@ -100,6 +100,7 @@ export function mergeRepairedDocuments(documents, bad, reparsed) {
  *   repairs: boolean,
  *   usage: {in: number, out: number},
  *   model: string|null,
+ *   cost: number|null,
  *   promptId: string,
  *   errorCode?: string,
  * }>}
