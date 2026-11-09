@@ -1,8 +1,8 @@
 # Plan: AI import — a calmer, professional UI (same power, optional detail)
 
-Status: proposal. Companion docs:
-[`local-ai-runtime-issue.md`](local-ai-runtime-issue.md),
-[`mlc-runtime-plan.md`](mlc-runtime-plan.md).
+> **Status: historical.** The MLC/WebGPU and cloud references below are
+> obsolete. The runtime is being rebuilt CPU-only; the UI ideas (one model,
+> one status, download or browse) still apply.
 
 ## Problem
 
@@ -53,8 +53,8 @@ The AI import works, but the interface asks the clinic to be an operator:
 - **Model card**: one model, one status dot, one human sentence
   ("Ready · reads photos · runs on the GPU"). `Change model` opens the picker.
 - **Two ways to get a model**, side by side:
-  - *Recommended (download)* — the MLC catalog filtered by this device
-    (see `mlc-runtime-plan.md`); shows download size before committing.
+  - *Recommended (download)* - the Hugging Face files for this device,
+    with the download size shown before committing.
   - *Use my own files* — the existing Browse → Verify flow, unchanged.
 - **Advanced drawer** (collapsed, count in the label) holds today's groups
   verbatim: layout (single/split), projector, text knobs, OCR knobs, runtime

@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint src supabase/functions scripts tests",
-    "check:edge": "deno check supabase/functions/ai-settings/index.ts supabase/functions/cloudinary-sign/index.ts supabase/functions/import-cleanup/index.ts supabase/functions/import-extract/run-chunk.js supabase/functions/import-job/index.ts supabase/functions/login/index.ts supabase/functions/manage-user/index.ts",
+    "check:edge": "deno check supabase/functions/cloudinary-sign/index.ts supabase/functions/import-cleanup/index.ts supabase/functions/import-job/index.ts supabase/functions/login/index.ts supabase/functions/manage-user/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -17,7 +17,6 @@
     "check:i18n": "node scripts/check-local-i18n.mjs"
   },
   "dependencies": {
-    "@mlc-ai/web-llm": "0.2.87",
     "@supabase/supabase-js": "^2.45.0",
     "alpinejs": "^3.14.0",
     "bootstrap": "^5.3.3",

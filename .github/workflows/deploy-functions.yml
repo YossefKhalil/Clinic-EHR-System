@@ -38,8 +38,8 @@ jobs:
         with:
           version: latest
 
-      # The functions read columns the schema owns (ai_settings.groq_key_encrypted,
-      # ai_settings.model_chain, import_rows.*, ...). Applying the
+      # The functions read columns the schema owns (users.*, import_rows.*,
+      # audit_log.*, ...). Applying the
       # idempotent schema here removes the race with the separate schema
       # workflow: a function can never be deployed before its migration
       # exists (that failure shows up as "column does not exist" and a
@@ -70,24 +70,6 @@ jobs:
             --command "NOTIFY pgrst, 'reload schema';"
           echo "PostgREST schema cache reload requested."
 
-      # Provision the encryption secret once. Never rotate it automatically:
-      # changing this value makes every stored provider key unreadable.
-      - name: Ensure AI settings encryption secret
-        run: |
-          set -euo pipefail
-          secrets="$(supabase secrets list --project-ref "$PROJECT_REF")" || {
-            echo "::error::Could not read the project secrets."
-            exit 1
-          }
-          if grep -q 'AI_SETTINGS_ENC_KEY' <<< "$secrets"; then
-            echo "AI_SETTINGS_ENC_KEY is already configured."
-            exit 0
-          fi
-          enc_key="$(openssl rand -base64 32)"
-          echo "::add-mask::$enc_key"
-          supabase secrets set "AI_SETTINGS_ENC_KEY=$enc_key" --project-ref "$PROJECT_REF"
-          echo "Generated and stored AI_SETTINGS_ENC_KEY."
-
       - name: Deploy manage-user
         run: supabase functions deploy manage-user --yes --project-ref "$PROJECT_REF"
 
@@ -97,17 +79,11 @@ jobs:
       - name: Deploy import-cleanup
         run: supabase functions deploy import-cleanup --yes --no-verify-jwt --project-ref "$PROJECT_REF"
 
-      # User-facing: verifies the caller's JWT (owner scoping happens in the
-      # function itself through auth.uid()). Provider credentials live in
-      # ai_settings (encrypted with the AI_SETTINGS_ENC_KEY project secret).
+      # Deliberately inert while the CPU-only runtime is rebuilt: it answers
+      # `enabled` with false and refuses every job action. Keeping it deployed
+      # stops stale clients from reaching a runtime that no longer exists.
       - name: Deploy import-job
         run: supabase functions deploy import-job --yes --project-ref "$PROJECT_REF"
-
-      # Super-admin-only: owns the encrypted ai_settings row. It verifies the
-      # caller and checks users.is_admin itself, so the default JWT check stays
-      # on and anon callers are rejected before the handler runs.
-      - name: Deploy ai-settings
-        run: supabase functions deploy ai-settings --yes --project-ref "$PROJECT_REF"
 
       # Signs Cloudinary uploads and delivery URLs. The default JWT check stays
       # on: only signed-in staff can request a signature. The Cloudinary API

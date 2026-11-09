@@ -29,7 +29,7 @@ The application is deliberately serverless. The frontend is a static Vite build 
 
 | Area | Details |
 | --- | --- |
-| **Status** | Core EHR stable · AI-assisted import (cloud + local) complete |
+| **Status** | Core EHR stable · AI import disabled pending the CPU-only rebuild |
 | **Frontend** | Vite 5, Alpine.js 3, Bootstrap 5.3 |
 | **Backend** | Supabase Postgres, Auth, Storage, Edge Functions |
 | **Attachments** | Cloudinary |
@@ -89,7 +89,7 @@ The application is deliberately serverless. The frontend is a static Vite build 
 
 ## AI-assisted patient import
 
-> **Status.** Cloud extraction pipeline (readers, chunking, provider fallback, validation, review) is complete. Local inference engine (browser-based GGUF/ONNX) is complete with model profiles, verification, and a settings UI. The commit-to-registry step that writes reviewed rows into the patient registry is implemented. The feature is disabled by default and hidden from staff until an administrator enables it.
+> **Status: disabled.** The AI import agent is intentionally unavailable while its runtime is rebuilt as a CPU-only, local-only engine. The old WebGPU/MLC runtime and every cloud inference path were removed. There is deliberately no setting, flag, or credential that can turn extraction back on. The readers, review state, and commit path remain in the repository for the rebuild, but the entry is hidden and the server refuses every job action.
 
 The import agent turns existing records into structured patient drafts, then gives staff a review surface before anything reaches the registry.
 
@@ -105,25 +105,22 @@ The import agent turns existing records into structured patient drafts, then giv
 
 Files are identified by content signature, not by extension. Oversized files, encrypted PDFs, and zip bombs are rejected before parsing.
 
-### Pipeline
+### Pipeline (dormant until the CPU rebuild)
 
 1. **Read and chunk.** The browser extracts text and tables, assigns stable source-line identifiers, and splits the result into bounded chunks. Spreadsheet headers are repeated per chunk; tall note images are tiled with overlap.
-2. **Extract.** The `import-job` Edge Function runs each chunk through the administrator's ordered provider chain (cloud). Transient provider failures fall through to the next ready entry; malformed output gets one repair pass; truncated output is split and re-queued.
+2. **Extract.** Disabled. The old `import-job` cloud provider chain and the browser MLC/WebGPU engine were removed.
 3. **Validate.** Extracted records are normalized and validated against the registry rules, checked for duplicates, and stored as reviewable rows with source citations.
 4. **Review.** Staff correct the draft in a table that mirrors the patients page. Nothing is written to the patient registry during extraction.
 5. **Commit.** Reviewed rows are written to the patient registry with the registrar's context and import provenance.
 
-### Local inference engine (browser-based)
+### CPU-only rebuild
 
-When `LOCAL_INFERENCE_ENABLED=1`, the clinic can run models entirely on the clinic PC:
+The replacement runs entirely in the browser on the CPU, with no server inference and no model upload:
 
-- **Text models**: GGUF (llama.cpp via wllama), single or split layout. The single layout may add a vision **mmproj** projector so the model can read photos; without it the model extracts text only.
-- **Vision/OCR**: ONNX Runtime Web (Falcon OCR), WebGPU → WASM fallback (split layout)
-- **Settings card**: Engine Off/Cloud/Local, model pickers, Browse→Verify flow, config accordions with tier-aware defaults, device capability chips, runtime identity (`wllama`), cloud consent modal
-- **System RAM**: Firefox and Safari do not report RAM, so the clinic can enter the PC's memory; the entered value wins over `navigator.deviceMemory` when the tier is suggested
-- **Verification**: Header probe + SHA-256, per-slot Ready/Error badges with translated codes, a Re-check action that re-probes without re-hashing, and an explicit "Load anyway" for an architecture outside the checked-in support list
-- **Persistence**: Model handles (Chromium) or stored File blobs (Firefox/Safari) in IndexedDB, with a `navigator.storage.persist()` request; resolved config written to the job at import start
-- **Pipeline integration**: `local_claim`/`local_submit`/`local_heartbeat`/`local_fail`/`local_release` with lease tokens, CONFIG_DRIFT detection, model identity (SHA-256, including the single-layout projector) audit
+- **Model**: LiquidAI LFM3-VL-2B (QAD-Q4_0 GGUF, 1.05 GB) plus the Q8_0 `mmproj` projector (203 MB), so text and images share one 2B model.
+- **Runtime**: llama.cpp compiled to WebAssembly through wllama, with the WASM SIMD kernel fix, relaxed-SIMD kernels behind a safe x86 guard, `SharedArrayBuffer` multithreading when COOP/COEP are available, and a single-thread fallback everywhere else.
+- **UI**: the same browse-or-download flow: pick both files from local storage, or download them from Hugging Face, verify them, and load them in place. Files stay in the browser.
+- **Networks**: cloud providers, credentials, consent, and the `ai-settings` function are gone. Import stays unreachable until this engine ships.
 
 ### Review workflow
 
@@ -140,14 +137,9 @@ When `LOCAL_INFERENCE_ENABLED=1`, the clinic can run models entirely on the clin
 
 ### Providers and credentials
 
-- **Cloud**: OpenRouter, Cloudflare Workers AI, and any OpenAI-compatible endpoint (OpenAI, Groq, Ollama, LM Studio).
-- **Local** (when `LOCAL_INFERENCE_ENABLED=1`): GGUF text models via wllama, ONNX vision/OCR models via ONNX Runtime Web.
-- Providers can be mixed in an ordered chain of up to eight model entries (cloud). Local uses one text slot and one vision+OCR slot; the one-model layout can add an optional `mmproj` projector.
-- Provider keys are stored AES-GCM encrypted, decrypted only inside Edge Functions, and never returned to the browser.
-- OpenRouter requests are sent with `data_collection: deny`. Other providers have their own retention and training policies.
-- Local models never leave the clinic PC. The server only learns the model name, size, and SHA-256.
+There are none. Cloud provider adapters, encrypted credentials, the provider chain, cloud consent, and the `ai-settings` function were removed with the old runtime.
 
-> **Privacy.** Enabling AI import sends extracted text, and for photos the images themselves, to the configured cloud provider. Local inference keeps data on the clinic PC. Review the provider's data-handling terms and your clinic's consent and retention obligations before enabling the feature with patient data.
+> **Privacy.** The CPU rebuild keeps extraction on the clinic PC. Patient text and images must never be sent to a cloud provider.
 
 ## Architecture
 
@@ -165,21 +157,19 @@ flowchart LR
         Auth["Auth<br/>JWT"]
         DB[("Postgres<br/>RLS on every table")]
         Storage[("Storage<br/>import staging")]
-        Functions["Edge Functions<br/>manage-user · import-job<br/>ai-settings · import-cleanup"]
+        Functions["Edge Functions<br/>manage-user · import-job (inert)<br/>import-cleanup"]
     end
 
     Cloudinary[("Cloudinary<br/>patient attachments")]
-    Providers["AI providers<br/>OpenRouter · Cloudflare Workers AI<br/>OpenAI-compatible"]
     Actions["GitHub Actions<br/>CI, schema, function deploys"]
 
     SPA -->|HTTPS| CDN
     SPA -->|sign in| Auth
     SPA -->|PostgREST + RLS| DB
-    SPA -->|signed/unsigned upload| Cloudinary
+    SPA -->|signed upload| Cloudinary
     SPA -->|JWT| Functions
     Functions -->|service role| DB
     Functions -->|staging files| Storage
-    Functions -->|ordered fallback| Providers
     Actions -->|schema| DB
     Actions -->|deploy| Functions
 ```
@@ -190,7 +180,7 @@ flowchart LR
 - The browser authenticates with Supabase Auth and queries Postgres through PostgREST. Row-level security decides what each JWT may read or write.
 - Privileged operations go through Edge Functions that verify the caller's JWT and role, then use the service-role client server-side.
 - Attachments upload directly from the browser to Cloudinary, so file traffic never passes through the app.
-- AI provider keys are decrypted inside `import-job` and never reach the client.
+- AI inference has no server path. The CPU rebuild runs entirely in the browser; the deployed `import-job` function is inert and refuses every job action.
 
 **Design trade-offs**
 
@@ -206,8 +196,7 @@ flowchart LR
 | Backend | Supabase Postgres, Auth, Storage, Edge Functions |
 | Database | PostgreSQL with row-level security |
 | File storage | Cloudinary |
-| AI extraction (cloud) | OpenRouter, Cloudflare Workers AI, OpenAI-compatible endpoints |
-| AI inference (local) | wllama (llama.cpp WASM), ONNX Runtime Web (WebGPU/WASM) |
+| AI import | Disabled pending the CPU-only rebuild (wllama + llama.cpp WASM, LFM3-VL-2B QAD-Q4_0 + mmproj) |
 | Documents | SheetJS, mammoth, PDF.js |
 | Hosting | Cloudflare Pages |
 | CI/CD | GitHub Actions |
@@ -225,14 +214,9 @@ flowchart LR
 ### Privileged operations
 
 - Edge Functions verify the caller's JWT and role before using the service-role client.
-- `manage-user` and `ai-settings` are Super-Admin-only; `import-job` scopes jobs to their owner.
+- `manage-user` is Super-Admin-only. `import-job` is deployed but inert: it exposes no job action and always reports the feature disabled.
 - The service-role key is never included in the frontend bundle.
-
-### Secrets and AI credentials
-
-- AI provider credentials live in `ai_settings`, which is removed from the PostgREST API surface.
-- Keys are encrypted with AES-GCM-256 using a key derived with HKDF-SHA256 from the dedicated `AI_SETTINGS_ENC_KEY` secret, not from the service-role key.
-- The browser receives configuration status only, never a stored key.
+- No AI provider credentials exist. The cloud adapters, the encrypted `ai_settings` reader, and the `AI_SETTINGS_ENC_KEY` secret were removed with the old runtime.
 
 ### Data integrity
 
@@ -313,37 +297,20 @@ supabase functions deploy manage-user
 supabase functions deploy login --no-verify-jwt
 supabase functions deploy import-cleanup --no-verify-jwt
 supabase functions deploy import-job
-supabase functions deploy ai-settings
 ```
 
-`import-extract` is a shared module imported by `import-job`; it is not deployed as a separate function.
+`import-job` is deployed only so stale clients receive a clean "AI disabled" answer. It has no runtime and no cloud path.
 
 Set the project secrets:
 
 ```bash
-supabase secrets set AI_SETTINGS_ENC_KEY="$(openssl rand -base64 32)"
 supabase secrets set IMPORT_CLEANUP_SECRET="$(openssl rand -hex 32)"
 ```
 
-- `AI_SETTINGS_ENC_KEY` encrypts stored provider credentials. Store it securely. Rotating it makes existing credentials unreadable, so re-enter them in Settings after a rotation.
 - `IMPORT_CLEANUP_SECRET` authenticates the scheduled retention call. The `import-cleanup` function is deployed without the default JWT check because `pg_cron` calls it with an `x-cleanup-secret` header.
 - Supabase provides `SUPABASE_SERVICE_ROLE_KEY` to hosted functions. Confirm it is present in your project's function secrets before deploying.
 
-The local AI engine (the model runs in the browser) is dark until it is
-switched on. It is read by both `import-job` and `ai-settings`, so it has to
-be set on both:
-
-```bash
-supabase secrets set LOCAL_INFERENCE_ENABLED=1 --project-ref <project-ref>
-```
-
-Multi-thread loading is an explicit opt-in: the app does not set COOP/COEP
-headers by default, so the local runtime uses one thread and the settings card
-disables the Threads field. A deployment that serves the app from its own LAN
-server can enable those headers to unlock more threads.
-
-See [docs/import-agent/local-ai-v2.md](docs/import-agent/local-ai-v2.md)
-for what the engine does and what it needs.
+There is no AI enable flag. The feature is disabled in code, not by configuration, until the CPU-only engine ships.
 
 ### 5. Create the first Super Admin
 
@@ -403,7 +370,7 @@ Add the four `VITE_*` variables from `.env.example` as **build environment varia
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
 | **CI** | Push and pull request | Install, lint, registry check, tests with coverage, build |
-| **Deploy Edge Functions** | Push touching `supabase/functions/**` or `supabase/schema.sql` | Apply the schema, provision the encryption secret once, deploy the functions |
+| **Deploy Edge Functions** | Push touching `supabase/functions/**` or `supabase/schema.sql` | Apply the schema and deploy the functions |
 | **Supabase Schema** | Manual | Apply and verify `supabase/schema.sql` |
 | **Keep-alive** | Daily schedule | Ping the Supabase auth health endpoint so a free-tier project does not pause |
 
@@ -428,7 +395,7 @@ npm run lint           # ESLint
 npm run check:registry # field registry and schema contract
 ```
 
-The suite currently contains **641 tests across 55 files**. RLS tests run against an in-process Postgres (PGlite) loaded with `supabase/schema.sql`, so policies are exercised against real SQL rather than mocks. Import fixtures cover XLSX, CSV, DOCX, and PDF readers, and property-based tests cover the normalizers. Local AI tests cover the WebGPU engine wrapper, model-folder loading, profile detection, and provider behavior.
+The suite currently contains **456 tests across 42 files**. RLS tests run against an in-process Postgres (PGlite) loaded with `supabase/schema.sql`, so policies are exercised against real SQL rather than mocks. Import fixtures cover XLSX, CSV, DOCX, and PDF readers, and property-based tests cover the normalizers.
 
 CI runs lint, the registry check, coverage, and the production build on every push and pull request.
 
@@ -439,27 +406,10 @@ CI runs lint, the registry check, coverage, and the production build on every pu
 ├── index.html                     # SPA shell and all page templates
 ├── src/
 │   ├── main.js                    # Alpine application controller
-│   ├── services/                  # Supabase, patients, prices, users, options, export, ai-local
-│   ├── features/import-agent/     # Readers, extraction client, review state, UI
+│   ├── services/                  # Supabase, patients, prices, users, options, export
+│   ├── features/import-agent/     # Readers, job client, review state, UI (dormant)
 │   │   ├── readers/               # XLSX, CSV, DOCX, PDF, image, text readers
-│   │   ├── local/                 # Local AI engine
-│   │   │   ├── adapters.js        # Adapter registry, probeGGUF/probeONNX, getAdapter
-│   │   │   ├── gguf-adapter.js    # llama.cpp WASM text adapter
-│   │   │   ├── onnx-adapter.js    # ONNX Runtime Web vision/OCR adapter
-│   │   │   ├── onnx-metadata.js   # Streaming protobuf graph reader
-│   │   │   ├── gguf-metadata.js   # GGUF header parser
-│   │   │   ├── falcon-ocr.js      # Falcon strip OCR pipeline
-│   │   │   ├── model-profile.js   # Per-slot profile + verification state machine
-│   │   │   ├── model-store.js     # Pickers, handles, chunked SHA-256
-│   │   │   ├── local-config.js    # Tier detection, defaults, validation
-│   │   │   ├── manifest.js        # Device probe, tier suggestion
-│   │   │   ├── local-runtime.js   # Resolved config for pump
-│   │   │   ├── pump.js            # Browser pump: claim/submit/heartbeat/fail/release
-│   │   │   ├── runner.js          # Import runner integration
-│   │   │   ├── setup.js           # Provider setup from profile
-│   │   │   ├── hash-wasm.js       # Streaming SHA-256
-│   │   │   └── wllama-provider.js # wllama completion wrapper
-│   │   ├── api.js                 # import-job / ai-settings client
+│   │   ├── api.js                 # import-job client
 │   │   ├── intake.js              # File validation and hashing
 │   │   ├── review.js              # Review state, validation, duplicate logic
 │   │   └── ui.js                  # Import wizard and review screen
@@ -470,15 +420,14 @@ CI runs lint, the registry check, coverage, and the production build on every pu
 │   ├── verify-schema.sql          # Column checks used by CI
 │   ├── seed.sql                   # Seed notes
 │   └── functions/
-│       ├── _shared/               # Shared import-core, LLM, and crypto modules
-│       ├── ai-settings/           # Encrypted provider settings
+│       ├── _shared/               # Shared import-core modules
 │       ├── import-cleanup/        # Retention and storage purge
-│       ├── import-job/            # Import job orchestration and extraction
+│       ├── import-job/            # Inert while the CPU runtime is rebuilt
 │       └── manage-user/           # Administrator user CRUD
 ├── tests/
 │   ├── fixtures/                  # Reader and pipeline fixtures
 │   ├── rls/                       # Postgres RLS tests
-│   └── unit/                      # Reader, pipeline, review, normalizer, local AI tests
+│   └── unit/                      # Reader, pipeline, review, normalizer tests
 ├── docs/                          # Design notes and import architecture
 ├── scripts/                       # Registry and fixture tooling
 ├── .github/workflows/             # CI, schema, function deploys, keep-alive
@@ -494,14 +443,11 @@ CI runs lint, the registry check, coverage, and the production build on every pu
 - Patient registry, profiles, attachments, global search, dashboard with financial summary, and Excel export.
 - User management, section-scoped access, and editable option lists.
 - Complete English/Arabic interface with RTL support.
-- AI-assisted import (cloud): readers, extraction pipeline, provider fallback chain, encrypted settings, review UI, quotas, retries, and resume.
-
-### Complete
-
-- **Local AI inference engine**: model profiles, GGUF/ONNX adapters, verification, settings UI, browser pump, CONFIG_DRIFT detection, lease tokens, model identity audit.
+- Import readers, review state, and the commit path (dormant; no AI runtime).
 
 ### Planned
 
+- **CPU-only local AI import**: wllama/llama.cpp WASM, LFM3-VL-2B QAD-Q4_0 with the Q8_0 mmproj, vision, Firefox support, maximum-speed tuning.
 - Versioned Supabase migrations.
 - Import batch undo and usage/cost reporting.
 - Expanded browser-level test coverage.
