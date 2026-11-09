@@ -89,25 +89,25 @@ jobs:
           echo "Generated and stored AI_SETTINGS_ENC_KEY."
 
       - name: Deploy manage-user
-        run: supabase functions deploy manage-user --project-ref "$PROJECT_REF"
+        run: supabase functions deploy manage-user --yes --project-ref "$PROJECT_REF"
 
       # --no-verify-jwt: pg_cron calls this with the shared x-cleanup-secret
       # header (IMPORT_CLEANUP_SECRET); the function authenticates callers
       # itself and fails closed.
       - name: Deploy import-cleanup
-        run: supabase functions deploy import-cleanup --no-verify-jwt --project-ref "$PROJECT_REF"
+        run: supabase functions deploy import-cleanup --yes --no-verify-jwt --project-ref "$PROJECT_REF"
 
       # User-facing: verifies the caller's JWT (owner scoping happens in the
       # function itself through auth.uid()). Provider credentials live in
       # ai_settings (encrypted with the AI_SETTINGS_ENC_KEY project secret).
       - name: Deploy import-job
-        run: supabase functions deploy import-job --project-ref "$PROJECT_REF"
+        run: supabase functions deploy import-job --yes --project-ref "$PROJECT_REF"
 
       # Super-admin-only: owns the encrypted ai_settings row. It verifies the
       # caller and checks users.is_admin itself, so the default JWT check stays
       # on and anon callers are rejected before the handler runs.
       - name: Deploy ai-settings
-        run: supabase functions deploy ai-settings --project-ref "$PROJECT_REF"
+        run: supabase functions deploy ai-settings --yes --project-ref "$PROJECT_REF"
 
       # Signs Cloudinary uploads and delivery URLs. The default JWT check stays
       # on: only signed-in staff can request a signature. The Cloudinary API
@@ -124,11 +124,11 @@ jobs:
           done
 
       - name: Deploy cloudinary-sign
-        run: supabase functions deploy cloudinary-sign --project-ref "$PROJECT_REF"
+        run: supabase functions deploy cloudinary-sign --yes --project-ref "$PROJECT_REF"
 
       # --no-verify-jwt: the caller is signed out by definition. The function
       # resolves a username (the email local part) to its account email with
       # the service role and performs the password grant, so a username never
       # reveals the address behind it and both failure modes look the same.
       - name: Deploy login
-        run: supabase functions deploy login --no-verify-jwt --project-ref "$PROJECT_REF"
+        run: supabase functions deploy login --yes --no-verify-jwt --project-ref "$PROJECT_REF"
