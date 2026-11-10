@@ -42,7 +42,11 @@ export function clampLocalConfig(config) {
             topP: clampNumber(text.topP, 0, 1, 1),
             repeatPenalty: clampNumber(text.repeatPenalty, 0.5, 2, 1),
             sheetRowsPerChunk: clampNumber(text.sheetRowsPerChunk, bounds.sheetRowsPerChunk.min, bounds.sheetRowsPerChunk.max, 5),
-            textCharsPerChunk: clampNumber(text.textCharsPerChunk, bounds.textCharsPerChunk.min, bounds.textCharsPerChunk.max, 1200),
+            // 400 chars keeps a typical patient note in its own chunk: the
+            // extractor then sees one patient at a time and cannot merge two
+            // people into one row (the 2B model does that on multi-patient
+            // chunks). Bigger notes are still cut by TEXT_CHUNK_MAX.
+            textCharsPerChunk: clampNumber(text.textCharsPerChunk, bounds.textCharsPerChunk.min, bounds.textCharsPerChunk.max, 400),
         },
         ocr: {
             ...ocr,

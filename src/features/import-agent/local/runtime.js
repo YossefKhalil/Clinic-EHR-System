@@ -239,6 +239,11 @@ export class LocalEngine {
             penalty_repeat: params.repeatPenalty ?? config.repeatPenalty,
             seed: 42,
             abortSignal: params.signal,
+            // LFM3 is a reasoning model: its template opens a thinking block by
+            // default, and on this 2B CPU model that block eats the whole
+            // output budget before a single row is written. Extraction wants
+            // the answer, not the deliberation.
+            chat_template_kwargs: { enable_thinking: false },
             ...(params.grammar ? { grammar: params.grammar } : {}),
             ...(params.responseFormat ? { response_format: params.responseFormat } : {}),
         });

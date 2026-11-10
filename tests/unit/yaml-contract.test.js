@@ -169,3 +169,67 @@ describe('parseContract', () => {
         expect(result.bad).toEqual([]);
     });
 });
+
+
+describe('on-device JSON answer', () => {
+    it('reads a {patients: [...]} object', () => {
+        const parsed = parse(JSON.stringify({
+            patients: [{ name: 'Mona Adel', mobile: '01012345678', _src: 'S1:L001-L004' }],
+        }), { format: 'json' });
+        expect(parsed.ok).toBe(true);
+        expect(parsed.documents).toHaveLength(1);
+        expect(parsed.documents[0].record.name).toBe('Mona Adel');
+        expect(parsed.documents[0].record._src).toBe('S1:L001-L004');
+        expect(parsed.truncated).toBe(false);
+    });
+
+    it('reads a bare array and a single object', () => {
+        const array = parse('[{"name":"A"},{"name":"B"}]', { format: 'json' });
+        expect(array.documents.map((d) => d.record.name)).toEqual(['A', 'B']);
+        const single = parse('{"name":"A"}', { format: 'json' });
+        expect(single.documents).toHaveLength(1);
+    });
+
+    it('accepts the empty answer', () => {
+        const parsed = parse('{"patients": []}', { format: 'json' });
+        expect(parsed.ok).toBe(true);
+        expect(parsed.documents).toHaveLength(0);
+        expect(parsed.bad).toHaveLength(0);
+    });
+
+    it('folds unknown keys into unmapped', () => {
+        const parsed = parse('{"patients":[{"name":"A","favourite_colour":"blue"}]}', { format: 'json' });
+        expect(parsed.unmappedKeys).toContain('favourite_colour');
+    });
+
+    it('falls back to the YAML stream when the model ignores the format', () => {
+        const parsed = parse('---\nname: A\n_src: S1:L001\n', { format: 'json' });
+        expect(parsed.ok).toBe(true);
+        expect(parsed.documents[0].record.name).toBe('A');
+    });
+
+    it('drops the last document when the answer was cut by the context', () => {
+        const parsed = parse('{"patients":[{"name":"A"},{"name":"B"}]}', {
+            format: 'json', finishReason: 'length',
+        });
+        expect(parsed.truncated).toBe(true);
+        expect(parsed.documents).toHaveLength(1);
+        expect(parsed.discarded).toContain('"B"');
+    });
+
+    it('rejects an invalid JSON answer instead of inventing rows', () => {
+        const parsed = parse('{"patients": [ this is not json', { format: 'json' });
+        expect(parsed.ok).toBe(false);
+        expect(parsed.code).toBe('PARSE_FAILED');
+    });
+
+    it('collapses a source range that repeats its prefix', () => {
+        const parsed = parse('{"patients":[{"name":"A","_src":"S1:L001-S1:L014"}]}', { format: 'json' });
+        expect(parsed.documents[0].record._src).toBe('S1:L001-L014');
+    });
+
+    it('keeps a well-formed multi-line source reference together', () => {
+        const parsed = parse('{"patients":[{"name":"A","_src":"S1:L001-L003, S1:L010"}]}', { format: 'json' });
+        expect(parsed.documents[0].record._src).toBe('S1:L001-L003, S1:L010');
+    });
+});

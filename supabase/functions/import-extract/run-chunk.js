@@ -8,7 +8,7 @@
 
 import { LIMITS } from '../_shared/import-core/limits.js';
 import {
-    EXTRACTOR_SYSTEM, PROMPT_IDS, buildExtractorUser, buildRepairUser,
+    EXTRACTOR_SYSTEM, LOCAL_EXTRACTOR_SYSTEM, PROMPT_IDS, buildExtractorUser, buildRepairUser,
     makeDelimiter, parseContract,
 } from '../_shared/import-core/yaml-contract.js';
 
@@ -34,6 +34,22 @@ export function maxTokensFor(lineCount, limits = LIMITS, override = null) {
 
 function rejectionsFrom(bad, lines) {
     return bad.map((entry) => ({ index: entry.index, raw: entry.raw, error: entry.error, lines }));
+}
+
+/** `timings` in llama-server terms -> one short human line. */
+function timingsLabel(timings) {
+    const prefill = Number(timings?.prompt_per_second ?? 0);
+    const decode = Number(timings?.predicted_per_second ?? 0);
+    const parts = [];
+    if (prefill > 0) parts.push(`prefill ${prefill.toFixed(1)} tok/s`);
+    if (decode > 0) parts.push(`decode ${decode.toFixed(1)} tok/s`);
+    if (timings?.prompt_n) parts.push(`${timings.prompt_n} in / ${timings.predicted_n} out`);
+    return parts.join(', ');
+}
+
+function snippet(text, length = 600) {
+    const value = String(text ?? '').replace(/\s+/g, ' ').trim();
+    return value.length > length ? `${value.slice(0, length)}…` : value;
 }
 
 /**
@@ -91,6 +107,8 @@ export function mergeRepairedDocuments(documents, bad, reparsed) {
  *   maxTokens?: number|null,      // the caller's own budget (the local engine)
  *   delimiter?: string,           // injectable for tests
  *   repairDelimiter?: string,
+ *   mode?: 'yaml'|'local',        // 'local' = compact prompt + JSON answer
+ *   onLog?: (entry: {level: string, message: string, detail?: string}) => void,
  * }} input
  * @returns {Promise<{
  *   status: 'ok'|'truncated'|'failed'|'cancelled',
@@ -115,7 +133,17 @@ export async function runChunk({
     maxTokens = null,
     delimiter,
     repairDelimiter,
+    mode = 'yaml',
+    onLog = null,
 }) {
+    const local = mode === 'local';
+    const log = (level, message, detail = '') => {
+        try {
+            onLog?.({ level, message, detail });
+        } catch {
+            // logging must never break an extraction
+        }
+    };
     const usage = { in: 0, out: 0 };
     let model = provider.model ?? null;
     let cost = null;
@@ -142,20 +170,38 @@ export async function runChunk({
         .filter((image) => typeof image?.dataUrl === 'string' && image.dataUrl.length > 0)
         .map((image) => ({ type: 'image', dataUrl: image.dataUrl }));
 
-    const user = buildExtractorUser({
+    let user = buildExtractorUser({
         header: chunk.header ?? null,
         lines,
         hints,
         delimiter: delimiter ?? makeDelimiter('SRC'),
         images: imageParts.length > 0 ? images : [],
     });
+    if (local) {
+        // A small model likes to renumber the source when a chunk holds more
+        // than one patient (S1, S2, ...), which makes every _src after the
+        // first one ungroundable. Say the rule once, with the real id.
+        const ids = lines.map((line) => line.id).filter(Boolean);
+        const prefix = ids.length > 0 ? String(ids[0]).split(':')[0] : null;
+        if (prefix) {
+            user += '\n\nEvery _src value must be one of the ids above, exactly as written '
+                + `(for example "${ids[0]}"). Every id in this chunk starts with "${prefix}:"; `
+                + 'never use a different prefix and never invent line numbers.';
+        }
+    }
     const request = {
-        system: EXTRACTOR_SYSTEM,
+        system: local ? LOCAL_EXTRACTOR_SYSTEM : EXTRACTOR_SYSTEM,
         user: [{ type: 'text', text: user }, ...imageParts],
         maxTokens: maxTokensFor(lines.length, limits, maxTokens),
         temperature: 0,
         signal,
+        // The on-device runtime turns this into llama.cpp's json_object
+        // grammar: valid JSON or nothing, never a half-written YAML stream.
+        ...(local ? { responseFormat: { type: 'json_object' } } : {}),
     };
+    log('info', `chunk sent: ${lines.length} line(s), ${imageParts.length} image(s), `
+        + `prompt ~${Math.round((request.system.length + user.length) / 3.6)} tokens, `
+        + `budget ${request.maxTokens} tokens`);
 
     let result;
     try {
@@ -170,10 +216,12 @@ export async function runChunk({
         // PROVIDER_REJECTED and making the owner try every free model.
         const dataPolicyBlocked = err?.code === 'PROVIDER_REJECTED'
             && /No endpoints found matching your data policy/i.test(detail ?? '');
+        const code = dataPolicyBlocked ? 'DATA_POLICY_BLOCKED' : (err?.code || 'PROVIDER_ERROR');
+        log('error', `model call failed: ${code}`, detail ?? '');
         return {
             ...base,
             status: 'failed',
-            errorCode: dataPolicyBlocked ? 'DATA_POLICY_BLOCKED' : (err?.code || 'PROVIDER_ERROR'),
+            errorCode: code,
             // The provider map already puts the upstream status and a short
             // response body in the message. Keep it so the review banner can
             // say *why* the call failed instead of only "PROVIDER_ERROR".
@@ -182,9 +230,28 @@ export async function runChunk({
         };
     }
     addUsage(result);
+    log('info', `model answered: ${String(result.text ?? '').length} chars, `
+        + `finish=${result.finishReason ?? '?'}, tokens in/out=${usage.in}/${usage.out}`
+        + (result.timings ? `, ${timingsLabel(result.timings)}` : ''));
 
-    const parsed = parseContract(result.text ?? '', { yaml, finishReason: result.finishReason });
-    if (!parsed.ok) return { ...base, status: 'failed', errorCode: parsed.code };
+    const parsed = parseContract(result.text ?? '', {
+        yaml,
+        finishReason: result.finishReason,
+        format: local ? 'json' : 'yaml',
+    });
+    if (!parsed.ok) {
+        log('error', `parse failed: ${parsed.code}`, snippet(result.text));
+        return { ...base, status: 'failed', errorCode: parsed.code };
+    }
+    log(parsed.bad.length > 0 || parsed.documents.length === 0 ? 'warn' : 'info',
+        `parsed: ${parsed.documents.length} document(s), ${parsed.bad.length} rejected`
+        + (parsed.truncated ? ', truncated' : ''));
+    if (parsed.documents.length === 0) {
+        log('warn', 'no patient records in the answer', snippet(result.text));
+    }
+    for (const entry of parsed.bad.slice(0, 5)) {
+        log('warn', `document ${entry.index} rejected: ${entry.error}`, snippet(entry.raw, 300));
+    }
 
     let documents = parsed.documents;
     let rejected = [];
@@ -230,8 +297,12 @@ export async function runChunk({
         }
     }
 
+    const status = parsed.truncated ? 'truncated' : 'ok';
+    log(status === 'ok' ? 'info' : 'warn',
+        `chunk done: ${status}, ${documents.length} document(s), ${rejected.length} rejected`
+        + (parsed.truncated ? ' — the tail was dropped and the chunk will be split' : ''));
     return {
-        status: parsed.truncated ? 'truncated' : 'ok',
+        status,
         documents,
         rejected,
         truncated: parsed.truncated,

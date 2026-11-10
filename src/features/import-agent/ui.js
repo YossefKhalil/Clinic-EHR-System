@@ -24,20 +24,15 @@ import { supabase, getCurrentUser } from '../../services/supabase.js';
 import { activeOptions, loadOptions } from '../../services/options.js';
 import { loadImportState } from '../../services/import-flag.js';
 import { MODEL_MANIFEST } from './local/manifest.js';
-import { clampLocalConfig, localModelIdentity } from '@import-core/local-runtime.js';
+import { modelCardState, modelCardMethods } from './local/model-card.js';
+import { localModelIdentity } from '@import-core/local-runtime.js';
 
 let runtimeModulePromise = null;
-let storeModulePromise = null;
 let extractModulePromise = null;
 
 function loadRuntime() {
     runtimeModulePromise ??= import('./local/runtime.js');
     return runtimeModulePromise;
-}
-
-function loadStore() {
-    storeModulePromise ??= import('./local/store.js');
-    return storeModulePromise;
 }
 
 function loadExtract() {
@@ -201,17 +196,10 @@ export function importAgentWizard() {
         // engine was removed; `loadEngine` reports whether the browser can run
         // the pinned model at all.
         engine: 'local',
-        // The model card: one status, one sentence, one action.
-        modelState: 'unknown', // unsupported | missing | downloading | verifying | loading | ready | error
-        modelError: null,
-        modelProgress: null,
-        modelInfo: null,
-        modelSource: null, // 'stored' | 'disk'
-        modelCapabilities: null,
-        modelFiles: { model: null, projector: null },
-        modelBusy: false,
-        localConfig: null,
-        downloadController: null,
+        // The model card lives in its own module: settings and the wizard
+        // render the same state and share one implementation.
+        ...modelCardState(),
+        ...modelCardMethods(),
         storedLocalModel: null,
         storedLocalConfig: null,
         activeChunk: null,
@@ -349,232 +337,6 @@ export function importAgentWizard() {
             return null;
         },
 
-        // ------------------------------------------------------ local model
-        get modelReady() {
-            return this.modelState === 'ready';
-        },
-
-        get modelTitle() {
-            return MODEL_MANIFEST.title;
-        },
-
-        get modelBytes() {
-            return MODEL_MANIFEST.files.model.bytes + MODEL_MANIFEST.files.projector.bytes;
-        },
-
-        get modelStatusSentence() {
-            const table = {
-                unsupported: 'importAgent.local.status.unsupported',
-                missing: 'importAgent.local.status.missing',
-                downloading: 'importAgent.local.status.downloading',
-                verifying: 'importAgent.local.status.verifying',
-                loading: 'importAgent.local.status.loading',
-                ready: 'importAgent.local.status.ready',
-                error: 'importAgent.local.status.error',
-                unknown: 'importAgent.local.status.unknown',
-            };
-            return this.t(table[this.modelState] ?? table.unknown);
-        },
-
-        get modelProgressPercent() {
-            return Math.max(0, Math.min(100, Math.round(this.modelProgress?.percent ?? 0)));
-        },
-
-        /** One canonical shape for the server: text + runtime, clamped. */
-        localConfigPayload() {
-            const config = this.localConfig ?? {};
-            return clampLocalConfig({
-                text: {
-                    contextTokens: config.context,
-                    batchSize: config.batch,
-                    ubatchSize: config.ubatch,
-                    threads: config.threads,
-                    gpuLayers: 0,
-                    maxOutputTokens: config.maxOutputTokens,
-                    temperature: config.temperature,
-                    topK: config.topK,
-                    topP: config.topP,
-                    repeatPenalty: config.repeatPenalty,
-                    sheetRowsPerChunk: 5,
-                    textCharsPerChunk: 1200,
-                },
-                runtime: {
-                    leaseSeconds: 900,
-                    heartbeatSeconds: 60,
-                    maxAttempts: 5,
-                    parallel: 1,
-                },
-            });
-        },
-
-        localProfilePayload() {
-            return {
-                mode: 'single',
-                name: MODEL_MANIFEST.files.model.name,
-                size: MODEL_MANIFEST.files.model.bytes,
-                sha256: MODEL_MANIFEST.files.model.sha256,
-                mmprojName: MODEL_MANIFEST.files.projector.name,
-                mmprojSize: MODEL_MANIFEST.files.projector.bytes,
-                mmprojSha256: MODEL_MANIFEST.files.projector.sha256,
-            };
-        },
-
-        /** Probe the browser and see whether a model is already stored. */
-        async initLocal() {
-            if (!this.localConfig) {
-                const { defaultConfig } = await loadRuntime();
-                this.localConfig = defaultConfig();
-            }
-            const { probeRuntime } = await loadRuntime();
-            this.modelCapabilities = probeRuntime();
-            if (!this.modelCapabilities.usable) {
-                this.modelState = 'unsupported';
-                return;
-            }
-            const store = await loadStore();
-            const stored = await store.storedModel();
-            if (this.modelState === 'ready' || this.modelState === 'loading') return;
-            this.modelState = stored.ready ? 'ready' : 'missing';
-            this.modelSource = stored.ready ? 'stored' : null;
-            if (stored.ready) this.modelInfo = this.modelInfo ?? null;
-        },
-
-        async refreshStoredModel() {
-            const store = await loadStore();
-            const stored = await store.storedModel();
-            if (!stored.ready) {
-                this.modelState = 'missing';
-                this.modelSource = null;
-            }
-        },
-
-        onDiskModelPicked(event) {
-            const files = [...(event.target?.files ?? [])];
-            this.modelFiles = { model: null, projector: null };
-            for (const file of files) {
-                if (/^mmproj/i.test(file.name)) this.modelFiles.projector = file;
-                else if (/\.gguf$/i.test(file.name)) this.modelFiles.model = file;
-            }
-        },
-
-        get diskFilesReady() {
-            return Boolean(this.modelFiles.model && this.modelFiles.projector);
-        },
-
-        async useDiskModel() {
-            if (!this.diskFilesReady || this.modelBusy) return;
-            this.modelBusy = true;
-            this.modelError = null;
-            this.modelState = 'verifying';
-            try {
-                const store = await loadStore();
-                const verified = await store.verifyLocalFiles(this.modelFiles.model, this.modelFiles.projector, (progress) => {
-                    this.modelProgress = { percent: progress.percent ?? 0 };
-                });
-                await this.loadModelFiles(verified, 'disk');
-            } catch (error) {
-                this.localModelFailure(error);
-            } finally {
-                this.modelBusy = false;
-            }
-        },
-
-        async downloadModel() {
-            if (this.modelBusy) return;
-            this.modelBusy = true;
-            this.modelError = null;
-            this.modelState = 'downloading';
-            this.downloadController = new AbortController();
-            try {
-                const store = await loadStore();
-                const files = await store.downloadModel({
-                    signal: this.downloadController.signal,
-                    onProgress: (progress) => {
-                        this.modelProgress = progress;
-                        if (progress.phase === 'model' || progress.phase === 'projector') this.modelState = 'downloading';
-                    },
-                });
-                await this.loadModelFiles(files, 'stored');
-            } catch (error) {
-                if (error?.code === 'ABORTED') {
-                    await this.refreshStoredModel();
-                } else {
-                    this.localModelFailure(error);
-                }
-            } finally {
-                this.modelBusy = false;
-                this.downloadController = null;
-            }
-        },
-
-        cancelDownload() {
-            this.downloadController?.abort();
-        },
-
-        async loadStoredModel() {
-            if (this.modelBusy) return;
-            const store = await loadStore();
-            const stored = await store.storedModel();
-            if (!stored.ready) {
-                this.modelState = 'missing';
-                return;
-            }
-            this.modelBusy = true;
-            this.modelError = null;
-            try {
-                await this.loadModelFiles(stored, 'stored');
-            } catch (error) {
-                this.localModelFailure(error);
-            } finally {
-                this.modelBusy = false;
-            }
-        },
-
-        async loadModelFiles(files, source) {
-            this.modelState = 'loading';
-            this.modelProgress = { percent: 0 };
-            const engine = await loadRuntime().then((mod) => mod.localEngine);
-            const info = await engine.load({
-                model: files.model,
-                projector: files.projector,
-                config: this.localConfig,
-                onProgress: (progress) => {
-                    const percent = progress?.total ? (progress.loaded / progress.total) * 100 : 0;
-                    this.modelProgress = { percent };
-                },
-            });
-            this.modelInfo = info;
-            this.modelSource = source;
-            this.modelState = 'ready';
-        },
-
-        async unloadModel() {
-            const engine = await loadRuntime().then((mod) => mod.localEngine);
-            await engine.unload();
-            this.modelInfo = null;
-            if (this.modelState === 'ready') this.modelState = this.modelSource === 'stored' ? 'ready' : 'missing';
-            await this.refreshStoredModel();
-        },
-
-        async removeModel() {
-            await this.unloadModel();
-            const store = await loadStore();
-            await store.removeStoredModel();
-            this.modelState = 'missing';
-            this.modelSource = null;
-            this.modelInfo = null;
-            this.modelProgress = null;
-        },
-
-        localModelFailure(error) {
-            this.modelState = 'error';
-            this.modelError = {
-                code: error?.code || 'INTERNAL',
-                messageKey: `importAgent.local.error.${error?.code || 'INTERNAL'}`,
-                detail: error?.detail || error?.message || '',
-            };
-        },
-
         // ------------------------------------------------------ errors
         showFailure(error) {
             this.errorBanner = {
@@ -643,7 +405,25 @@ export function importAgentWizard() {
         },
 
         async analyze() {
-            if (this.addBlocked) return;
+            if (this.addBlocked || this.busy) return;
+            // The model may be stored but not loaded yet (a fresh page load).
+            // Loading it here is the whole reason the wizard does not send the
+            // user to settings first.
+            if (!this.modelReady && !this.modelLoaded) {
+                if (this.modelState === 'unsupported') return;
+                this.busy = true;
+                this.busyLabel = t('importAgent.local.status.loading');
+                try {
+                    const ok = await this.ensureEngine();
+                    if (!ok) {
+                        this.showFailure({ code: 'MODEL_FILE_MISSING', messageKey: 'importAgent.local.status.missing' });
+                        return;
+                    }
+                } finally {
+                    this.busy = false;
+                    this.busyLabel = '';
+                }
+            }
             await this.extract();
         },
 
@@ -704,11 +484,14 @@ export function importAgentWizard() {
             if (this.busy) return;
             this.busy = true;
             this.busyLabel = t('importAgent.wizard.sending');
-            const chunkLimits = LIMITS;
+            const chunkLimits = this.localLimits();
             try {
                 const sourcesMeta = this.usableFiles.map((file) => ({ name: file.name }));
                 if (this.pastedText.trim()) sourcesMeta.push({ name: 'Typed text' });
                 if (sourcesMeta.length === 0) throw new api.ImportApiError('BAD_REQUEST');
+                this.clearModelLogs();
+                this.pushModelLog('info', `import started: ${sourcesMeta.length} source(s), `
+                    + `chunks of ${chunkLimits.TEXT_CHUNK_TARGET} chars / ${chunkLimits.SHEET_CHUNK_ROWS} rows`);
                 const profile = this.localProfilePayload();
                 const config = this.localConfigPayload();
                 this.storedLocalModel = localModelIdentity(profile);
@@ -828,6 +611,8 @@ export function importAgentWizard() {
                     const payload = chunk.payload ?? {};
                     const kind = payload.kind === 'image' ? 'image' : payload.kind === 'sheet' ? 'sheet' : 'text';
                     this.activeChunk = { idx: chunk.idx, kind };
+                    this.pushModelLog('info', `chunk #${chunk.idx} (${kind}): `
+                        + `${(payload.lines ?? []).length} line(s), ${(payload.images ?? []).length} image(s)`);
                     this.chunkController = new AbortController();
                     let result;
                     try {
@@ -836,6 +621,12 @@ export function importAgentWizard() {
                             chunk: payload,
                             hints: this.job?.hints ?? '',
                             signal: this.chunkController.signal,
+                            maxTokens: this.localConfig?.maxOutputTokens ?? 1_024,
+                            onLog: (entry) => this.pushModelLog(
+                                entry.level === 'error' ? 'error' : entry.level ?? 'info',
+                                entry.message,
+                                entry.detail,
+                            ),
                         });
                     } catch (error) {
                         result = {
@@ -880,7 +671,12 @@ export function importAgentWizard() {
                         });
                         this.jobStatus = submitted.status;
                         if (submitted.progress) this.applyProgress(submitted.progress);
+                        this.pushModelLog('info', `chunk #${chunk.idx} saved: `
+                            + `${(result.documents ?? []).length} row(s), ${(result.rejected ?? []).length} rejected, `
+                            + `${submitted.progress?.done ?? '?'}/${submitted.progress?.total ?? '?'} chunks done`);
                     } catch (error) {
+                        this.pushModelLog('error', `chunk #${chunk.idx} was not accepted: ${error?.code || 'LOCAL_ERROR'}`,
+                            String(error?.message ?? '').slice(0, 300));
                         try {
                             await api.callJob('local_fail', {
                                 job_id: this.job.id,

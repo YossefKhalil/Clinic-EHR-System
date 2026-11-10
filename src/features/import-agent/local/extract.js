@@ -42,11 +42,14 @@ export function createLocalProvider(engine) {
                 maxTokens: request.maxTokens,
                 temperature: request.temperature,
                 signal: request.signal,
+                grammar: request.grammar,
+                responseFormat: request.responseFormat,
             });
             return {
                 text: response.text,
                 finishReason: response.finishReason,
                 usage: response.usage,
+                timings: response.timings,
                 model: MODEL_MANIFEST.title,
                 cost: 0,
             };
@@ -54,7 +57,7 @@ export function createLocalProvider(engine) {
     };
 }
 
-export async function extractChunk({ engine, chunk, hints = '', signal, maxTokens = null }) {
+export async function extractChunk({ engine, chunk, hints = '', signal, maxTokens = null, onLog = null }) {
     const provider = createLocalProvider(engine);
     return runChunk({
         provider,
@@ -64,6 +67,8 @@ export async function extractChunk({ engine, chunk, hints = '', signal, maxToken
         yaml,
         signal,
         maxTokens,
+        mode: 'local',
+        onLog,
         delimiter: undefined,
         repairDelimiter: undefined,
     });

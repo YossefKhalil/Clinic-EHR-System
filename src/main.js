@@ -35,6 +35,7 @@ import { getPriceStats } from './services/prices.js';
 import { loadOptions as fetchOptions, allOptions, createOption, updateOption, countOptionUsage, deleteOption, optionLabel as lookupOptionLabel } from './services/options.js';
 import { buildSearchDictionary, searchTermVariants, maritalStatusLabel } from './services/search-terms.js';
 import { importAgentWizard, importAgentEnter } from './features/import-agent/ui.js';
+import { modelCardState, modelCardMethods } from './features/import-agent/local/model-card.js';
 import { loadImportState, readImportToggle, writeImportToggle } from './services/import-flag.js';
 import { applyBootstrapDirectionToDocument, ensureBootstrapLinks } from './services/bootstrap-direction.js';
 import { GOVERNORATE_BY_ID_CODE, BORN_ABROAD_ID_CODE } from '@import-core/enums.js';
@@ -2714,6 +2715,13 @@ window.app = app;
 // The wizard mounts as a nested Alpine scope on its own page; this global is
 // what the page markup references (mirrors `window.app`).
 window.importAgentWizard = importAgentWizard;
+// The full model card lives on Settings → AI & Import; the wizard shows only a
+// compact status row. Both share one implementation.
+window.aiModelCard = () => ({
+    ...modelCardState(),
+    ...modelCardMethods(),
+    init() { this.initLocal(); },
+});
 
 document.addEventListener('DOMContentLoaded', () => {
     Alpine.start();
