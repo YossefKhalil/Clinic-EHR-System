@@ -2651,7 +2651,16 @@
                         <div class="card-body">
                             <p class="mb-2" x-text="t('aiSettings.local.body')"></p>
                             <p class="text-secondary small mb-3" x-text="t('aiSettings.local.note')"></p>
-                            <button type="button" class="btn btn-sm btn-primary" @click="navigate('import')">
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input" type="checkbox" role="switch" id="aiImportToggle"
+                                    :checked="importToggle" :disabled="!importSupported"
+                                    @change="setImportToggle($event.target.checked)">
+                                <label class="form-check-label" for="aiImportToggle" x-text="t('aiSettings.local.toggle')"></label>
+                            </div>
+                            <p class="alert alert-warning small mb-2 py-2" x-show="!importSupported" x-cloak
+                                x-text="t('aiSettings.local.unsupported')"></p>
+                            <button type="button" class="btn btn-sm btn-primary" x-show="importSupported && importToggle" x-cloak
+                                @click="navigate('import')">
                                 <i class="bi bi-stars me-1"></i><span x-text="t('aiSettings.local.open')"></span>
                             </button>
                         </div>

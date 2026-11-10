@@ -35,7 +35,7 @@ import { getPriceStats } from './services/prices.js';
 import { loadOptions as fetchOptions, allOptions, createOption, updateOption, countOptionUsage, deleteOption, optionLabel as lookupOptionLabel } from './services/options.js';
 import { buildSearchDictionary, searchTermVariants, maritalStatusLabel } from './services/search-terms.js';
 import { importAgentWizard, importAgentEnter } from './features/import-agent/ui.js';
-import { loadImportEnabled } from './services/import-flag.js';
+import { loadImportState, readImportToggle, writeImportToggle } from './services/import-flag.js';
 import { applyBootstrapDirectionToDocument, ensureBootstrapLinks } from './services/bootstrap-direction.js';
 import { GOVERNORATE_BY_ID_CODE, BORN_ABROAD_ID_CODE } from '@import-core/enums.js';
 
@@ -201,9 +201,12 @@ function app() {
         priceStats: null,
         priceStatsError: null,
 
-        // AI import entry: the ai_settings flag (fail closed, so AI stays off
-        // until the server explicitly enables it) and the job the "Continue
-        // import" dropdown item can resume.
+        // AI import entry. The engine runs on this device's CPU, so there is no
+        // server flag: importSupported is the local capability check (wasm SIMD
+        // + OPFS) and importToggle is the Settings switch for this browser. The
+        // entry shows only when both are true.
+        importSupported: false,
+        importToggle: true,
         importEnabled: false,
         importResumable: null,
         // Every import of this account that is still open (the "Continue
@@ -487,15 +490,31 @@ function app() {
         },
 
         /**
-         * The AI import agent is disabled by construction while its CPU-only
-         * runtime is rebuilt. This never consults the server, so no stale row
-         * or deployment can reveal the entry.
+         * The AI import runs on this device's CPU. The entry is gated by the
+         * local capability probe and the Settings switch, so no stale server
+         * row or deployment can reveal or hide it by surprise.
          */
         async refreshImportState() {
-            const enabled = await loadImportEnabled();
-            this.importEnabled = enabled;
+            const state = await loadImportState();
+            this.importSupported = state.localEnabled;
+            this.importToggle = readImportToggle();
+            this.importEnabled = this.importSupported && this.importToggle;
             this.importResumable = null;
             this.importOpenJobs = [];
+        },
+
+        /**
+         * Settings -> AI & Import switch: shows or hides the import entry (the
+         * caret next to "Add New Patient") for this browser.
+         */
+        setImportToggle(on) {
+            this.importToggle = !!on;
+            writeImportToggle(this.importToggle);
+            this.importEnabled = this.importSupported && this.importToggle;
+            if (!this.importEnabled) {
+                this.importJobsExpanded = false;
+                if (this.currentPage === 'import') this.navigate('patients');
+            }
         },
 
         /** Kept for callers that used to fetch resumable jobs. */
@@ -732,7 +751,8 @@ function app() {
             // Settings is Super-Admin-only: its Users tab is the only way to
             // manage accounts, so no other role may reach the page.
             if (page === 'settings' && !this.isSuperAdmin) return;
-            // The import entry is hidden when the ai_settings flag is off.
+            // The import entry is hidden unless the browser can run the model
+            // and the Settings switch is on.
             if (page === 'import' && !this.importEnabled) return;
             // Retired pages (#15, #16): the financial summary lives on the
             // dashboard, and user management inside Settings.

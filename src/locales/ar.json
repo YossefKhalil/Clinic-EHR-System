@@ -294,6 +294,8 @@
   "aiSettings.local.note": "يُنزَّل النموذج مرة واحدة أو يُختار من ملفات على هذا الحاسوب. لا تغادر بيانات المرضى الجهاز.",
   "aiSettings.local.open": "افتح الاستيراد بالذكاء الاصطناعي",
   "aiSettings.local.title": "الاستيراد بالذكاء الاصطناعي",
+  "aiSettings.local.toggle": "تفعيل الاستيراد بالذكاء الاصطناعي في هذا المتصفح",
+  "aiSettings.local.unsupported": "لا يستطيع هذا المتصفح تشغيل النموذج. يحتاج الاستيراد بالذكاء الاصطناعي إلى إصدار حديث من Chrome أو Firefox يدعم WebAssembly SIMD والتخزين المحلي.",
   "auto": "تلقائي",
   "child(ren)": "طفل",
   "direction": "rtl",

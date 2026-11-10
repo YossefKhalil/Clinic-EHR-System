@@ -1,7 +1,9 @@
 // The import agent runs the model on the device's own CPU. This module is the
-// single client-side gate: it reports whether this browser can run the pinned
-// model at all. The check is local (WebAssembly SIMD + OPFS); no request is
-// made and no setting can change the answer.
+// single client-side gate with two halves:
+//   * can this browser run the pinned model at all (local check: WebAssembly
+//     SIMD + OPFS; no request, nothing can change the answer), and
+//   * did the admin switch the entry on for this browser (a local preference).
+// The entry shows only when both are true.
 
 function simdSupported() {
     try {
@@ -26,17 +28,40 @@ export function importSupported() {
 
 export function clearImportFlagCache() {}
 
+// The on/off switch in Settings -> AI & Import. It is a per-browser preference
+// (no server row), so it is stored locally. It defaults to on: a capable
+// browser shows the entry until someone turns it off.
+const TOGGLE_KEY = 'clinic.aiImport.enabled';
+
+export function readImportToggle() {
+    try {
+        const raw = localStorage.getItem(TOGGLE_KEY);
+        return raw === null ? true : raw === '1';
+    } catch {
+        return true;
+    }
+}
+
+export function writeImportToggle(on) {
+    try {
+        localStorage.setItem(TOGGLE_KEY, on ? '1' : '0');
+    } catch {
+        // A browser that blocks storage keeps the default (on).
+    }
+}
+
 export async function loadImportEnabled() {
-    return importSupported();
+    return importSupported() && readImportToggle();
 }
 
 /** The engine is always the device's own CPU; only availability varies. */
 export async function loadImportState() {
-    const ok = importSupported();
+    const supported = importSupported();
+    const on = readImportToggle();
     return {
-        enabled: ok,
-        engine: ok ? 'local' : 'off',
-        localEnabled: ok,
+        enabled: supported && on,
+        engine: supported ? 'local' : 'off',
+        localEnabled: supported,
         localProfile: null,
         localConfig: null,
     };

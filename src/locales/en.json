@@ -294,6 +294,8 @@
   "aiSettings.local.note": "The model is downloaded once, or chosen from files on this computer. Patient data never leaves the device.",
   "aiSettings.local.open": "Open AI import",
   "aiSettings.local.title": "AI Import",
+  "aiSettings.local.toggle": "Enable AI import in this browser",
+  "aiSettings.local.unsupported": "This browser cannot run the model. The AI import needs a recent Chrome or Firefox with WebAssembly SIMD and local file storage.",
   "auto": "auto",
   "child(ren)": "child(ren)",
   "direction": "ltr",
