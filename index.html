@@ -2640,17 +2640,20 @@
 
                 <!-- AI &amp; Import tab -->
                 <div id="settings-panel-ai" role="tabpanel" aria-labelledby="settings-tab-ai" x-show="settingsTab === 'ai'" x-cloak tabindex="0">
-                    <!-- The AI import runtime is disabled while it is rebuilt as a
-                         CPU-only, local-only engine. There is deliberately no
-                         control here that could enable it. -->
+                    <!-- The import runtime is the device's own CPU. There is no
+                         provider or credential to configure: the model card and
+                         the import itself live on the Import page. -->
                     <div class="card shadow-sm border-0 mb-4" x-show="isSuperAdmin" x-cloak>
                         <div class="card-header bg-white py-3 d-flex align-items-center gap-2">
-                            <i class="bi bi-stars text-secondary fs-5"></i>
-                            <h5 class="mb-0 fw-semibold" x-text="t('aiSettings.disabled.title')"></h5>
+                            <i class="bi bi-cpu text-primary fs-5"></i>
+                            <h5 class="mb-0 fw-semibold" x-text="t('aiSettings.local.title')"></h5>
                         </div>
                         <div class="card-body">
-                            <p class="mb-2" x-text="t('aiSettings.disabled.body')"></p>
-                            <p class="text-secondary small mb-0" x-text="t('aiSettings.disabled.note')"></p>
+                            <p class="mb-2" x-text="t('aiSettings.local.body')"></p>
+                            <p class="text-secondary small mb-3" x-text="t('aiSettings.local.note')"></p>
+                            <button type="button" class="btn btn-sm btn-primary" @click="navigate('import')">
+                                <i class="bi bi-stars me-1"></i><span x-text="t('aiSettings.local.open')"></span>
+                            </button>
                         </div>
                     </div>
                 </div>
