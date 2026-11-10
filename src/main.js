@@ -35,6 +35,7 @@ import { getPriceStats } from './services/prices.js';
 import { loadOptions as fetchOptions, allOptions, createOption, updateOption, countOptionUsage, deleteOption, optionLabel as lookupOptionLabel } from './services/options.js';
 import { buildSearchDictionary, searchTermVariants, maritalStatusLabel } from './services/search-terms.js';
 import { importAgentWizard, importAgentEnter } from './features/import-agent/ui.js';
+import { loadImportEnabled } from './services/import-flag.js';
 import { applyBootstrapDirectionToDocument, ensureBootstrapLinks } from './services/bootstrap-direction.js';
 import { GOVERNORATE_BY_ID_CODE, BORN_ABROAD_ID_CODE } from '@import-core/enums.js';
 
@@ -491,7 +492,8 @@ function app() {
          * or deployment can reveal the entry.
          */
         async refreshImportState() {
-            this.importEnabled = false;
+            const enabled = await loadImportEnabled();
+            this.importEnabled = enabled;
             this.importResumable = null;
             this.importOpenJobs = [];
         },

@@ -14,6 +14,20 @@ const importExtract = fileURLToPath(new URL('./supabase/functions/import-extract
 const repoRoot = fileURLToPath(new URL('.', import.meta.url));
 const modelsDir = path.join(repoRoot, 'models');
 
+// The M0 spike needs a cross-origin-isolated document to prove the
+// SharedArrayBuffer/pthreads path. Keep the headers scoped to /m0 so the
+// normal app's Cloudinary images and other cross-origin embeds are not
+// affected while the feasibility test is running.
+function m0IsolationMiddleware() {
+  return (req, res, next) => {
+    if (!req.url || !req.url.startsWith('/m0')) return next();
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    next();
+  };
+}
+
 // Serve the local model files with Range support, so a big GGUF can be read
 // in parts. The files are never committed; a clinic copies them to the PC
 // that runs the import.
@@ -75,16 +89,25 @@ export default defineConfig({
     // The model runtimes are large and are loaded on demand.
     chunkSizeWarningLimit: 4096,
     rollupOptions: {
-      // The OCR runtime (ONNX Runtime and the tokenizer library) adds tens of
-      // megabytes of wasm, which does not fit the hosting. The OCR path is
-      // dark until it ships with its own build; until then the import fails
-      // at runtime and the code says so.
       external: [],
     },
   },
   server: {
     port: 3000,
     open: true,
+    // The model runs on worker threads, which need SharedArrayBuffer. That
+    // needs the page to be cross-origin isolated. `credentialless` keeps
+    // cross-origin images (Cloudinary) loading without a CORP header.
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
+    },
+    watch: {
+      // Large wasm/model artifacts are copied in by the M0 build and by the
+      // model junction; watching them causes EBUSY on Windows and restarts the
+      // dev server for no reason.
+      ignored: ['**/m0/custom*/**', '**/models/**', '**/public/wllama/**'],
+    },
     fs: {
       // The dev server must serve the shared folder outside src/.
       allow: [fileURLToPath(new URL('.', import.meta.url))],
@@ -92,6 +115,10 @@ export default defineConfig({
   },
   preview: {
     port: 3000,
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
+    },
   },
   plugins: [
     // Lower `?.` / `??` before anything else runs. plugin-legacy re-transpiles
@@ -126,12 +153,18 @@ export default defineConfig({
     }),
     {
       name: 'local-model-middleware',
-      configureServer(server) { server.middlewares.use(modelMiddleware()); },
-      configurePreviewServer(server) { server.middlewares.use(modelMiddleware()); },
+      configureServer(server) {
+        server.middlewares.use(m0IsolationMiddleware());
+        server.middlewares.use(modelMiddleware());
+      },
+      configurePreviewServer(server) {
+        server.middlewares.use(m0IsolationMiddleware());
+        server.middlewares.use(modelMiddleware());
+      },
     },
   ],
   optimizeDeps: {
     // The model runtimes ship their own wasm and must not be pre-bundled.
-    exclude: [],
+    exclude: ['@wllama/wllama', '@wllama/wllama-compat'],
   },
 });

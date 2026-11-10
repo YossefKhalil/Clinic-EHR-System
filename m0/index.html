@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>M0 — LFM3-VL-2B CPU feasibility</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f4f6f8;
+        --panel: #ffffff;
+        --ink: #17202a;
+        --muted: #5f6b78;
+        --line: #d8dee6;
+        --accent: #1f6feb;
+        --good: #1a7f37;
+        --bad: #b42318;
+        --warn: #9a6700;
+        --mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f141a;
+          --panel: #171e26;
+          --ink: #e6edf3;
+          --muted: #9aa7b4;
+          --line: #2b3642;
+          --accent: #58a6ff;
+          --good: #3fb950;
+          --bad: #ff7b72;
+          --warn: #d29922;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      header {
+        padding: 28px 24px 12px;
+        max-width: 1180px;
+        margin: 0 auto;
+      }
+      h1 { margin: 0 0 4px; font-size: 24px; letter-spacing: -0.02em; }
+      header p { margin: 0; color: var(--muted); max-width: 950px; }
+      main {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 12px 24px 60px;
+        display: grid;
+        gap: 16px;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 18px;
+      }
+      .panel h2 { margin: 0 0 12px; font-size: 16px; }
+      .panel h3 { margin: 16px 0 8px; font-size: 14px; }
+      .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+      .grid-2 { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
+      label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
+      input, select, textarea, button {
+        font: inherit;
+        color: var(--ink);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px 9px;
+      }
+      input[type="checkbox"] { width: 16px; height: 16px; padding: 0; }
+      textarea { width: 100%; resize: vertical; font-family: var(--mono); font-size: 12px; }
+      button { cursor: pointer; background: var(--accent); color: #fff; border-color: transparent; font-weight: 600; }
+      button.secondary { background: transparent; color: var(--ink); border-color: var(--line); font-weight: 500; }
+      button.danger { background: var(--bad); }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+      .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      .grow { flex: 1 1 180px; }
+      .hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+      .status { font-family: var(--mono); font-size: 12px; color: var(--muted); min-height: 18px; }
+      .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 6px; }
+      .dot.good { background: var(--good); }
+      .dot.bad { background: var(--bad); }
+      .dot.warn { background: var(--warn); }
+      table { border-collapse: collapse; width: 100%; font-size: 12px; }
+      th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 5px 6px; vertical-align: top; }
+      th { color: var(--muted); font-weight: 500; }
+      td.value { font-family: var(--mono); }
+      .metric-grid { display: grid; gap: 6px 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); font-size: 12px; }
+      .metric { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px dashed var(--line); padding-bottom: 4px; }
+      .metric b { font-family: var(--mono); font-weight: 600; }
+      pre.output {
+        margin: 8px 0 0;
+        min-height: 90px;
+        max-height: 260px;
+        overflow: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px;
+        font: 12px/1.45 var(--mono);
+      }
+      details { margin-top: 10px; }
+      summary { cursor: pointer; color: var(--muted); }
+      .badge { display: inline-block; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+      .warnbox { border-left: 3px solid var(--warn); padding: 8px 10px; background: color-mix(in srgb, var(--warn) 10%, transparent); border-radius: 4px; font-size: 12px; }
+      .ok { color: var(--good); }
+      .no { color: var(--bad); }
+      .scroll { max-height: 220px; overflow: auto; }
+      canvas { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+      .fileline { display: flex; gap: 8px; align-items: center; }
+      .fileline input[type="file"] { flex: 1 1 auto; min-width: 0; }
+      @media (max-width: 600px) { header, main { padding-left: 12px; padding-right: 12px; } .panel { padding: 14px; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>M0 — LFM3-VL-2B CPU feasibility</h1>
+      <p>
+        Dev-only spike for issue #59. It checks browser capabilities, loads the pinned
+        QAD-Q4_0 GGUF and Q8_0 projector on this CPU, and measures text and image
+        generation. Nothing is uploaded. Use <strong>local files from disk</strong> for
+        the production-like path, or the dev-server URLs to avoid a file picker.
+      </p>
+    </header>
+
+    <main>
+      <section class="panel">
+        <div class="row" style="justify-content: space-between">
+          <h2 style="margin: 0">1. Capabilities</h2>
+          <button class="secondary" id="reprobe" type="button">Re-probe</button>
+        </div>
+        <p class="hint">
+          A relaxed-SIMD build is safe only when the guard returns <code>-4</code>.
+          x64 V8 returns <code>1020</code>. This check never uses the user agent.
+        </p>
+        <div class="grid-2" style="margin-top: 12px">
+          <div class="scroll"><table id="cap-table"><tbody><tr><td>Probing…</td></tr></tbody></table></div>
+          <div class="scroll"><table id="guard-table"><tbody><tr><td>Probing…</td></tr></tbody></table></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>2. Model source and load</h2>
+        <div class="warnbox">
+          The 1.25 GB model pair is never committed. The dev-server option uses
+          <code>models/lfm3</code> (a local junction on this workstation). The disk
+          option uses the browser file picker and never sends bytes anywhere.
+        </div>
+
+        <div class="grid" style="margin-top: 12px">
+          <label>Source
+            <select id="source">
+              <option value="url">Dev server URLs (fast iteration)</option>
+              <option value="disk">Local files from disk (product path)</option>
+            </select>
+          </label>
+          <label>Compat runtime
+            <select id="compat">
+              <option value="auto">Auto (stock main wasm; Safari compat only)</option>
+              <option value="force">Force Firefox + Safari compat (wasm32/Asyncify)</option>
+              <option value="off">Off (stock main wasm only)</option>
+            </select>
+          </label>
+          <label>Threads
+            <input id="threads" type="number" min="1" max="16" step="1" value="4" />
+          </label>
+          <label>Batch threads (n_threads_batch)
+            <input id="threads-batch" type="number" min="1" max="16" step="1" value="4" />
+          </label>
+          <label>Context (n_ctx)
+            <input id="ctx" type="number" min="512" max="32768" step="512" value="4096" />
+          </label>
+          <label>Batch (n_batch)
+            <input id="batch" type="number" min="32" max="2048" step="32" value="256" />
+          </label>
+          <label>Micro-batch (n_ubatch)
+            <input id="ubatch" type="number" min="32" max="2048" step="32" value="256" />
+          </label>
+          <label>KV cache K/V
+            <select id="kv">
+              <option value="q4_0">q4_0 / q4_0 (measured default; needs flash attn)</option>
+              <option value="f16">f16 / f16</option>
+              <option value="q8_0">q8_0 / q8_0</option>
+            </select>
+          </label>
+          <label>Image min tokens
+            <input id="img-min" type="number" min="0" max="4096" step="16" value="256" />
+          </label>
+          <label>Image max tokens
+            <input id="img-max" type="number" min="64" max="8192" step="64" value="1024" />
+          </label>
+        </div>
+
+        <div class="row" style="margin-top: 12px">
+          <label style="display: flex; flex-direction: row; gap: 7px; align-items: center">
+            <input id="flash" type="checkbox" checked /> Flash attention
+          </label>
+          <label style="display: flex; flex-direction: row; gap: 7px; align-items: center">
+            <input id="jinja" type="checkbox" checked /> Jinja chat template
+          </label>
+          <label style="display: flex; flex-direction: row; gap: 7px; align-items: center">
+            <input id="warmup" type="checkbox" /> Warmup generation
+          </label>
+        </div>
+
+        <div id="url-source" style="margin-top: 14px">
+          <p class="hint" style="margin-top: 0">
+            Model: <code id="url-model"></code><br />
+            Projector: <code id="url-mmproj"></code>
+          </p>
+        </div>
+
+        <div id="disk-source" style="display: none; margin-top: 14px">
+          <div class="grid-2">
+            <div>
+              <label>Model GGUF
+                <span class="fileline"><input id="model-file" type="file" accept=".gguf,application/octet-stream" /></span>
+              </label>
+              <p class="hint" id="model-file-info">No file selected.</p>
+            </div>
+            <div>
+              <label>Projector GGUF (mmproj)
+                <span class="fileline"><input id="mmproj-file" type="file" accept=".gguf,application/octet-stream" /></span>
+              </label>
+              <p class="hint" id="mmproj-file-info">No file selected.</p>
+            </div>
+          </div>
+          <div class="row">
+            <button class="secondary" id="verify-hash" type="button">Verify SHA-256 of selected files</button>
+            <span class="status" id="hash-status"></span>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top: 16px">
+          <button id="load" type="button">Load model</button>
+          <button class="secondary" id="unload" type="button" disabled>Unload</button>
+          <span class="status" id="load-status"><span class="dot"></span>No model loaded.</span>
+        </div>
+
+        <div id="load-info" style="margin-top: 12px"></div>
+      </section>
+
+      <section class="panel">
+        <h2>3. Text extraction test</h2>
+        <p class="hint">
+          Builds a roughly 500-token clinic note, asks for the extractor's YAML shape,
+          and streams the result. Sampling defaults follow the model card.
+        </p>
+        <label>Prompt (~500 tokens)
+          <textarea id="text-prompt" rows="8"></textarea>
+        </label>
+        <div class="grid" style="margin-top: 10px">
+          <label>Max new tokens
+            <input id="text-max" type="number" min="16" max="1024" step="16" value="128" />
+          </label>
+          <label>Temperature
+            <input id="text-temp" type="number" min="0" max="2" step="0.05" value="0.1" />
+          </label>
+          <label>Top-k
+            <input id="text-topk" type="number" min="0" max="200" step="1" value="50" />
+          </label>
+          <label>Repeat penalty
+            <input id="text-repeat" type="number" min="1" max="2" step="0.05" value="1.1" />
+          </label>
+        </div>
+        <div class="row" style="margin-top: 12px">
+          <button id="run-text" type="button" disabled>Run text test</button>
+          <button class="secondary" id="cancel-text" type="button" disabled>Cancel</button>
+          <span class="status" id="text-status"></span>
+        </div>
+        <div id="text-metrics" class="metric-grid" style="margin-top: 10px"></div>
+        <pre class="output" id="text-output">Output appears here.</pre>
+      </section>
+
+      <section class="panel">
+        <h2>4. Vision extraction test</h2>
+        <p class="hint">
+          The image is downscaled to at most 1024 px on the long side, re-encoded as
+          JPEG, and passed to wllama as an <code>ArrayBuffer</code>. This measures the
+          vision prefill that dominates the M0 native run.
+        </p>
+        <div class="grid-2">
+          <div>
+            <div class="fileline">
+              <input id="image-file" type="file" accept="image/*" />
+              <button class="secondary" id="synthetic" type="button">Use synthetic document</button>
+            </div>
+            <p class="hint" id="image-info">No image selected.</p>
+            <div class="row" style="margin-top: 8px">
+              <button id="run-vision" type="button" disabled>Run vision test</button>
+              <button class="secondary" id="cancel-vision" type="button" disabled>Cancel</button>
+            </div>
+            <div class="row" style="margin-top: 8px">
+              <span class="status" id="vision-status"></span>
+            </div>
+            <div id="vision-metrics" class="metric-grid" style="margin-top: 10px"></div>
+            <pre class="output" id="vision-output">Output appears here.</pre>
+          </div>
+          <div>
+            <canvas id="preview" width="1000" height="700" aria-label="Selected image preview"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="row" style="justify-content: space-between">
+          <h2 style="margin: 0">Log</h2>
+          <button class="secondary" id="clear-log" type="button">Clear</button>
+        </div>
+        <pre class="output" id="log" style="max-height: 340px"></pre>
+      </section>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

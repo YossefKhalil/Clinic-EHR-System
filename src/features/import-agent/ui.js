@@ -23,6 +23,27 @@ import { t, getLocale } from '../../services/i18n.js';
 import { supabase, getCurrentUser } from '../../services/supabase.js';
 import { activeOptions, loadOptions } from '../../services/options.js';
 import { loadImportState } from '../../services/import-flag.js';
+import { MODEL_MANIFEST } from './local/manifest.js';
+import { clampLocalConfig, localModelIdentity } from '@import-core/local-runtime.js';
+
+let runtimeModulePromise = null;
+let storeModulePromise = null;
+let extractModulePromise = null;
+
+function loadRuntime() {
+    runtimeModulePromise ??= import('./local/runtime.js');
+    return runtimeModulePromise;
+}
+
+function loadStore() {
+    storeModulePromise ??= import('./local/store.js');
+    return storeModulePromise;
+}
+
+function loadExtract() {
+    extractModulePromise ??= import('./local/extract.js');
+    return extractModulePromise;
+}
 
 const PUMP_DELAY = 800;
 const PUMP_RETRIES = 3;
@@ -154,10 +175,8 @@ export function importAgentWizard() {
         async loadEngine() {
             const state = await loadImportState();
             if (!state) return;
-            // The browser no longer keeps model files of its own, so an import
-            // runs on the server even when the settings still name a local
-            // engine.
-            this.engine = state.engine === 'off' ? 'off' : 'cloud';
+            this.engine = state.engine === 'local' ? 'local' : 'off';
+            await this.initLocal();
         },
 
         t(key, params) {
@@ -178,9 +197,25 @@ export function importAgentWizard() {
         resumable: null,
         // Every import of this account that is still open.
         openJobs: [],
-        // Which engine the import runs on. The clinic's choice is read from
-        // the settings; the wizard only shows what it is.
-        engine: 'cloud',
+        // The only engine is the device's own CPU. The old cloud/provider
+        // engine was removed; `loadEngine` reports whether the browser can run
+        // the pinned model at all.
+        engine: 'local',
+        // The model card: one status, one sentence, one action.
+        modelState: 'unknown', // unsupported | missing | downloading | verifying | loading | ready | error
+        modelError: null,
+        modelProgress: null,
+        modelInfo: null,
+        modelSource: null, // 'stored' | 'disk'
+        modelCapabilities: null,
+        modelFiles: { model: null, projector: null },
+        modelBusy: false,
+        localConfig: null,
+        downloadController: null,
+        storedLocalModel: null,
+        storedLocalConfig: null,
+        activeChunk: null,
+        chunkController: null,
         // Why each chunk failed in this session: the review banner shows the
         // runtime's own message, which the chunk row does not carry.
         localFailures: [],
@@ -312,6 +347,232 @@ export function importAgentWizard() {
             if (['national_id', 'mobile', 'date_of_birth', 'visit_date', 'age',
                 'children_count', 'price'].includes(fieldKey)) return 'ltr';
             return null;
+        },
+
+        // ------------------------------------------------------ local model
+        get modelReady() {
+            return this.modelState === 'ready';
+        },
+
+        get modelTitle() {
+            return MODEL_MANIFEST.title;
+        },
+
+        get modelBytes() {
+            return MODEL_MANIFEST.files.model.bytes + MODEL_MANIFEST.files.projector.bytes;
+        },
+
+        get modelStatusSentence() {
+            const table = {
+                unsupported: 'importAgent.local.status.unsupported',
+                missing: 'importAgent.local.status.missing',
+                downloading: 'importAgent.local.status.downloading',
+                verifying: 'importAgent.local.status.verifying',
+                loading: 'importAgent.local.status.loading',
+                ready: 'importAgent.local.status.ready',
+                error: 'importAgent.local.status.error',
+                unknown: 'importAgent.local.status.unknown',
+            };
+            return this.t(table[this.modelState] ?? table.unknown);
+        },
+
+        get modelProgressPercent() {
+            return Math.max(0, Math.min(100, Math.round(this.modelProgress?.percent ?? 0)));
+        },
+
+        /** One canonical shape for the server: text + runtime, clamped. */
+        localConfigPayload() {
+            const config = this.localConfig ?? {};
+            return clampLocalConfig({
+                text: {
+                    contextTokens: config.context,
+                    batchSize: config.batch,
+                    ubatchSize: config.ubatch,
+                    threads: config.threads,
+                    gpuLayers: 0,
+                    maxOutputTokens: config.maxOutputTokens,
+                    temperature: config.temperature,
+                    topK: config.topK,
+                    topP: config.topP,
+                    repeatPenalty: config.repeatPenalty,
+                    sheetRowsPerChunk: 5,
+                    textCharsPerChunk: 1200,
+                },
+                runtime: {
+                    leaseSeconds: 900,
+                    heartbeatSeconds: 60,
+                    maxAttempts: 5,
+                    parallel: 1,
+                },
+            });
+        },
+
+        localProfilePayload() {
+            return {
+                mode: 'single',
+                name: MODEL_MANIFEST.files.model.name,
+                size: MODEL_MANIFEST.files.model.bytes,
+                sha256: MODEL_MANIFEST.files.model.sha256,
+                mmprojName: MODEL_MANIFEST.files.projector.name,
+                mmprojSize: MODEL_MANIFEST.files.projector.bytes,
+                mmprojSha256: MODEL_MANIFEST.files.projector.sha256,
+            };
+        },
+
+        /** Probe the browser and see whether a model is already stored. */
+        async initLocal() {
+            if (!this.localConfig) {
+                const { defaultConfig } = await loadRuntime();
+                this.localConfig = defaultConfig();
+            }
+            const { probeRuntime } = await loadRuntime();
+            this.modelCapabilities = probeRuntime();
+            if (!this.modelCapabilities.usable) {
+                this.modelState = 'unsupported';
+                return;
+            }
+            const store = await loadStore();
+            const stored = await store.storedModel();
+            if (this.modelState === 'ready' || this.modelState === 'loading') return;
+            this.modelState = stored.ready ? 'ready' : 'missing';
+            this.modelSource = stored.ready ? 'stored' : null;
+            if (stored.ready) this.modelInfo = this.modelInfo ?? null;
+        },
+
+        async refreshStoredModel() {
+            const store = await loadStore();
+            const stored = await store.storedModel();
+            if (!stored.ready) {
+                this.modelState = 'missing';
+                this.modelSource = null;
+            }
+        },
+
+        onDiskModelPicked(event) {
+            const files = [...(event.target?.files ?? [])];
+            this.modelFiles = { model: null, projector: null };
+            for (const file of files) {
+                if (/^mmproj/i.test(file.name)) this.modelFiles.projector = file;
+                else if (/\.gguf$/i.test(file.name)) this.modelFiles.model = file;
+            }
+        },
+
+        get diskFilesReady() {
+            return Boolean(this.modelFiles.model && this.modelFiles.projector);
+        },
+
+        async useDiskModel() {
+            if (!this.diskFilesReady || this.modelBusy) return;
+            this.modelBusy = true;
+            this.modelError = null;
+            this.modelState = 'verifying';
+            try {
+                const store = await loadStore();
+                const verified = await store.verifyLocalFiles(this.modelFiles.model, this.modelFiles.projector, (progress) => {
+                    this.modelProgress = { percent: progress.percent ?? 0 };
+                });
+                await this.loadModelFiles(verified, 'disk');
+            } catch (error) {
+                this.localModelFailure(error);
+            } finally {
+                this.modelBusy = false;
+            }
+        },
+
+        async downloadModel() {
+            if (this.modelBusy) return;
+            this.modelBusy = true;
+            this.modelError = null;
+            this.modelState = 'downloading';
+            this.downloadController = new AbortController();
+            try {
+                const store = await loadStore();
+                const files = await store.downloadModel({
+                    signal: this.downloadController.signal,
+                    onProgress: (progress) => {
+                        this.modelProgress = progress;
+                        if (progress.phase === 'model' || progress.phase === 'projector') this.modelState = 'downloading';
+                    },
+                });
+                await this.loadModelFiles(files, 'stored');
+            } catch (error) {
+                if (error?.code === 'ABORTED') {
+                    await this.refreshStoredModel();
+                } else {
+                    this.localModelFailure(error);
+                }
+            } finally {
+                this.modelBusy = false;
+                this.downloadController = null;
+            }
+        },
+
+        cancelDownload() {
+            this.downloadController?.abort();
+        },
+
+        async loadStoredModel() {
+            if (this.modelBusy) return;
+            const store = await loadStore();
+            const stored = await store.storedModel();
+            if (!stored.ready) {
+                this.modelState = 'missing';
+                return;
+            }
+            this.modelBusy = true;
+            this.modelError = null;
+            try {
+                await this.loadModelFiles(stored, 'stored');
+            } catch (error) {
+                this.localModelFailure(error);
+            } finally {
+                this.modelBusy = false;
+            }
+        },
+
+        async loadModelFiles(files, source) {
+            this.modelState = 'loading';
+            this.modelProgress = { percent: 0 };
+            const engine = await loadRuntime().then((mod) => mod.localEngine);
+            const info = await engine.load({
+                model: files.model,
+                projector: files.projector,
+                config: this.localConfig,
+                onProgress: (progress) => {
+                    const percent = progress?.total ? (progress.loaded / progress.total) * 100 : 0;
+                    this.modelProgress = { percent };
+                },
+            });
+            this.modelInfo = info;
+            this.modelSource = source;
+            this.modelState = 'ready';
+        },
+
+        async unloadModel() {
+            const engine = await loadRuntime().then((mod) => mod.localEngine);
+            await engine.unload();
+            this.modelInfo = null;
+            if (this.modelState === 'ready') this.modelState = this.modelSource === 'stored' ? 'ready' : 'missing';
+            await this.refreshStoredModel();
+        },
+
+        async removeModel() {
+            await this.unloadModel();
+            const store = await loadStore();
+            await store.removeStoredModel();
+            this.modelState = 'missing';
+            this.modelSource = null;
+            this.modelInfo = null;
+            this.modelProgress = null;
+        },
+
+        localModelFailure(error) {
+            this.modelState = 'error';
+            this.modelError = {
+                code: error?.code || 'INTERNAL',
+                messageKey: `importAgent.local.error.${error?.code || 'INTERNAL'}`,
+                detail: error?.detail || error?.message || '',
+            };
         },
 
         // ------------------------------------------------------ errors
@@ -448,12 +709,17 @@ export function importAgentWizard() {
                 const sourcesMeta = this.usableFiles.map((file) => ({ name: file.name }));
                 if (this.pastedText.trim()) sourcesMeta.push({ name: 'Typed text' });
                 if (sourcesMeta.length === 0) throw new api.ImportApiError('BAD_REQUEST');
+                const profile = this.localProfilePayload();
+                const config = this.localConfigPayload();
+                this.storedLocalModel = localModelIdentity(profile);
+                this.storedLocalConfig = config;
                 const created = await api.callJob('create', {
                     hints: this.hints.trim().slice(0, LIMITS.MAX_HINT_CHARS),
                     sources_meta: sourcesMeta,
                     section: this.section || null,
                     defaults: {},
-                    inference_mode: 'cloud',
+                    local_profile: profile,
+                    local_config: config,
                 });
                 const jobId = created.job_id;
                 this.job = await api.fetchJob(jobId);
@@ -463,10 +729,6 @@ export function importAgentWizard() {
                 // numbering (shiftSourceIds) matches the server's idx.
                 let index = 0;
                 for (const file of this.usableFiles) {
-                    const upload = created.upload_urls?.[index];
-                    if (!upload?.path || !upload?.token) throw new api.ImportApiError('UPLOAD_FAILED');
-                    await api.uploadToSignedCell(upload.path, upload.token, file.file);
-
                     const prepared = prepareSources(file.sources, chunkLimits);
                     // The server numbers sources by add order (its `idx` runs
                     // 1, 2, 3…), so pre-shift the client-chunked pool ids to
@@ -479,7 +741,6 @@ export function importAgentWizard() {
                         mime: file.file?.type ?? null,
                         bytes: file.size,
                         sha256: file.sha256,
-                        storage_path: upload.path,
                         warnings: mergeWarnings(file.warnings, prepared.warnings),
                         chunks,
                     });
@@ -508,21 +769,40 @@ export function importAgentWizard() {
             }
         },
 
+        applyProgress(progress) {
+            this.progress = {
+                done: progress.done ?? 0,
+                total: progress.total ?? 0,
+                failed: progress.failed ?? 0,
+                truncated: progress.truncated ?? 0,
+                nextLabel: progress.next_label ?? '',
+                tokens: null,
+            };
+        },
+
         async pumpLoop() {
             if (this.pumpActive) return;
             this.pumpActive = true;
             this.cancelRequested = false;
             this.pumpFailed = false;
             try {
+                const engine = await loadRuntime().then((mod) => mod.localEngine);
+                const { extractChunk } = await loadExtract();
                 while (!this.cancelRequested && this.step === 'extracting') {
-                    let response;
+                    let claim;
                     try {
-                        response = await api.callJob('pump', { job_id: this.job.id });
+                        claim = await api.callJob('local_claim', {
+                            job_id: this.job.id,
+                            model: this.storedLocalModel,
+                            config: this.storedLocalConfig,
+                            lease_seconds: 900,
+                            max_attempts: 5,
+                            parallel: 1,
+                        });
                     } catch (error) {
-                        // The worker can die (its own resource limit, a gateway
-                        // timeout). The job is still there: retry a few times,
-                        // then let the user resume instead of leaving a
-                        // "Working..." that never ends.
+                        // The function can time out or the tab can lose the
+                        // network. The job is still there: retry a few times,
+                        // then let the user resume instead of spinning.
                         this.pumpAttempts += 1;
                         if (this.pumpAttempts <= PUMP_RETRIES) {
                             this.pumpError = error;
@@ -536,22 +816,87 @@ export function importAgentWizard() {
                     }
                     this.pumpAttempts = 0;
                     this.pumpError = null;
-                    this.jobStatus = response.status;
-                    this.banners = response.banners ?? [];
-                    this.progress = {
-                        done: response.done ?? 0,
-                        total: response.total ?? 0,
-                        failed: response.failed ?? 0,
-                        truncated: response.truncated ?? 0,
-                        nextLabel: response.next_label ?? '',
-                        tokens: response.tokens ?? null,
-                    };
-                    if (response.status !== 'extracting') break;
-                    if ((response.banners ?? []).some((banner) => banner.code === 'USER_DAILY_TOKEN_CAP')) break;
-                    // The provider's per-minute budget decides how fast we
-                    // may go: a big import on Groq has to wait between chunks.
-                    const pace = Math.max(PUMP_DELAY, Number(response.pace_ms ?? 0) || 0);
-                    await sleep(pace);
+                    this.jobStatus = claim.status ?? this.jobStatus;
+                    if (claim.progress) this.applyProgress(claim.progress);
+                    if (claim.done) break;
+                    const chunk = claim.chunk;
+                    if (!chunk) {
+                        await sleep(Math.max(500, Number(claim.retry_after_ms ?? 2000)));
+                        continue;
+                    }
+
+                    const payload = chunk.payload ?? {};
+                    const kind = payload.kind === 'image' ? 'image' : payload.kind === 'sheet' ? 'sheet' : 'text';
+                    this.activeChunk = { idx: chunk.idx, kind };
+                    this.chunkController = new AbortController();
+                    let result;
+                    try {
+                        result = await extractChunk({
+                            engine,
+                            chunk: payload,
+                            hints: this.job?.hints ?? '',
+                            signal: this.chunkController.signal,
+                        });
+                    } catch (error) {
+                        result = {
+                            status: 'failed',
+                            errorCode: error?.code || 'LOCAL_ERROR',
+                            documents: [],
+                            rejected: [],
+                            truncated: false,
+                            repairs: false,
+                            usage: { in: 0, out: 0 },
+                            model: MODEL_MANIFEST.title,
+                            cost: 0,
+                            promptId: null,
+                        };
+                    }
+
+                    const lease = claim.lease_expires_at ?? chunk.lease_until;
+                    if (this.cancelRequested || result.status === 'cancelled') {
+                        try {
+                            await api.callJob('local_release', {
+                                job_id: this.job.id,
+                                chunk_id: chunk.id,
+                                model: this.storedLocalModel,
+                                config: this.storedLocalConfig,
+                                lease_expires_at: lease,
+                            });
+                        } catch {
+                            // releasing is best-effort on cancel
+                        }
+                        break;
+                    }
+
+                    try {
+                        const submitted = await api.callJob('local_submit', {
+                            job_id: this.job.id,
+                            chunk_id: chunk.id,
+                            lease_expires_at: lease,
+                            pipeline_kind: kind,
+                            model: this.storedLocalModel,
+                            config: this.storedLocalConfig,
+                            result,
+                        });
+                        this.jobStatus = submitted.status;
+                        if (submitted.progress) this.applyProgress(submitted.progress);
+                    } catch (error) {
+                        try {
+                            await api.callJob('local_fail', {
+                                job_id: this.job.id,
+                                chunk_id: chunk.id,
+                                code: error?.code || 'LOCAL_ERROR',
+                                detail: String(error?.message ?? '').slice(0, 300),
+                                model: this.storedLocalModel,
+                                config: this.storedLocalConfig,
+                                lease_expires_at: lease,
+                            });
+                        } catch {
+                            // the claim lease expires and the chunk returns to
+                            // the queue
+                        }
+                    }
+                    if (this.jobStatus !== 'extracting') break;
                 }
                 if (this.cancelRequested) return;
                 if (this.jobStatus === 'review') {
@@ -564,6 +909,8 @@ export function importAgentWizard() {
                 this.showFailure(error);
             } finally {
                 this.pumpActive = false;
+                this.chunkController = null;
+                this.activeChunk = null;
             }
         },
 

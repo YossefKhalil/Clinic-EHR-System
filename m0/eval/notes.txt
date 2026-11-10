@@ -1,0 +1,41 @@
+Patient: Mona Adel
+Phone: 01012345678
+Age: 34
+Diagnosis: hypertension
+Visit: 2026-11-02
+Follow-up: 2026-12-01
+
+Patient: Youssef Samir
+Phone: 01198765432
+Age: 51
+Diagnosis: type 2 diabetes
+Visit: 2026-11-03
+Follow-up: 2026-12-08
+
+Patient: Salma Hassan
+Phone: 01234567890
+Age: 27
+Diagnosis: migraine
+Visit: 2026-11-04
+Follow-up: 2026-12-02
+
+Patient: Karim Nabil
+Phone: 01055556666
+Age: 42
+Diagnosis: lower back pain
+Visit: 2026-11-05
+Follow-up: 2026-11-19
+
+Patient: Nourhan Adel
+Phone: 01122223333
+Age: 63
+Diagnosis: osteoarthritis
+Visit: 2026-11-06
+Follow-up: 2026-12-04
+
+Patient: Omar Tarek
+Phone: 01277778888
+Age: 19
+Diagnosis: acute sinusitis
+Visit: 2026-11-07
+Follow-up: 2026-11-21

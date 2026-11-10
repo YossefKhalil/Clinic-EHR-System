@@ -1222,12 +1222,54 @@
                         </div>
                         <div class="card shadow-sm border-0">
                         <div class="card-body">
-                            <!-- Which engine runs the import: the clinic chose it
-                                 in the settings, the wizard only shows it. -->
-                            <div class="alert alert-light border py-2 px-3 small mb-3">
-                                <i class="bi bi-cloud me-1"></i>
-                                <strong x-text="t('importAgent.wizard.cloudEngine')"></strong>
-                                <span class="ms-1" x-text="t('importAgent.wizard.cloudEngineHint')"></span>
+                            <!-- The model card: one model, one status, one sentence.
+                                 The files stay on this device. -->
+                            <div class="border rounded-4 p-3 mb-3 bg-light-subtle">
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="rounded-circle d-inline-block flex-shrink-0"
+                                        :class="modelReady ? 'bg-success' : (modelState === 'error' || modelState === 'unsupported' ? 'bg-danger' : 'bg-secondary')"
+                                        style="width:10px;height:10px"></span>
+                                    <strong x-text="modelTitle"></strong>
+                                    <span class="text-muted small ms-auto" x-text="formatBytes(modelBytes)"></span>
+                                </div>
+                                <div class="small text-muted mt-1" x-text="modelStatusSentence"></div>
+                                <div x-show="modelState === 'downloading' || modelState === 'verifying' || modelState === 'loading'"
+                                    x-cloak class="progress mt-2" style="height:6px">
+                                    <div class="progress-bar" :style="`width:${modelProgressPercent}%`"></div>
+                                </div>
+                                <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                                    <button type="button" class="btn btn-sm btn-primary"
+                                        x-show="modelState === 'missing' && !diskFilesReady"
+                                        @click="downloadModel()" x-text="t('importAgent.local.download')"></button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                                        x-show="modelState === 'ready' && !modelInfo"
+                                        @click="loadStoredModel()" x-text="t('importAgent.local.load')"></button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                                        x-show="modelState === 'ready' && modelInfo"
+                                        @click="unloadModel()" x-text="t('importAgent.local.unload')"></button>
+                                    <button type="button" class="btn btn-sm btn-link text-danger p-0"
+                                        x-show="modelSource === 'stored'"
+                                        @click="removeModel()" x-text="t('importAgent.local.remove')"></button>
+                                    <button type="button" class="btn btn-sm btn-link p-0"
+                                        x-show="modelState === 'downloading'"
+                                        @click="cancelDownload()" x-text="t('importAgent.local.cancel')"></button>
+                                </div>
+                                <div class="mt-2">
+                                    <label class="form-label small text-muted mb-1" x-text="t('importAgent.local.diskLabel')"></label>
+                                    <input type="file" class="form-control form-control-sm" accept=".gguf" multiple
+                                        @change="onDiskModelPicked($event)"
+                                        :aria-label="t('importAgent.local.diskLabel')">
+                                    <button type="button" class="btn btn-sm btn-outline-primary mt-2"
+                                        :disabled="!diskFilesReady || modelBusy"
+                                        @click="useDiskModel()" x-text="t('importAgent.local.useDisk')"></button>
+                                </div>
+                                <div x-show="modelState === 'unsupported'" x-cloak
+                                    class="alert alert-warning mt-2 mb-0 py-2 small"
+                                    x-text="t('importAgent.local.status.unsupported')"></div>
+                                <div x-show="modelState === 'error'" x-cloak class="alert alert-danger mt-2 mb-0 py-2 small">
+                                    <span x-text="modelError ? t(modelError.messageKey) : t('importAgent.local.status.error')"></span>
+                                    <span class="d-block text-muted" x-show="modelError?.detail" x-text="modelError?.detail"></span>
+                                </div>
                             </div>
                             <label class="dropzone-hero d-block border border-2 border-dashed rounded-4 text-center px-4 py-5 position-relative" style="cursor:pointer">
                                 <span class="dropzone-icon d-inline-flex align-items-center justify-content-center rounded-circle bg-primary-subtle text-primary mb-3">
@@ -1289,7 +1331,7 @@
                             </template>
 
                             <div class="text-end mt-4">
-                                <button type="button" class="btn btn-primary btn-lg" @click="analyze()" :disabled="addBlocked">
+                                <button type="button" class="btn btn-primary btn-lg" @click="analyze()" :disabled="addBlocked || !modelReady">
                                     <span class="spinner-border spinner-border-sm me-1" x-show="busy" x-cloak></span>
                                     <i class="bi bi-stars me-1" x-show="!busy"></i>
                                     <span x-text="busy ? t('importAgent.wizard.sending') : t('importAgent.start.analyze')"></span>

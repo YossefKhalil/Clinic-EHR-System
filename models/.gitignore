@@ -15,3 +15,7 @@
 #
 # The dev server serves this folder with Range support, so a big file can be
 # read in parts.
+
+# The LFM3 M0 junction points at the model files on the workstation. Never
+# follow it into the repository.
+lfm3/
