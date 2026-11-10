@@ -206,6 +206,7 @@ function app() {
         // + OPFS) and importToggle is the Settings switch for this browser. The
         // entry shows only when both are true.
         importSupported: false,
+        importStorage: true,
         importToggle: true,
         importEnabled: false,
         importResumable: null,
@@ -497,6 +498,7 @@ function app() {
         async refreshImportState() {
             const state = await loadImportState();
             this.importSupported = state.localEnabled;
+            this.importStorage = state.storage !== false;
             this.importToggle = readImportToggle();
             this.importEnabled = this.importSupported && this.importToggle;
             this.importResumable = null;

@@ -2659,6 +2659,8 @@
                             </div>
                             <p class="alert alert-warning small mb-2 py-2" x-show="!importSupported" x-cloak
                                 x-text="t('aiSettings.local.unsupported')"></p>
+                            <p class="alert alert-warning small mb-2 py-2" x-show="importSupported && !importStorage" x-cloak
+                                x-text="t('aiSettings.local.noStorage')"></p>
                             <button type="button" class="btn btn-sm btn-primary" x-show="importSupported && importToggle" x-cloak
                                 @click="navigate('import')">
                                 <i class="bi bi-stars me-1"></i><span x-text="t('aiSettings.local.open')"></span>

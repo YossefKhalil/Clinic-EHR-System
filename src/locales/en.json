@@ -291,6 +291,7 @@
   "Your account has no section write access. Ask a Super Admin to grant it.": "Your account has no section write access. Ask a Super Admin to grant it.",
   "Your session has expired. Please sign in again.": "Your session has expired. Please sign in again.",
   "aiSettings.local.body": "The AI import reads files and photos on this computer’s CPU. Nothing is sent to a provider.",
+  "aiSettings.local.noStorage": "This browser has no local model storage, so the model cannot be downloaded and kept here. Picking the .gguf files from disk still works.",
   "aiSettings.local.note": "The model is downloaded once, or chosen from files on this computer. Patient data never leaves the device.",
   "aiSettings.local.open": "Open AI import",
   "aiSettings.local.title": "AI Import",

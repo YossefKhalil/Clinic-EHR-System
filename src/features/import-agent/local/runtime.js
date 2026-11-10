@@ -6,30 +6,48 @@ import { MODEL_MANIFEST } from './manifest.js';
 
 const BASE = import.meta.env.BASE_URL || '/';
 
+// The wasm artifacts are served with a long cache lifetime, so their URL has
+// to change when the build changes. Bump this on every wllama rebuild.
+const ASSET_VERSION = '3';
+
 function asset(path) {
-    return new URL(`${BASE}${path}`, window.location.origin).href;
+    const url = new URL(`${BASE}${path}`, window.location.origin);
+    url.searchParams.set('v', ASSET_VERSION);
+    return url.href;
 }
 
 // The stock wllama chooses its compat path from browser features. Our wasm is
 // always wasm32 (never Memory64) and the JS layer is patched to say so, so the
-// same bridge works in Chromium and Firefox. JSPI is used when present;
-// otherwise the Asyncify artifact is selected.
+// same bridge works in Chromium and Firefox. The wasm artifacts differ only in
+// the kernel and suspension strategy:
+//   relaxed + JSPI      -> Chrome/Edge today (fastest)
+//   relaxed + Asyncify  -> Firefox (relaxed SIMD without JSPI)
+//   standard + Asyncify -> anything else with WebAssembly SIMD
 const RELAXED = {
     wasm: asset('wllama/wllama.wasm'),
     worker: asset('wllama/wllama-worker.js'),
+    mode: 'relaxed',
+};
+const RELAXED_ASYNCIFY = {
+    wasm: asset('wllama/wllama-relaxed-asyncify.wasm'),
+    worker: asset('wllama/wllama-relaxed-asyncify-worker.js'),
+    mode: 'relaxed',
 };
 const STANDARD = {
     wasm: asset('wllama/wllama-standard.wasm'),
     worker: asset('wllama/wllama-standard-worker.js'),
+    mode: 'standard',
 };
 
 function simdModule() {
-    // (func (result v128) (v128.const i32x4 0 0 0 0))
+    // The tiny known-good SIMD probe from the wasm-feature-detect suite: a
+    // v128.const needs a 16-byte immediate, and a hand-rolled short form is
+    // invalid in every browser.
     return new Uint8Array([
         0, 97, 115, 109, 1, 0, 0, 0,
         1, 5, 1, 96, 0, 1, 123,
         3, 2, 1, 0,
-        10, 10, 1, 8, 0, 0xfd, 0x0c, 0, 0, 0, 0, 0, 0x0b,
+        10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11,
     ]);
 }
 
@@ -63,6 +81,9 @@ export function probeRuntime() {
     const jspi = typeof WebAssembly !== 'undefined' && 'Suspending' in WebAssembly;
     const threads = typeof SharedArrayBuffer !== 'undefined' && Boolean(window.crossOriginIsolated);
     const opfs = Boolean(navigator.storage?.getDirectory);
+    // Any SIMD browser can run the model: the Asyncify artifact needs no JSPI
+    // and no relaxed SIMD, it is only slower. OPFS is required to download and
+    // keep the model; local .gguf files work without it.
     return {
         simd,
         relaxed,
@@ -72,9 +93,16 @@ export function probeRuntime() {
         isolated: Boolean(window.crossOriginIsolated),
         hardwareConcurrency: Math.max(1, navigator.hardwareConcurrency || 1),
         deviceMemory: Number(navigator.deviceMemory || 0),
-        usable: simd && opfs && (relaxed || jspi),
-        mode: relaxed ? 'relaxed' : 'standard',
+        usable: simd,
+        mode: variantFor({ relaxed, jspi }).mode,
     };
+}
+
+/** The fastest artifact this browser can actually run. */
+function variantFor(probe) {
+    if (probe.relaxed && probe.jspi) return RELAXED;
+    if (probe.relaxed) return RELAXED_ASYNCIFY;
+    return STANDARD;
 }
 
 export function defaultConfig() {
@@ -132,8 +160,8 @@ export class LocalEngine {
         if (this.loading) throw new Error('MODEL_LOADING');
         this.loading = true;
         try {
-            const useRelaxed = this.probe.relaxed;
-            const variant = useRelaxed ? RELAXED : STANDARD;
+            const variant = variantFor(this.probe);
+            this.variant = variant;
             const code = await workerCode(variant.worker);
             // `needCompat` is true in our bridge; setCompat supplies the
             // matching wasm32 worker and glue. The mode is forced so neither
@@ -187,7 +215,7 @@ export class LocalEngine {
             loaded: this.loaded,
             build: this.build,
             model: MODEL_MANIFEST.title,
-            mode: this.probe.relaxed ? 'relaxed' : 'standard',
+            mode: this.variant?.mode ?? this.probe.mode,
             threads: this.wllama?.getNumThreads?.() ?? this.lastConfig?.threads ?? 0,
             multithread: Boolean(this.wllama?.isMultithread?.()),
             vision: Boolean(this.wllama?.supportInputModality?.('image')),
