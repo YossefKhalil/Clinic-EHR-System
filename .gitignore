@@ -20,3 +20,7 @@ clone-health-to-e-my-projects-current.json
 # M0 build outputs (regenerate with m0/build-wllama-wasm.ps1)
 m0/custom*/
 m0/wllama-js/
+
+# Stray Emscripten default output (emcc without -o)
+a.out.js
+a.out.wasm
