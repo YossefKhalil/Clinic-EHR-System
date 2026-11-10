@@ -1222,49 +1222,15 @@
                         </div>
                         <div class="card shadow-sm border-0">
                         <div class="card-body">
-                            <!-- Model status: the full card lives in Settings → AI & Import.
-                                 The files stay on this device. -->
-                            <div class="rounded-3 border bg-light-subtle p-3 mb-3">
-                                <div class="d-flex align-items-center gap-2 flex-wrap">
-                                    <span class="rounded-circle d-inline-block flex-shrink-0"
-                                        :class="modelLoaded() || modelState === 'ready' ? 'bg-success' : (modelState === 'error' || modelState === 'unsupported' ? 'bg-danger' : 'bg-secondary')"
-                                        style="width:10px;height:10px"></span>
-                                    <strong x-text="modelTitle()"></strong>
-                                    <span class="badge rounded-pill text-bg-light border fw-normal" x-text="modelStatusSentence()"></span>
-                                    <span class="text-muted small ms-auto" x-text="formatBytes(modelBytes())"></span>
-                                </div>
-                                <div x-show="modelState === 'downloading' || modelState === 'verifying' || modelState === 'loading'" x-cloak class="mt-2">
-                                    <div class="progress" style="height:6px">
-                                        <div class="progress-bar progress-bar-striped progress-bar-animated" :style="`width:${modelProgressPercent()}%`"></div>
-                                    </div>
-                                    <div class="small text-muted mt-1" x-text="modelProgressLabel()"></div>
-                                </div>
-                                <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
-                                    <button type="button" class="btn btn-sm btn-primary"
-                                        x-show="modelState === 'missing'"
-                                        @click="downloadModel()">
-                                        <i class="bi bi-cloud-arrow-down me-1"></i><span x-text="t('importAgent.local.download')"></span>
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-primary"
-                                        x-show="modelState === 'ready' && !modelInfo"
-                                        @click="loadStoredModel()">
-                                        <i class="bi bi-play-fill me-1"></i><span x-text="t('importAgent.local.load')"></span>
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary"
-                                        x-show="modelInfo"
-                                        @click="unloadModel()" x-text="t('importAgent.local.unload')"></button>
-                                    <button type="button" class="btn btn-sm btn-link p-0"
-                                        x-show="modelState === 'downloading' || modelState === 'verifying' || modelState === 'loading'"
-                                        @click="cancelDownload()" x-text="t('importAgent.local.cancel')"></button>
-                                    <a class="btn btn-sm btn-link p-0 ms-auto" href="#" @click.prevent="navigate('settings')" x-text="t('importAgent.local.manage')"></a>
-                                </div>
-                                <div x-show="modelState === 'unsupported'" x-cloak
-                                    class="alert alert-warning mt-2 mb-0 py-2 small"
-                                    x-text="t('importAgent.local.status.unsupported')"></div>
-                                <div x-show="modelState === 'error'" x-cloak class="alert alert-danger mt-2 mb-0 py-2 small">
-                                    <span x-text="modelError ? t(modelError.messageKey) : t('importAgent.local.status.error')"></span>
-                                    <span class="d-block text-muted" x-show="modelError?.detail" x-text="modelError?.detail"></span>
-                                </div>
+                            <!-- Model status: the full model card lives in Settings → AI & Import. -->
+                            <div class="d-flex align-items-center gap-2 flex-wrap mb-3 small">
+                                <span class="rounded-circle d-inline-block flex-shrink-0"
+                                    :class="modelReady() || modelLoaded() ? 'bg-success' : (modelState === 'error' || modelState === 'unsupported' ? 'bg-danger' : 'bg-secondary')"
+                                    style="width:9px;height:9px"></span>
+                                <span class="fw-semibold" x-text="modelTitle()"></span>
+                                <span class="text-muted" x-text="modelStatusSentence()"></span>
+                                <button type="button" class="btn btn-link btn-sm p-0 ms-auto text-decoration-none"
+                                    @click="openAiSettings()" x-text="t('importAgent.local.manage')"></button>
                             </div>
                             <label class="dropzone-hero d-block border border-2 border-dashed rounded-4 text-center px-4 py-5 position-relative" style="cursor:pointer">
                                 <span class="dropzone-icon d-inline-flex align-items-center justify-content-center rounded-circle bg-primary-subtle text-primary mb-3">
@@ -2666,151 +2632,174 @@
                 </div>
 
                 <!-- AI &amp; Import tab -->
-                <div id="settings-panel-ai" role="tabpanel" aria-labelledby="settings-tab-ai" x-show="settingsTab === 'ai'" x-cloak tabindex="0">
-                    <!-- The import runtime is the device's own CPU. There is no
-                         provider or credential to configure: the model card and
-                         the import itself live on the Import page. -->
-                    <div class="card shadow-sm border-0 mb-4" x-show="isSuperAdmin" x-cloak>
-                        <div class="card-header bg-white py-3 d-flex align-items-center gap-2">
-                            <i class="bi bi-cpu text-primary fs-5"></i>
-                            <h5 class="mb-0 fw-semibold" x-text="t('aiSettings.local.title')"></h5>
+                <div id="settings-panel-ai" role="tabpanel" aria-labelledby="settings-tab-ai" x-show="settingsTab === 'ai'" x-data="aiModelCard()" x-cloak tabindex="0">
+                    <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
+                        <div>
+                            <h2 class="h4 fw-bold mb-1">
+                                <i class="bi bi-cpu text-primary me-2"></i><span x-text="t('aiSettings.local.title')"></span>
+                            </h2>
+                            <p class="text-secondary mb-0" x-text="t('aiSettings.local.body')"></p>
                         </div>
-                        <div class="card-body">
-                            <p class="mb-2" x-text="t('aiSettings.local.body')"></p>
-                            <p class="text-secondary small mb-3" x-text="t('aiSettings.local.note')"></p>
-                            <div class="form-check form-switch mb-2">
-                                <input class="form-check-input" type="checkbox" role="switch" id="aiImportToggle"
-                                    :checked="importToggle" :disabled="!importSupported"
-                                    @change="setImportToggle($event.target.checked)">
-                                <label class="form-check-label" for="aiImportToggle" x-text="t('aiSettings.local.toggle')"></label>
-                            </div>
-                            <p class="alert alert-warning small mb-2 py-2" x-show="!importSupported" x-cloak
-                                x-text="t('aiSettings.local.unsupported')"></p>
-                            <p class="alert alert-warning small mb-2 py-2" x-show="importSupported && !importStorage" x-cloak
-                                x-text="t('aiSettings.local.noStorage')"></p>
-                            <button type="button" class="btn btn-sm btn-primary" x-show="importSupported && importToggle" x-cloak
-                                @click="navigate('import')">
-                                <i class="bi bi-stars me-1"></i><span x-text="t('aiSettings.local.open')"></span>
-                            </button>
+                        <button type="button" class="btn btn-primary" x-show="importSupported && importToggle" @click="navigate('import')">
+                            <i class="bi bi-stars me-1"></i><span x-text="t('aiSettings.local.open')"></span>
+                        </button>
+                    </div>
 
-                            <!-- The model card: one model, one status, one sentence. -->
-                            <div class="border rounded-4 p-3 mt-3 bg-light-subtle" x-data="aiModelCard()" x-cloak>
-                                <div class="d-flex align-items-start gap-3">
-                                    <span class="rounded-circle d-inline-block flex-shrink-0 mt-2"
-                                        :class="modelLoaded() || modelState === 'ready' ? 'bg-success' : (modelState === 'error' || modelState === 'unsupported' ? 'bg-danger' : 'bg-secondary')"
-                                        style="width:10px;height:10px"></span>
-                                    <div class="flex-grow-1 min-w-0">
-                                        <div class="d-flex align-items-center gap-2 flex-wrap">
-                                            <strong x-text="modelTitle()"></strong>
-                                            <span class="badge rounded-pill text-bg-light border fw-normal" x-text="modelStatusSentence()"></span>
-                                            <span class="text-muted small ms-auto" x-text="formatBytes(modelBytes())"></span>
+                    <div class="row g-4">
+                        <div class="col-12 col-xl-7">
+                            <div class="card shadow-sm border-0 h-100">
+                                <div class="card-header bg-white py-3 d-flex align-items-center gap-2">
+                                    <i class="bi bi-box-seam text-primary"></i>
+                                    <h3 class="h6 mb-0 fw-semibold" x-text="t('aiSettings.local.modelTitle')"></h3>
+                                    <span class="badge rounded-pill ms-auto fw-normal"
+                                        :class="modelReady() ? 'text-bg-success' : (modelState === 'error' || modelState === 'unsupported' ? 'text-bg-danger' : 'text-bg-secondary')"
+                                        x-text="modelStatusSentence()"></span>
+                                </div>
+                                <div class="card-body">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="rounded-circle d-inline-block flex-shrink-0"
+                                            :class="modelReady() ? 'bg-success' : (modelState === 'error' || modelState === 'unsupported' ? 'bg-danger' : 'bg-secondary')"
+                                            style="width:10px;height:10px"></span>
+                                        <strong class="fs-5" x-text="modelTitle()"></strong>
+                                        <span class="text-muted small ms-auto text-nowrap" x-text="formatBytes(modelBytes())"></span>
+                                    </div>
+                                    <p class="text-secondary small mb-3 mt-1" x-text="t('aiSettings.local.note')"></p>
+                                    <p class="small text-muted mb-3" x-show="modelInfo"
+                                        x-text="t('importAgent.local.loadedWith', { threads: modelInfo?.threads ?? 0, variant: modelInfo?.mode ?? '' })"></p>
+
+                                    <div x-show="modelState === 'downloading' || modelState === 'verifying' || modelState === 'loading'" x-cloak class="mb-3">
+                                        <div class="d-flex justify-content-between small mb-1">
+                                            <span x-text="modelState === 'downloading' ? t('importAgent.local.status.downloading') : modelState === 'verifying' ? t('importAgent.local.status.verifying') : t('importAgent.local.status.loading')"></span>
+                                            <span class="text-muted" x-text="modelProgressLabel()"></span>
                                         </div>
-                                        <div class="small text-muted mt-1" x-show="modelInfo"
-                                            x-text="t('importAgent.local.loadedWith', { threads: modelInfo?.threads ?? 0, variant: modelInfo?.mode ?? '' })"></div>
-                                        <div x-show="modelState === 'downloading' || modelState === 'verifying' || modelState === 'loading'" x-cloak class="mt-2">
-                                            <div class="progress" style="height:6px">
-                                                <div class="progress-bar progress-bar-striped progress-bar-animated" :style="`width:${modelProgressPercent()}%`"></div>
-                                            </div>
-                                            <div class="small text-muted mt-1 d-flex justify-content-between gap-2">
-                                                <span x-text="modelStatusSentence()"></span>
-                                                <span x-text="modelProgressLabel()"></span>
-                                            </div>
+                                        <div class="progress" style="height:8px" role="progressbar"
+                                            :aria-valuenow="Math.round(modelProgressPercent())" aria-valuemin="0" aria-valuemax="100">
+                                            <div class="progress-bar progress-bar-striped progress-bar-animated" :style="`width:${modelProgressPercent()}%`"></div>
                                         </div>
                                     </div>
-                                </div>
-                                <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
-                                    <button type="button" class="btn btn-sm btn-primary"
-                                        x-show="modelState === 'missing'"
-                                        @click="downloadModel()">
-                                        <i class="bi bi-cloud-arrow-down me-1"></i><span x-text="t('importAgent.local.download')"></span>
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-primary"
-                                        x-show="modelState === 'ready' && !modelInfo"
-                                        @click="loadStoredModel()">
-                                        <i class="bi bi-play-fill me-1"></i><span x-text="t('importAgent.local.load')"></span>
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary"
-                                        x-show="modelInfo"
-                                        @click="unloadModel()" x-text="t('importAgent.local.unload')"></button>
-                                    <button type="button" class="btn btn-sm btn-link text-danger p-0 ms-2"
-                                        x-show="modelSource === 'stored' && !modelInfo"
-                                        @click="removeModel()" x-text="t('importAgent.local.remove')"></button>
-                                    <button type="button" class="btn btn-sm btn-link p-0"
-                                        x-show="modelState === 'downloading' || modelState === 'verifying' || modelState === 'loading'"
-                                        @click="cancelDownload()" x-text="t('importAgent.local.cancel')"></button>
-                                </div>
-                                <div class="mt-3 pt-3 border-top">
-                                    <div class="small text-muted mb-2" x-text="t('importAgent.local.diskLabel')"></div>
+
                                     <div class="d-flex flex-wrap align-items-center gap-2">
-                                        <input type="file" class="form-control form-control-sm" style="max-width:22rem" accept=".gguf" multiple
-                                            @change="onDiskModelPicked($event)"
-                                            :aria-label="t('importAgent.local.diskLabel')">
-                                        <button type="button" class="btn btn-sm btn-outline-primary"
-                                            :disabled="!diskFilesReady() || modelBusy"
-                                            @click="useDiskModel()" x-text="t('importAgent.local.useDisk')"></button>
-                                        <span class="badge text-bg-success-subtle border border-success-subtle text-body fw-normal" x-show="diskFilesReady()"
+                                        <button type="button" class="btn btn-primary" x-show="modelState === 'missing'" @click="downloadModel()">
+                                            <i class="bi bi-cloud-arrow-down me-1"></i><span x-text="t('importAgent.local.download')"></span>
+                                        </button>
+                                        <button type="button" class="btn btn-primary" x-show="modelState === 'ready' && !modelInfo" @click="loadStoredModel()">
+                                            <i class="bi bi-play-fill me-1"></i><span x-text="t('importAgent.local.load')"></span>
+                                        </button>
+                                        <button type="button" class="btn btn-outline-secondary" x-show="modelInfo" @click="unloadModel()"
+                                            x-text="t('importAgent.local.unload')"></button>
+                                        <button type="button" class="btn btn-outline-danger" x-show="modelSource === 'stored' && !modelInfo" @click="removeModel()"
+                                            x-text="t('importAgent.local.remove')"></button>
+                                        <button type="button" class="btn btn-outline-secondary"
+                                            x-show="modelState === 'downloading' || modelState === 'verifying' || modelState === 'loading'"
+                                            @click="cancelDownload()" x-text="t('importAgent.local.cancel')"></button>
+                                    </div>
+
+                                    <div x-show="modelState === 'unsupported'" x-cloak
+                                        class="alert alert-warning mt-3 mb-0 py-2 small"
+                                        x-text="t('importAgent.local.status.unsupported')"></div>
+                                    <div x-show="modelState === 'error'" x-cloak class="alert alert-danger mt-3 mb-0 py-2 small">
+                                        <span x-text="modelError ? t(modelError.messageKey) : t('importAgent.local.status.error')"></span>
+                                        <span class="d-block text-muted" x-show="modelError?.detail" x-text="modelError?.detail"></span>
+                                    </div>
+
+                                    <hr class="my-4">
+                                    <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                                        <span class="small fw-semibold" x-text="t('importAgent.local.diskLabel')"></span>
+                                        <span class="badge text-bg-success-subtle border border-success-subtle text-body fw-normal"
+                                            x-show="diskFilesReady()"
                                             x-text="t('importAgent.local.diskReady', { count: (modelFiles.model ? 1 : 0) + (modelFiles.projector ? 1 : 0) })"></span>
                                     </div>
-                                </div>
-                                <div x-show="modelState === 'unsupported'" x-cloak
-                                    class="alert alert-warning mt-2 mb-0 py-2 small"
-                                    x-text="t('importAgent.local.status.unsupported')"></div>
-                                <div x-show="modelState === 'error'" x-cloak class="alert alert-danger mt-2 mb-0 py-2 small">
-                                    <span x-text="modelError ? t(modelError.messageKey) : t('importAgent.local.status.error')"></span>
-                                    <span class="d-block text-muted" x-show="modelError?.detail" x-text="modelError?.detail"></span>
-                                </div>
-                                <div class="mt-3">
-                                    <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" @click="showModelLogs = !showModelLogs" :aria-expanded="showModelLogs">
-                                        <i class="bi me-1" :class="showModelLogs ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
-                                        <span x-text="showModelLogs ? t('importAgent.logs.hide') : t('importAgent.logs.show')"></span>
-                                    </button>
-                                    <div class="ms-2 d-inline-flex gap-2" x-show="showModelLogs" x-cloak>
-                                        <button type="button" class="btn btn-sm btn-outline-secondary" @click="copyModelLog()"
-                                            x-text="modelLogCopied ? t('importAgent.logs.copied') : t('importAgent.logs.copy')"></button>
-                                        <button type="button" class="btn btn-sm btn-outline-secondary" @click="clearModelLogs()"
-                                            x-text="t('importAgent.logs.clear')"></button>
-                                    </div>
-                                    <div x-show="showModelLogs" x-cloak class="mt-2">
-                                        <p class="small text-muted mb-1" x-show="modelLog.length === 0" x-text="t('importAgent.logs.empty')"></p>
-                                        <div class="border rounded bg-body-tertiary p-2 font-monospace small overflow-auto" style="max-height:16rem">
-                                            <template x-for="(entry, lIndex) in modelLog" :key="lIndex">
-                                                <div class="d-flex gap-2">
-                                                    <span class="text-muted text-nowrap" x-text="entry.at"></span>
-                                                    <span class="text-nowrap"
-                                                        :class="entry.level === 'error' ? 'text-danger' : entry.level === 'warn' ? 'text-warning' : 'text-body'"
-                                                        x-text="entry.level"></span>
-                                                    <span class="text-break">
-                                                        <span x-text="entry.message"></span>
-                                                        <span class="text-muted" x-show="entry.detail" x-text="' — ' + entry.detail"></span>
-                                                    </span>
-                                                </div>
-                                            </template>
-                                        </div>
+                                    <div class="input-group input-group-sm">
+                                        <input type="file" class="form-control" accept=".gguf" multiple
+                                            @change="onDiskModelPicked($event)" :aria-label="t('importAgent.local.diskLabel')">
+                                        <button type="button" class="btn btn-outline-primary" :disabled="!diskFilesReady() || modelBusy"
+                                            @click="useDiskModel()" x-text="t('importAgent.local.useDisk')"></button>
                                     </div>
                                 </div>
-                                <div class="mt-3">
-                                    <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" @click="showAdvanced = !showAdvanced" :aria-expanded="showAdvanced">
-                                        <i class="bi me-1" :class="showAdvanced ? 'bi-chevron-up' : 'bi-chevron-down'"></i><span x-text="t('importAgent.local.advanced')"></span>
+                            </div>
+                        </div>
+
+                        <div class="col-12 col-xl-5">
+                            <div class="card shadow-sm border-0 mb-4">
+                                <div class="card-header bg-white py-3 d-flex align-items-center gap-2">
+                                    <i class="bi bi-window text-primary"></i>
+                                    <h3 class="h6 mb-0 fw-semibold" x-text="t('aiSettings.local.browserTitle')"></h3>
+                                </div>
+                                <div class="card-body">
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="aiImportToggle"
+                                            :checked="importToggle" :disabled="!importSupported"
+                                            @change="setImportToggle($event.target.checked)">
+                                        <label class="form-check-label fw-semibold" for="aiImportToggle" x-text="t('aiSettings.local.toggle')"></label>
+                                    </div>
+                                    <p class="text-secondary small mb-0" x-text="t('aiSettings.local.note')"></p>
+                                    <p class="alert alert-warning small mb-0 mt-3 py-2" x-show="!importSupported" x-cloak
+                                        x-text="t('aiSettings.local.unsupported')"></p>
+                                    <p class="alert alert-warning small mb-0 mt-3 py-2" x-show="importSupported && !importStorage" x-cloak
+                                        x-text="t('aiSettings.local.noStorage')"></p>
+                                </div>
+                            </div>
+
+                            <div class="card shadow-sm border-0">
+                                <div class="card-header bg-white py-3 d-flex align-items-center gap-2">
+                                    <i class="bi bi-sliders text-primary"></i>
+                                    <h3 class="h6 mb-0 fw-semibold" x-text="t('aiSettings.local.tuningTitle')"></h3>
+                                    <button type="button" class="btn btn-link btn-sm p-0 ms-auto text-decoration-none"
+                                        @click="showAdvanced = !showAdvanced" :aria-expanded="showAdvanced">
+                                        <i class="bi me-1" :class="showAdvanced ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+                                        <span x-text="showAdvanced ? t('importAgent.logs.hide') : t('importAgent.local.advanced')"></span>
                                     </button>
-                                    <div x-show="showAdvanced" x-cloak class="row g-2 mt-2">
-                                        <div class="col-6 col-md-3">
+                                </div>
+                                <div class="card-body">
+                                    <p class="text-secondary small mb-0" x-text="t('aiSettings.local.tuningNote')"></p>
+                                    <div x-show="showAdvanced" x-cloak class="row g-3 mt-2">
+                                        <div class="col-6">
                                             <label class="form-label small mb-1" for="aiThreads" x-text="t('importAgent.local.threads')"></label>
                                             <input id="aiThreads" type="number" class="form-control form-control-sm" min="1" max="16"
                                                 x-model.number="advanced.threads">
                                         </div>
-                                        <div class="col-6 col-md-3">
+                                        <div class="col-6">
                                             <label class="form-label small mb-1" for="aiContext" x-text="t('importAgent.local.context')"></label>
                                             <input id="aiContext" type="number" class="form-control form-control-sm" min="1024" max="32768" step="1024"
                                                 x-model.number="advanced.context">
                                         </div>
-                                        <div class="col-6 col-md-3">
+                                        <div class="col-6">
                                             <label class="form-label small mb-1" for="aiMaxOut" x-text="t('importAgent.local.maxOutput')"></label>
                                             <input id="aiMaxOut" type="number" class="form-control form-control-sm" min="256" max="8192" step="256"
                                                 x-model.number="advanced.maxOutputTokens">
                                         </div>
-                                        <div class="col-6 col-md-3 d-flex align-items-end">
+                                        <div class="col-6 d-flex align-items-end">
                                             <button type="button" class="btn btn-sm btn-outline-secondary w-100" @click="saveAdvancedConfig()"
                                                 x-text="t('importAgent.local.saveAdvanced')"></button>
+                                        </div>
+                                    </div>
+                                    <div class="mt-3 pt-3 border-top">
+                                        <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" @click="showModelLogs = !showModelLogs" :aria-expanded="showModelLogs">
+                                            <i class="bi me-1" :class="showModelLogs ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+                                            <span x-text="showModelLogs ? t('importAgent.logs.hide') : t('importAgent.logs.show')"></span>
+                                        </button>
+                                        <div class="ms-2 d-inline-flex gap-2" x-show="showModelLogs" x-cloak>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" @click="copyModelLog()"
+                                                x-text="modelLogCopied ? t('importAgent.logs.copied') : t('importAgent.logs.copy')"></button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" @click="clearModelLogs()"
+                                                x-text="t('importAgent.logs.clear')"></button>
+                                        </div>
+                                        <div x-show="showModelLogs" x-cloak class="mt-2">
+                                            <p class="small text-muted mb-1" x-show="modelLog.length === 0" x-text="t('importAgent.logs.empty')"></p>
+                                            <div class="border rounded bg-body-tertiary p-2 font-monospace small overflow-auto" style="max-height:16rem">
+                                                <template x-for="(entry, lIndex) in modelLog" :key="lIndex">
+                                                    <div class="d-flex gap-2">
+                                                        <span class="text-muted text-nowrap" x-text="entry.at"></span>
+                                                        <span class="text-nowrap"
+                                                            :class="entry.level === 'error' ? 'text-danger' : entry.level === 'warn' ? 'text-warning' : 'text-body'"
+                                                            x-text="entry.level"></span>
+                                                        <span class="text-break">
+                                                            <span x-text="entry.message"></span>
+                                                            <span class="text-muted" x-show="entry.detail" x-text="' — ' + entry.detail"></span>
+                                                        </span>
+                                                    </div>
+                                                </template>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

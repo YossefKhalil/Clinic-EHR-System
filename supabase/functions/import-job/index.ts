@@ -1213,11 +1213,31 @@ async function actionLocalSubmit(body: Record<string, unknown>, ctx: Context) {
     // The tray holds the rejects of the chunk's latest attempt, so the
     // previous ones are dropped first. A second submit of the same chunk
     // therefore leaves the same tray as the first one.
-    const split = await persistChunkResult(ctx, job, chunkRow as never, result, {
-        pipelineKind,
-        replaceRejects: true,
-        modelIdentity: local.model,
-    });
+    const split = await (async () => {
+        try {
+            return await persistChunkResult(ctx, job, chunkRow as never, result, {
+                pipelineKind,
+                replaceRejects: true,
+                modelIdentity: local.model,
+            });
+        } catch (err) {
+            // A persistence failure must not strand the chunk on its short
+            // submit lease: put it back in the queue so the browser can retry
+            // or surface the error, instead of the job sitting at N-1 chunks.
+            console.error('local_submit persistence failed', job.id, chunkId,
+                (err as Error)?.message, (err as Error)?.stack);
+            await service
+                .from('import_chunks')
+                .update({ status: 'queued', lease_until: null, error_code: 'PERSIST_FAILED' })
+                .eq('id', chunkId)
+                .eq('job_id', job.id)
+                .eq('status', 'running');
+            return fail('PERSIST_FAILED', 500, {
+                detail: String((err as Error)?.message ?? '').slice(0, 500),
+            });
+        }
+    })();
+    if (split instanceof Response) return split;
     if (split) await insertSplitChildren(service, job.id as string, split);
     if (result.status === 'failed') {
         // The extractor turns a thrown provider error into a result, so this
@@ -1249,8 +1269,8 @@ async function actionLocalFail(body: Record<string, unknown>, ctx: Context) {
     if (cfg.inference_mode !== 'local') return fail('LOCAL_MODE_REQUIRED', 409);
 
     const chunkId = String(body.chunk_id ?? '');
-    const code = String(body.error_code ?? 'LOCAL_ERROR').slice(0, 64) || 'LOCAL_ERROR';
-    const detail = String(body.error_detail ?? '');
+    const code = String(body.error_code ?? body.code ?? 'LOCAL_ERROR').slice(0, 64) || 'LOCAL_ERROR';
+    const detail = String(body.error_detail ?? body.detail ?? '');
     const maxAttempts = localMaxAttempts(job);
 
     const { data: chunk } = await service
@@ -1303,6 +1323,49 @@ async function actionLocalFail(body: Record<string, unknown>, ctx: Context) {
         requeued: canRetry,
         retryable,
         chunk_status: updated.status,
+    });
+}
+
+/**
+ * Return a chunk the browser owns to the queue regardless of its lease token.
+ * Used when local_submit failed before it could write (gateway error, function
+ * crash): the lease may have rotated, so local_fail can no longer match it.
+ * Only the job owner can call this, and only for a chunk that is still
+ * running or queued, so finished rows are never discarded.
+ */
+async function actionLocalRequeue(body: Record<string, unknown>, ctx: Context) {
+    const { user, service } = ctx;
+    const loaded = await loadJobForUser(service, user.id, String(body.job_id ?? ''));
+    if ('error' in loaded) return fail(loaded.error, loaded.error === 'NOT_FOUND' ? 404 : 403);
+    const job = loaded.job;
+    if (job.status !== 'extracting' || job.cancelled_at) return fail('JOB_STATE', 409);
+    const cfg = (job.config ?? {}) as Record<string, unknown>;
+    if (cfg.inference_mode !== 'local') return fail('LOCAL_MODE_REQUIRED', 409);
+
+    const chunkId = String(body.chunk_id ?? '');
+    const { data: chunk } = await service
+        .from('import_chunks')
+        .select('id, status')
+        .eq('id', chunkId)
+        .eq('job_id', job.id)
+        .maybeSingle();
+    if (!chunk) return fail('NOT_FOUND', 404);
+
+    const { data: updated } = await service
+        .from('import_chunks')
+        .update({ status: 'queued', lease_until: null })
+        .eq('id', chunkId)
+        .eq('job_id', job.id)
+        .in('status', ['running', 'queued'])
+        .select('status')
+        .maybeSingle();
+
+    const progress = await chunkProgress(service, job.id);
+    return json({
+        ok: true,
+        requeued: Boolean(updated),
+        chunk_status: updated?.status ?? chunk.status,
+        progress,
     });
 }
 
@@ -1449,6 +1512,7 @@ Deno.serve(async (req) => {
             case 'local_fail': return await actionLocalFail(body, ctx);
             case 'local_heartbeat': return await actionLocalHeartbeat(body, ctx);
             case 'local_release': return await actionLocalRelease(body, ctx);
+            case 'local_requeue': return await actionLocalRequeue(body, ctx);
             default: return fail('BAD_REQUEST');
         }
     } catch (err) {

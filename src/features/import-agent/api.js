@@ -82,9 +82,13 @@ export async function callJob(action, payload = {}) {
         // Non-2xx responses land in `error` with the body in its context.
         let body = null;
         let status = null;
+        let text = '';
         try {
             status = error.context?.status ?? null;
-            body = typeof error.context?.json === 'function' ? await error.context.json() : null;
+            text = typeof error.context?.text === 'function' ? await error.context.text() : '';
+            if (text) {
+                try { body = JSON.parse(text); } catch { body = null; }
+            }
         } catch {
             body = null;
         }
@@ -95,7 +99,10 @@ export async function callJob(action, payload = {}) {
             throw new ImportApiError('UNAUTHORIZED', 'importAgent.error.UNAUTHORIZED', { status });
         }
         if (body?.code) throw new ImportApiError(body.code, body.message_key, { params: body.params ?? {} });
-        throw new ImportApiError('INTERNAL', 'importAgent.error.INTERNAL', { status });
+        throw new ImportApiError('INTERNAL', 'importAgent.error.INTERNAL', {
+            status,
+            detail: String(text || error.message || '').slice(0, 500),
+        });
     }
     if (!data || data.ok !== true) {
         const code = data?.code ?? 'INTERNAL';

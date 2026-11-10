@@ -1231,6 +1231,13 @@ function app() {
             // The user list is fetched when its tab is shown.
             if (tab === 'users') await this.loadUsers();
         },
+
+        // The Import page keeps a one-line model status; the full model card
+        // lives in Settings. This opens that tab from the wizard.
+        openAiSettings() {
+            this.settingsTab = 'ai';
+            this.navigate('settings');
+        },
         
         // Keyboard support for the tablist (ARIA tabs). RTL flips the visual
         // direction per the ARIA authoring practices.

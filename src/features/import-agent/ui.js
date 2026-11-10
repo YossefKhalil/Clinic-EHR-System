@@ -581,7 +581,7 @@ export function importAgentWizard() {
                             job_id: this.job.id,
                             model: this.storedLocalModel,
                             config: this.storedLocalConfig,
-                            lease_seconds: 900,
+                            lease_seconds: 180,
                             max_attempts: 5,
                             parallel: 1,
                         });
@@ -610,6 +610,27 @@ export function importAgentWizard() {
                         await sleep(Math.max(500, Number(claim.retry_after_ms ?? 2000)));
                         continue;
                     }
+
+                    // Keep the lease fresh while the CPU is busy. Without a
+                    // heartbeat a slow chunk outlives its lease, so a submit
+                    // failure leaves it running and the job looks stuck.
+                    let lease = claim.lease_expires_at ?? chunk.lease_until;
+                    const heartbeat = setInterval(async () => {
+                        try {
+                            const beat = await api.callJob('local_heartbeat', {
+                                job_id: this.job.id,
+                                chunk_id: chunk.id,
+                                model: this.storedLocalModel,
+                                config: this.storedLocalConfig,
+                                lease_expires_at: lease,
+                                lease_seconds: 180,
+                            });
+                            if (beat?.lease_expires_at) lease = beat.lease_expires_at;
+                        } catch {
+                            // a lost heartbeat only shortens the lease
+                        }
+                    }, 45_000);
+                    this.chunkHeartbeat = heartbeat;
 
                     const payload = chunk.payload ?? {};
                     const kind = payload.kind === 'image' ? 'image' : payload.kind === 'sheet' ? 'sheet' : 'text';
@@ -646,7 +667,7 @@ export function importAgentWizard() {
                         };
                     }
 
-                    const lease = claim.lease_expires_at ?? chunk.lease_until;
+                    lease = claim.lease_expires_at ?? chunk.lease_until;
                     if (this.cancelRequested || result.status === 'cancelled') {
                         try {
                             await api.callJob('local_release', {
@@ -659,6 +680,8 @@ export function importAgentWizard() {
                         } catch {
                             // releasing is best-effort on cancel
                         }
+                        clearInterval(heartbeat);
+                        this.chunkHeartbeat = null;
                         break;
                     }
 
@@ -678,23 +701,54 @@ export function importAgentWizard() {
                             + `${(result.documents ?? []).length} row(s), ${(result.rejected ?? []).length} rejected, `
                             + `${submitted.progress?.done ?? '?'}/${submitted.progress?.total ?? '?'} chunks done`);
                     } catch (error) {
-                        this.pushModelLog('error', `chunk #${chunk.idx} was not accepted: ${error?.code || 'LOCAL_ERROR'}`,
-                            String(error?.message ?? '').slice(0, 300));
+                        const code = error?.code || 'LOCAL_ERROR';
+                        const detail = String(error?.details?.params?.detail || error?.details?.detail || error?.message || '').slice(0, 500);
+                        this.pushModelLog('error', `chunk #${chunk.idx} was not accepted: ${code}`, detail);
+                        let recovered = false;
                         try {
-                            await api.callJob('local_fail', {
+                            const failed = await api.callJob('local_fail', {
                                 job_id: this.job.id,
                                 chunk_id: chunk.id,
-                                code: error?.code || 'LOCAL_ERROR',
-                                detail: String(error?.message ?? '').slice(0, 300),
+                                error_code: code,
+                                error_detail: detail,
+                                code,
+                                detail,
                                 model: this.storedLocalModel,
                                 config: this.storedLocalConfig,
                                 lease_expires_at: lease,
                             });
+                            recovered = failed?.requeued === true || failed?.chunk_status === 'queued';
+                            if (failed?.progress) this.applyProgress(failed.progress);
+                            if (failed?.chunk_status === 'failed') recovered = true;
                         } catch {
-                            // the claim lease expires and the chunk returns to
-                            // the queue
+                            // fall through to the owner-only requeue below
+                        }
+                        if (!recovered) {
+                            // The submit may have taken the lease or timed out
+                            // before writing, so local_fail can no longer match
+                            // the lease token. The chunk is ours (this tab
+                            // extracted it): put it back in the queue instead of
+                            // leaving the job stuck on a running chunk.
+                            try {
+                                const requeued = await api.callJob('local_requeue', {
+                                    job_id: this.job.id,
+                                    chunk_id: chunk.id,
+                                    model: this.storedLocalModel,
+                                    config: this.storedLocalConfig,
+                                });
+                                recovered = requeued?.requeued !== false;
+                                if (requeued?.progress) this.applyProgress(requeued.progress);
+                            } catch (requeueError) {
+                                this.pushModelLog('error', 'could not return the chunk to the queue',
+                                    String(requeueError?.message ?? '').slice(0, 300));
+                            }
+                        }
+                        if (recovered) {
+                            this.pushModelLog('info', `chunk #${chunk.idx} returned to the queue; retrying it`);
                         }
                     }
+                    clearInterval(heartbeat);
+                    this.chunkHeartbeat = null;
                     if (this.jobStatus !== 'extracting') break;
                 }
                 if (this.cancelRequested) return;
@@ -709,6 +763,10 @@ export function importAgentWizard() {
             } finally {
                 this.pumpActive = false;
                 this.chunkController = null;
+                if (this.chunkHeartbeat) {
+                    clearInterval(this.chunkHeartbeat);
+                    this.chunkHeartbeat = null;
+                }
                 this.activeChunk = null;
             }
         },
