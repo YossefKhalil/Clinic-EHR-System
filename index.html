@@ -1224,39 +1224,47 @@
                         <div class="card-body">
                             <!-- Model status: the full card lives in Settings → AI & Import.
                                  The files stay on this device. -->
-                            <div class="d-flex align-items-center gap-2 mb-3">
-                                <span class="rounded-circle d-inline-block flex-shrink-0"
-                                    :class="modelReady ? 'bg-success' : (modelState === 'error' || modelState === 'unsupported' ? 'bg-danger' : 'bg-secondary')"
-                                    style="width:10px;height:10px"></span>
-                                <strong x-text="modelTitle"></strong>
-                                <span class="text-muted small text-truncate" x-text="modelStatusSentence"></span>
-                                <span class="text-muted small ms-auto" x-text="formatBytes(modelBytes)"></span>
-                            </div>
-                            <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-                                <button type="button" class="btn btn-sm btn-primary"
-                                    x-show="modelState === 'missing' && !diskFilesReady"
-                                    @click="downloadModel()" x-text="t('importAgent.local.download')"></button>
-                                <button type="button" class="btn btn-sm btn-primary"
-                                    x-show="modelState === 'ready' && !modelInfo"
-                                    @click="loadStoredModel()" x-text="t('importAgent.local.load')"></button>
-                                <button type="button" class="btn btn-sm btn-outline-secondary"
-                                    x-show="modelState === 'ready' && modelInfo"
-                                    @click="unloadModel()" x-text="t('importAgent.local.unload')"></button>
-                                <button type="button" class="btn btn-sm btn-link p-0"
-                                    x-show="modelState === 'downloading'"
-                                    @click="cancelDownload()" x-text="t('importAgent.local.cancel')"></button>
-                                <a class="btn btn-sm btn-link p-0 ms-auto" href="#" @click.prevent="navigate('settings')" x-text="t('importAgent.local.manage')"></a>
-                            </div>
-                            <div x-show="modelState === 'downloading' || modelState === 'verifying' || modelState === 'loading'"
-                                x-cloak class="progress mb-3" style="height:6px">
-                                <div class="progress-bar" :style="`width:${modelProgressPercent}%`"></div>
-                            </div>
-                            <div x-show="modelState === 'unsupported'" x-cloak
-                                class="alert alert-warning mb-3 py-2 small"
-                                x-text="t('importAgent.local.status.unsupported')"></div>
-                            <div x-show="modelState === 'error'" x-cloak class="alert alert-danger mb-3 py-2 small">
-                                <span x-text="modelError ? t(modelError.messageKey) : t('importAgent.local.status.error')"></span>
-                                <span class="d-block text-muted" x-show="modelError?.detail" x-text="modelError?.detail"></span>
+                            <div class="rounded-3 border bg-light-subtle p-3 mb-3">
+                                <div class="d-flex align-items-center gap-2 flex-wrap">
+                                    <span class="rounded-circle d-inline-block flex-shrink-0"
+                                        :class="modelLoaded() || modelState === 'ready' ? 'bg-success' : (modelState === 'error' || modelState === 'unsupported' ? 'bg-danger' : 'bg-secondary')"
+                                        style="width:10px;height:10px"></span>
+                                    <strong x-text="modelTitle()"></strong>
+                                    <span class="badge rounded-pill text-bg-light border fw-normal" x-text="modelStatusSentence()"></span>
+                                    <span class="text-muted small ms-auto" x-text="formatBytes(modelBytes())"></span>
+                                </div>
+                                <div x-show="modelState === 'downloading' || modelState === 'verifying' || modelState === 'loading'" x-cloak class="mt-2">
+                                    <div class="progress" style="height:6px">
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated" :style="`width:${modelProgressPercent()}%`"></div>
+                                    </div>
+                                    <div class="small text-muted mt-1" x-text="modelProgressLabel()"></div>
+                                </div>
+                                <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                                    <button type="button" class="btn btn-sm btn-primary"
+                                        x-show="modelState === 'missing'"
+                                        @click="downloadModel()">
+                                        <i class="bi bi-cloud-arrow-down me-1"></i><span x-text="t('importAgent.local.download')"></span>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-primary"
+                                        x-show="modelState === 'ready' && !modelInfo"
+                                        @click="loadStoredModel()">
+                                        <i class="bi bi-play-fill me-1"></i><span x-text="t('importAgent.local.load')"></span>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                                        x-show="modelInfo"
+                                        @click="unloadModel()" x-text="t('importAgent.local.unload')"></button>
+                                    <button type="button" class="btn btn-sm btn-link p-0"
+                                        x-show="modelState === 'downloading' || modelState === 'verifying' || modelState === 'loading'"
+                                        @click="cancelDownload()" x-text="t('importAgent.local.cancel')"></button>
+                                    <a class="btn btn-sm btn-link p-0 ms-auto" href="#" @click.prevent="navigate('settings')" x-text="t('importAgent.local.manage')"></a>
+                                </div>
+                                <div x-show="modelState === 'unsupported'" x-cloak
+                                    class="alert alert-warning mt-2 mb-0 py-2 small"
+                                    x-text="t('importAgent.local.status.unsupported')"></div>
+                                <div x-show="modelState === 'error'" x-cloak class="alert alert-danger mt-2 mb-0 py-2 small">
+                                    <span x-text="modelError ? t(modelError.messageKey) : t('importAgent.local.status.error')"></span>
+                                    <span class="d-block text-muted" x-show="modelError?.detail" x-text="modelError?.detail"></span>
+                                </div>
                             </div>
                             <label class="dropzone-hero d-block border border-2 border-dashed rounded-4 text-center px-4 py-5 position-relative" style="cursor:pointer">
                                 <span class="dropzone-icon d-inline-flex align-items-center justify-content-center rounded-circle bg-primary-subtle text-primary mb-3">
@@ -1318,7 +1326,7 @@
                             </template>
 
                             <div class="text-end mt-4">
-                                <button type="button" class="btn btn-primary btn-lg" @click="analyze()" :disabled="addBlocked || !modelReady">
+                                <button type="button" class="btn btn-primary btn-lg" @click="analyze()" :disabled="addBlocked || !modelReady()">
                                     <span class="spinner-border spinner-border-sm me-1" x-show="busy" x-cloak></span>
                                     <i class="bi bi-stars me-1" x-show="!busy"></i>
                                     <span x-text="busy ? t('importAgent.wizard.sending') : t('importAgent.start.analyze')"></span>
@@ -2687,45 +2695,62 @@
 
                             <!-- The model card: one model, one status, one sentence. -->
                             <div class="border rounded-4 p-3 mt-3 bg-light-subtle" x-data="aiModelCard()" x-cloak>
-                                <div class="d-flex align-items-center gap-2">
-                                    <span class="rounded-circle d-inline-block flex-shrink-0"
-                                        :class="modelReady ? 'bg-success' : (modelState === 'error' || modelState === 'unsupported' ? 'bg-danger' : 'bg-secondary')"
+                                <div class="d-flex align-items-start gap-3">
+                                    <span class="rounded-circle d-inline-block flex-shrink-0 mt-2"
+                                        :class="modelLoaded() || modelState === 'ready' ? 'bg-success' : (modelState === 'error' || modelState === 'unsupported' ? 'bg-danger' : 'bg-secondary')"
                                         style="width:10px;height:10px"></span>
-                                    <strong x-text="modelTitle"></strong>
-                                    <span class="text-muted small ms-auto" x-text="formatBytes(modelBytes)"></span>
+                                    <div class="flex-grow-1 min-w-0">
+                                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                                            <strong x-text="modelTitle()"></strong>
+                                            <span class="badge rounded-pill text-bg-light border fw-normal" x-text="modelStatusSentence()"></span>
+                                            <span class="text-muted small ms-auto" x-text="formatBytes(modelBytes())"></span>
+                                        </div>
+                                        <div class="small text-muted mt-1" x-show="modelInfo"
+                                            x-text="t('importAgent.local.loadedWith', { threads: modelInfo?.threads ?? 0, variant: modelInfo?.mode ?? '' })"></div>
+                                        <div x-show="modelState === 'downloading' || modelState === 'verifying' || modelState === 'loading'" x-cloak class="mt-2">
+                                            <div class="progress" style="height:6px">
+                                                <div class="progress-bar progress-bar-striped progress-bar-animated" :style="`width:${modelProgressPercent()}%`"></div>
+                                            </div>
+                                            <div class="small text-muted mt-1 d-flex justify-content-between gap-2">
+                                                <span x-text="modelStatusSentence()"></span>
+                                                <span x-text="modelProgressLabel()"></span>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="small text-muted mt-1" x-text="modelStatusSentence"></div>
-                                <div class="small text-muted mt-1" x-show="modelInfo" x-text="t('importAgent.local.loadedWith', { threads: modelInfo?.threads ?? 0, variant: modelInfo?.mode ?? '' })"></div>
-                                <div x-show="modelState === 'downloading' || modelState === 'verifying' || modelState === 'loading'"
-                                    x-cloak class="progress mt-2" style="height:6px">
-                                    <div class="progress-bar" :style="`width:${modelProgressPercent}%`"></div>
-                                </div>
-                                <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                                <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
                                     <button type="button" class="btn btn-sm btn-primary"
-                                        x-show="modelState === 'missing' && !diskFilesReady"
-                                        @click="downloadModel()" x-text="t('importAgent.local.download')"></button>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                                        x-show="modelState === 'missing'"
+                                        @click="downloadModel()">
+                                        <i class="bi bi-cloud-arrow-down me-1"></i><span x-text="t('importAgent.local.download')"></span>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-primary"
                                         x-show="modelState === 'ready' && !modelInfo"
-                                        @click="loadStoredModel()" x-text="t('importAgent.local.load')"></button>
+                                        @click="loadStoredModel()">
+                                        <i class="bi bi-play-fill me-1"></i><span x-text="t('importAgent.local.load')"></span>
+                                    </button>
                                     <button type="button" class="btn btn-sm btn-outline-secondary"
-                                        x-show="modelState === 'ready' && modelInfo"
+                                        x-show="modelInfo"
                                         @click="unloadModel()" x-text="t('importAgent.local.unload')"></button>
-                                    <button type="button" class="btn btn-sm btn-link text-danger p-0"
-                                        x-show="modelSource === 'stored'"
+                                    <button type="button" class="btn btn-sm btn-link text-danger p-0 ms-2"
+                                        x-show="modelSource === 'stored' && !modelInfo"
                                         @click="removeModel()" x-text="t('importAgent.local.remove')"></button>
                                     <button type="button" class="btn btn-sm btn-link p-0"
-                                        x-show="modelState === 'downloading'"
+                                        x-show="modelState === 'downloading' || modelState === 'verifying' || modelState === 'loading'"
                                         @click="cancelDownload()" x-text="t('importAgent.local.cancel')"></button>
                                 </div>
-                                <div class="mt-2">
-                                    <label class="form-label small text-muted mb-1" x-text="t('importAgent.local.diskLabel')"></label>
-                                    <input type="file" class="form-control form-control-sm" accept=".gguf" multiple
-                                        @change="onDiskModelPicked($event)"
-                                        :aria-label="t('importAgent.local.diskLabel')">
-                                    <button type="button" class="btn btn-sm btn-outline-primary mt-2"
-                                        :disabled="!diskFilesReady || modelBusy"
-                                        @click="useDiskModel()" x-text="t('importAgent.local.useDisk')"></button>
-                                    <span class="small text-muted ms-2" x-show="diskFilesReady" x-text="t('importAgent.local.diskReady', { count: (modelFiles.model ? 1 : 0) + (modelFiles.projector ? 1 : 0) })"></span>
+                                <div class="mt-3 pt-3 border-top">
+                                    <div class="small text-muted mb-2" x-text="t('importAgent.local.diskLabel')"></div>
+                                    <div class="d-flex flex-wrap align-items-center gap-2">
+                                        <input type="file" class="form-control form-control-sm" style="max-width:22rem" accept=".gguf" multiple
+                                            @change="onDiskModelPicked($event)"
+                                            :aria-label="t('importAgent.local.diskLabel')">
+                                        <button type="button" class="btn btn-sm btn-outline-primary"
+                                            :disabled="!diskFilesReady() || modelBusy"
+                                            @click="useDiskModel()" x-text="t('importAgent.local.useDisk')"></button>
+                                        <span class="badge text-bg-success-subtle border border-success-subtle text-body fw-normal" x-show="diskFilesReady()"
+                                            x-text="t('importAgent.local.diskReady', { count: (modelFiles.model ? 1 : 0) + (modelFiles.projector ? 1 : 0) })"></span>
+                                    </div>
                                 </div>
                                 <div x-show="modelState === 'unsupported'" x-cloak
                                     class="alert alert-warning mt-2 mb-0 py-2 small"
@@ -2771,17 +2796,17 @@
                                         <div class="col-6 col-md-3">
                                             <label class="form-label small mb-1" for="aiThreads" x-text="t('importAgent.local.threads')"></label>
                                             <input id="aiThreads" type="number" class="form-control form-control-sm" min="1" max="16"
-                                                x-model.number="localConfig.threads">
+                                                x-model.number="advanced.threads">
                                         </div>
                                         <div class="col-6 col-md-3">
                                             <label class="form-label small mb-1" for="aiContext" x-text="t('importAgent.local.context')"></label>
                                             <input id="aiContext" type="number" class="form-control form-control-sm" min="1024" max="32768" step="1024"
-                                                x-model.number="localConfig.context">
+                                                x-model.number="advanced.context">
                                         </div>
                                         <div class="col-6 col-md-3">
                                             <label class="form-label small mb-1" for="aiMaxOut" x-text="t('importAgent.local.maxOutput')"></label>
                                             <input id="aiMaxOut" type="number" class="form-control form-control-sm" min="256" max="8192" step="256"
-                                                x-model.number="localConfig.maxOutputTokens">
+                                                x-model.number="advanced.maxOutputTokens">
                                         </div>
                                         <div class="col-6 col-md-3 d-flex align-items-end">
                                             <button type="button" class="btn btn-sm btn-outline-secondary w-100" @click="saveAdvancedConfig()"

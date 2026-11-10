@@ -52,6 +52,9 @@ export function modelCardState() {
         modelFiles: { model: null, projector: null },
         modelBusy: false,
         localConfig: null,
+        // Advanced inputs bind here: they are safe to render before the runtime
+        // defaults have loaded (localConfig is filled in asynchronously).
+        advanced: { threads: '', context: '', maxOutputTokens: '' },
         downloadController: null,
         // A disk file that already passed verification, kept so a reload can
         // happen without asking for the file again in the same session.
@@ -88,7 +91,7 @@ export function modelCardMethods() {
             this.modelLogCopied = false;
         },
 
-        get modelLogText() {
+        modelLogText() {
             return (this.modelLog ?? [])
                 .map((entry) => `[${entry.at}] ${entry.level.toUpperCase()} ${entry.message}`
                     + (entry.detail ? `\n    ${entry.detail}` : ''))
@@ -97,7 +100,7 @@ export function modelCardMethods() {
 
         async copyModelLog() {
             try {
-                await navigator.clipboard.writeText(this.modelLogText);
+                await navigator.clipboard.writeText(this.modelLogText());
                 this.modelLogCopied = true;
             } catch {
                 this.modelLogCopied = false;
@@ -105,24 +108,24 @@ export function modelCardMethods() {
         },
 
         // ------------------------------------------------------ status
-        get modelReady() {
+        modelReady() {
             return this.modelState === 'ready';
         },
 
-        get modelLoaded() {
+        modelLoaded() {
             return Boolean(this.modelInfo);
         },
 
-        get modelTitle() {
+        modelTitle() {
             return MODEL_MANIFEST.title;
         },
 
-        get modelBytes() {
+        modelBytes() {
             return MODEL_MANIFEST.files.model.bytes + MODEL_MANIFEST.files.projector.bytes;
         },
 
-        get modelStatusSentence() {
-            if (this.modelLoaded) return t('importAgent.local.status.loaded');
+        modelStatusSentence() {
+            if (this.modelLoaded()) return t('importAgent.local.status.loaded');
             const table = {
                 unsupported: 'importAgent.local.status.unsupported',
                 missing: 'importAgent.local.status.missing',
@@ -136,8 +139,18 @@ export function modelCardMethods() {
             return t(table[this.modelState] ?? table.unknown);
         },
 
-        get modelProgressPercent() {
+        modelProgressPercent() {
             return Math.max(0, Math.min(100, Math.round(this.modelProgress?.percent ?? 0)));
+        },
+
+        /** "45% · 540 MB / 1.2 GB" while a download, verify or load runs. */
+        modelProgressLabel() {
+            const progress = this.modelProgress ?? {};
+            const parts = [`${this.modelProgressPercent()}%`];
+            if (Number.isFinite(progress.loaded) && Number.isFinite(progress.total) && progress.total > 0) {
+                parts.push(`${api.formatBytes(progress.loaded)} / ${api.formatBytes(progress.total)}`);
+            }
+            return parts.join(' · ');
         },
 
         formatBytes(n) {
@@ -216,10 +229,18 @@ export function modelCardMethods() {
         /** Keep the advanced knobs for the next visit. */
         saveAdvancedConfig() {
             const config = this.localConfig ?? {};
+            const threads = Number(this.advanced?.threads);
+            const context = Number(this.advanced?.context);
+            const maxOutputTokens = Number(this.advanced?.maxOutputTokens);
+            if (this.localConfig) {
+                if (Number.isFinite(threads) && threads > 0) this.localConfig.threads = threads;
+                if (Number.isFinite(context) && context > 0) this.localConfig.context = context;
+                if (Number.isFinite(maxOutputTokens) && maxOutputTokens > 0) this.localConfig.maxOutputTokens = maxOutputTokens;
+            }
             writeRuntimeOverrides({
-                threads: Number(config.threads),
-                context: Number(config.context),
-                maxOutputTokens: Number(config.maxOutputTokens),
+                threads: Number.isFinite(threads) && threads > 0 ? threads : Number(config.threads),
+                context: Number.isFinite(context) && context > 0 ? context : Number(config.context),
+                maxOutputTokens: Number.isFinite(maxOutputTokens) && maxOutputTokens > 0 ? maxOutputTokens : Number(config.maxOutputTokens),
             });
             this.pushModelLog('info', 'model settings saved; they apply on the next load');
         },
@@ -231,6 +252,11 @@ export function modelCardMethods() {
                 const { defaultConfig } = await loadRuntime();
                 this.localConfig = { ...defaultConfig(), ...readRuntimeOverrides() };
             }
+            this.advanced = {
+                threads: this.localConfig.threads,
+                context: this.localConfig.context,
+                maxOutputTokens: this.localConfig.maxOutputTokens,
+            };
             const { probeRuntime } = await loadRuntime();
             this.modelCapabilities = probeRuntime();
             if (!this.modelCapabilities.usable) {
@@ -271,12 +297,12 @@ export function modelCardMethods() {
             }
         },
 
-        get diskFilesReady() {
+        diskFilesReady() {
             return Boolean(this.modelFiles.model && this.modelFiles.projector);
         },
 
         async useDiskModel() {
-            if (!this.diskFilesReady || this.modelBusy) return;
+            if (!this.diskFilesReady() || this.modelBusy) return;
             this.modelBusy = true;
             this.modelError = null;
             this.modelState = 'verifying';

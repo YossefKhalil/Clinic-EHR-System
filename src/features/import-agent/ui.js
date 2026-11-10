@@ -129,6 +129,9 @@ export function importAgentWizard() {
         // ------------------------------------------------------ lifecycle
         init() {
             window.__iaWizard = this;
+            // The card must show a real status immediately: whether the pinned
+            // model is stored on this browser does not depend on the session.
+            this.initLocal();
             // Visual preview route: `?mock=review` renders the review screen
             // with mock data so a UI change can be checked without running a
             // real extraction. No network, no auth, no patient data.
@@ -409,7 +412,7 @@ export function importAgentWizard() {
             // The model may be stored but not loaded yet (a fresh page load).
             // Loading it here is the whole reason the wizard does not send the
             // user to settings first.
-            if (!this.modelReady && !this.modelLoaded) {
+            if (!this.modelReady() && !this.modelLoaded()) {
                 if (this.modelState === 'unsupported') return;
                 this.busy = true;
                 this.busyLabel = t('importAgent.local.status.loading');
