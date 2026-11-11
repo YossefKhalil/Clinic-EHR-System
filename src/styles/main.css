@@ -1899,3 +1899,11 @@ i.bi {
 .ia-term-debug { color: #8d9db2; }
 .ia-term-msg { color: #d2dae4; }
 .ia-term-detail { color: #7d8ea3; }
+
+
+/* Logs are code, not prose: keep them LTR even in the Arabic UI. */
+.ia-term, .ia-term * { direction: ltr; }
+.ia-term-body { text-align: left; }
+.ia-term-line { align-items: baseline; }
+.ia-term-time, .ia-term-level { white-space: nowrap; }
+.ia-term-msg { flex: 1 1 auto; min-width: 0; word-break: break-word; text-align: left; }

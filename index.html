@@ -1430,19 +1430,23 @@
                                     </div>
                                 </div>
                                 <p class="small text-muted mb-1" x-show="modelLog.length === 0" x-text="t('importAgent.logs.empty')"></p>
-                                <div class="border rounded bg-body-tertiary p-2 font-monospace small overflow-auto" style="max-height:16rem">
-                                    <template x-for="(entry, lIndex) in modelLog" :key="lIndex">
-                                        <div class="d-flex gap-2">
-                                            <span class="text-muted text-nowrap" x-text="entry.at"></span>
-                                            <span class="text-nowrap"
-                                                :class="entry.level === 'error' ? 'text-danger' : entry.level === 'warn' ? 'text-warning' : 'text-body'"
-                                                x-text="entry.level"></span>
-                                            <span class="text-break">
-                                                <span x-text="entry.message"></span>
-                                                <span class="text-muted" x-show="entry.detail" x-text="' - ' + entry.detail"></span>
-                                            </span>
-                                        </div>
-                                    </template>
+                                <div class="ia-term">
+                                    <div class="ia-term-head">
+                                        <span class="ia-term-title"><i class="bi bi-terminal me-2" aria-hidden="true"></i><span x-text="t('importAgent.logs.title')"></span></span>
+                                        <span class="ia-term-count" x-text="modelLog.length"></span>
+                                    </div>
+                                    <div class="ia-term-body">
+                                        <template x-for="(entry, lIndex) in modelLog" :key="lIndex">
+                                            <div class="ia-term-line">
+                                                <span class="ia-term-time" x-text="entry.at"></span>
+                                                <span class="ia-term-level" :class="'ia-term-' + (entry.level || 'info')" x-text="entry.level"></span>
+                                                <span class="ia-term-msg">
+                                                    <span x-text="entry.message"></span>
+                                                    <span class="ia-term-detail" x-show="entry.detail" x-text="' - ' + entry.detail"></span>
+                                                </span>
+                                            </div>
+                                        </template>
+                                    </div>
                                 </div>
                             </div>
                         </div>

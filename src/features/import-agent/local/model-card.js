@@ -23,6 +23,28 @@ function loadStore() {
 /** Advanced knobs the user changed; they apply on the next model load. */
 const RUNTIME_KEY = 'clinic.aiImport.runtime';
 
+/** Set after a stored model loads, so a page refresh loads it again. */
+const AUTOLOAD_KEY = 'clinic.aiImport.autoload';
+
+let autoReloadStarted = false;
+
+function wantsAutoLoad() {
+    try {
+        return window.localStorage.getItem(AUTOLOAD_KEY) === '1';
+    } catch {
+        return false;
+    }
+}
+
+function setAutoLoad(on) {
+    try {
+        if (on) window.localStorage.setItem(AUTOLOAD_KEY, '1');
+        else window.localStorage.removeItem(AUTOLOAD_KEY);
+    } catch {
+        // Private mode: no persistence, the model still works in this tab.
+    }
+}
+
 function readRuntimeOverrides() {
     try {
         const raw = JSON.parse(window.localStorage.getItem(RUNTIME_KEY) ?? '{}');
@@ -100,12 +122,35 @@ export function modelCardMethods() {
         },
 
         async copyModelLog() {
+            const text = this.modelLogText();
+            let ok = false;
             try {
-                await navigator.clipboard.writeText(this.modelLogText());
-                this.modelLogCopied = true;
+                if (navigator.clipboard?.writeText) {
+                    await navigator.clipboard.writeText(text);
+                    ok = true;
+                }
             } catch {
-                this.modelLogCopied = false;
+                ok = false;
             }
+            if (!ok) {
+                // Clipboard API can be denied; a hidden textarea still works
+                // inside the click handler on every supported browser.
+                try {
+                    const area = document.createElement('textarea');
+                    area.value = text;
+                    area.setAttribute('readonly', '');
+                    area.style.position = 'fixed';
+                    area.style.top = '-1000px';
+                    document.body.appendChild(area);
+                    area.select();
+                    ok = document.execCommand('copy');
+                    area.remove();
+                } catch {
+                    ok = false;
+                }
+            }
+            this.modelLogCopied = ok;
+            if (!ok) this.pushModelLog('warn', 'could not copy the log automatically; select the text and copy it manually');
         },
 
         // ------------------------------------------------------ status
@@ -278,6 +323,13 @@ export function modelCardMethods() {
             const stored = await store.storedModel();
             this.modelState = stored.ready ? 'ready' : 'missing';
             this.modelSource = stored.ready ? 'stored' : null;
+            // A refresh drops the in-memory engine, but the model files are
+            // still in OPFS. Load them again automatically when the model was
+            // loaded before, so the import keeps working after F5.
+            if (stored.ready && wantsAutoLoad() && !autoReloadStarted) {
+                autoReloadStarted = true;
+                await this.loadStoredModel();
+            }
         },
 
         async refreshStoredModel() {
@@ -403,9 +455,12 @@ export function modelCardMethods() {
             this.modelState = 'ready';
             this.pushModelLog('info', `model ready: ${info.mode} build, ${info.threads} thread(s)`
                 + (info.vision ? ', vision' : ''));
+            // Only a model that lives in OPFS can come back after a refresh.
+            setAutoLoad(source === 'stored');
         },
 
         async unloadModel() {
+            setAutoLoad(false);
             const engine = await loadRuntime().then((mod) => mod.localEngine);
             await engine.unload();
             this.modelInfo = null;
