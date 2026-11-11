@@ -245,6 +245,8 @@ export function importAgentWizard() {
         showDefaults: false,
         defaultsDraft: {},
         bulkOpen: false,
+        bulkPanel: false,
+        showReviewLogs: false,
         bulkCount: 0,
         bulkField: '',
         bulkValue: '',
@@ -1374,14 +1376,12 @@ export function importAgentWizard() {
             if (rows.length === 0) return;
             const row = rows[this.nextIssueIndex % rows.length];
             this.nextIssueIndex = (this.nextIssueIndex + 1) % rows.length;
-            this.reviewMode = 'advanced';
+            this.reviewMode = 'simple';
             this.filter = 'all';
             this.expandedRowId = row.id;
-            // The advanced table is created by x-if, so it only exists after
-            // the next render.
             this.$nextTick(() => {
                 this.$nextTick(() => {
-                    document.getElementById(`review-row-advanced-${row.id}`)?.scrollIntoView({
+                    document.getElementById(`review-row-simple-${row.id}`)?.scrollIntoView({
                         behavior: 'smooth',
                         block: 'center',
                     });
@@ -1880,6 +1880,12 @@ export function importAgentWizard() {
             this.bulkValue = '';
             this.bulkMode = 'blanks';
             this.bulkOpen = true;
+        },
+
+        /** The inline bulk panel that replaces the old Simple / Advanced switch. */
+        toggleBulkPanel() {
+            this.bulkPanel = !this.bulkPanel;
+            if (!this.bulkPanel) this.selected = [];
         },
 
         /** Filter chips reset the selection; the bulk modal must close with it. */
