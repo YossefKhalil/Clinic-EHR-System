@@ -1168,6 +1168,20 @@ function app() {
         sourceFinancialEntries() {
             return this.financialEntries('source', this.priceStats?.sourceTotals);
         },
+        completionPercent() {
+            const total = Number(this.stats?.total) || 0;
+            if (total <= 0) return 0;
+            return Math.min(100, Math.max(0, Math.round(((Number(this.stats?.completed) || 0) / total) * 100)));
+        },
+        sectionCountMax() {
+            return Math.max(1, ...this.sectionStatEntries().map((entry) => Number(entry.count) || 0));
+        },
+        sectionMoneyMax() {
+            return Math.max(1, ...this.sectionFinancialEntries().map((entry) => Number(entry.total) || 0));
+        },
+        sourceMoneyMax() {
+            return Math.max(1, ...this.sourceFinancialEntries().map((entry) => Number(entry.total) || 0));
+        },
         hasFinancialData() {
             return (this.priceStats?.totalPatients ?? 0) > 0;
         },

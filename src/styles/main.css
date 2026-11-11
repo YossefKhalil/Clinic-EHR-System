@@ -1944,3 +1944,24 @@ i.bi {
 .dash-hero-number { font-size: 2.75rem; font-weight: 700; line-height: 1; letter-spacing: -.02em; }
 .dash-stat { display: flex; align-items: center; gap: .4rem; }
 .dash-section-title { text-transform: none; font-size: .85rem; letter-spacing: 0; }
+
+
+/* Dashboard expanded overview: one number, one completion bar, measured lists */
+.dash-hero { display: flex; flex-wrap: wrap; align-items: center; gap: 1.5rem 2.5rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--bs-border-color); }
+.dash-hero-main { display: flex; align-items: baseline; gap: .75rem; }
+.dash-hero-side { flex: 1 1 260px; min-width: 220px; max-width: 420px; margin-inline-start: auto; }
+.dash-split { height: .5rem; border-radius: 999px; background: var(--bs-danger-bg-subtle, #f8d7da); }
+.dash-split .progress-bar { border-radius: 999px; }
+.dash-panel { padding: 1rem 0; }
+.dash-panel-title { font-size: .9rem; font-weight: 700; color: var(--bs-secondary-color); margin-bottom: .75rem; }
+.dash-meter { padding: .25rem 0; }
+.dash-meter-track { height: 6px; border-radius: 999px; background: var(--bs-tertiary-bg, #f1f3f5); overflow: hidden; }
+.dash-meter-fill { height: 100%; border-radius: 999px; }
+.dash-money-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; padding: 1.25rem 1.5rem; border-radius: .9rem; background: linear-gradient(120deg, #0d6efd 0%, #0a58ca 100%); color: #fff; }
+.dash-money-value { font-size: 2rem; font-weight: 700; line-height: 1.1; }
+.dash-money-currency { font-size: .9rem; font-weight: 500; opacity: .8; }
+.dash-money-count { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
+.dash-money-row { padding: .55rem 0; border-top: 1px solid var(--bs-border-color); }
+.dash-money-row:first-of-type { border-top: 0; }
+.dash-money-label { display: inline-flex; align-items: center; gap: .45rem; min-width: 0; }
+.dash-money-amount { font-weight: 700; white-space: nowrap; }
