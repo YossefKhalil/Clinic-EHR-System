@@ -25,7 +25,7 @@ import { readRememberPreference, saveRememberPreference } from './services/sessi
 import { dbErrorMessage } from './services/error-message.js';
 import { initCloudinary, getImageUrl, isImageAttachment, refreshAttachmentUrls } from './services/cloudinary.js';
 import { isProtectedCloudinaryUrl, transformCloudinaryImageUrl } from './services/cloudinary-url.js';
-import { getDashboardStats, getRecentPatients } from './services/dashboard.js';
+import { getDashboardStats, getRecentPatients, getDashboardOverview } from './services/dashboard.js';
 import { getPatients, getPatientsPage, getPatient, deletePatient, togglePatientStatus, GOVERNORATES, governorateLabel } from './services/patients.js';
 import { buildPatientPayload, splitPhoneNumbers, joinPhoneNumbers } from './services/patient-payload.js';
 import { emptyPatientFilters, activeFilterKeys } from './services/patient-filters.js';
@@ -201,6 +201,9 @@ function app() {
         // taking the whole dashboard down.
         priceStats: null,
         priceStatsError: null,
+        // One cached overview for a short window, shared by the dashboard.
+        dashboardOverview: null,
+        dashboardOverviewAt: 0,
 
         // AI import entry. The engine runs on this device's CPU, so there is no
         // server flag: importSupported is the local capability check (wasm SIMD
@@ -1092,12 +1095,23 @@ function app() {
         async showDashboard() {
             if (!this.isLoggedIn) return;
             const epoch = this.sessionEpoch;
-            // One navigation pass: stats, recent patients and the financial
-            // summary load in parallel (#15), so the dashboard never makes a
-            // duplicate prices request. Stats/table failures keep the old
-            // behavior (bubble up to the caller); a financial-summary failure
-            // is contained inside its own card (warning + retry). RLS limits
-            // every query to the sections this account may read.
+            // The overview is one request and it is reused for a short window,
+            // so moving between pages does not re-run the aggregates.
+            const now = Date.now();
+            if (this.dashboardOverview && now - this.dashboardOverviewAt < 60_000) {
+                this.applyDashboardOverview(this.dashboardOverview);
+                return;
+            }
+            try {
+                const overview = await getDashboardOverview();
+                if (epoch !== this.sessionEpoch) return;
+                this.dashboardOverview = overview;
+                this.dashboardOverviewAt = now;
+                this.applyDashboardOverview(overview);
+                return;
+            } catch {
+                // dashboard_overview is not deployed yet: keep the older calls.
+            }
             const [_summary, stats, recent] = await Promise.allSettled([
                 this.loadPriceStats(),
                 getDashboardStats(),
@@ -1110,6 +1124,13 @@ function app() {
             if (recent.status === 'fulfilled') this.recentPatients = recent.value;
             if (stats.status === 'rejected') throw stats.reason;
             if (recent.status === 'rejected') throw recent.reason;
+        },
+
+        applyDashboardOverview(overview) {
+            this.stats = overview.stats;
+            this.priceStats = overview.price;
+            this.priceStatsError = null;
+            this.recentPatients = overview.recent;
         },
 
         // The financial summary never throws: a failure is shown inside the
@@ -1371,6 +1392,8 @@ function app() {
         
         async loadPatients({ page = 1 } = {}) {
             if (!this.isLoggedIn) return;
+            // Patient data changed; the cached overview is stale now.
+            this.dashboardOverview = null;
             const epoch = this.sessionEpoch;
             this.patientPage = Math.max(1, Math.trunc(Number(page) || 1));
             this.patientsLoading = true;

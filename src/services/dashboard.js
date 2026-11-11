@@ -1,4 +1,5 @@
 import { supabase } from './supabase.js';
+import { normalizePriceStats } from './prices.js';
 
 function countMap(value) {
     const result = {};
@@ -26,6 +27,24 @@ export function normalizeDashboardStats(payload) {
         pending,
         sections: countMap(payload?.sections),
         sources: countMap(payload?.sources),
+    };
+}
+
+/**
+ * One request for the whole dashboard: the totals, the completion split, the
+ * money summary and the recent rows. Falls back to the three older calls when
+ * the function is not deployed yet.
+ */
+export async function getDashboardOverview(limit = 5) {
+    const { data, error } = await supabase().rpc('dashboard_overview', { p_recent_limit: limit });
+    if (error) throw error;
+    return {
+        stats: normalizeDashboardStats(data?.stats),
+        price: normalizePriceStats(data?.price),
+        recent: (data?.recent || []).map(p => ({
+            ...p,
+            user_name: p.registered_by_name || 'Unknown',
+        })),
     };
 }
 

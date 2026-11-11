@@ -593,6 +593,92 @@ REVOKE ALL ON FUNCTION public.price_stats() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.dashboard_stats() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.price_stats() TO authenticated;
 
+-- One call for the whole dashboard: the patient totals and the money summary
+-- read the rows once (the old pair read the table twice), and the recent list
+-- rides along, so the browser makes one request instead of three.
+CREATE OR REPLACE FUNCTION public.dashboard_overview(p_recent_limit integer DEFAULT 5)
+RETURNS JSONB
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+    WITH rows AS MATERIALIZED (
+        SELECT is_completed, section, source_of_money, COALESCE(price, 0)::numeric AS price
+        FROM public.patients
+    ),
+    counts AS (
+        SELECT
+            count(*)::bigint AS total,
+            count(*) FILTER (WHERE is_completed)::bigint AS completed
+        FROM rows
+    ),
+    section_counts AS (
+        SELECT COALESCE(jsonb_object_agg(section, n), '{}'::jsonb) AS value
+        FROM (
+            SELECT section, count(*)::bigint AS n
+            FROM rows WHERE section IS NOT NULL GROUP BY section
+        ) grouped
+    ),
+    source_counts AS (
+        SELECT COALESCE(jsonb_object_agg(source_of_money, n), '{}'::jsonb) AS value
+        FROM (
+            SELECT source_of_money, count(*)::bigint AS n
+            FROM rows WHERE source_of_money IS NOT NULL GROUP BY source_of_money
+        ) grouped
+    ),
+    section_money AS (
+        SELECT COALESCE(jsonb_object_agg(section, jsonb_build_object('total', total, 'count', n)), '{}'::jsonb) AS value
+        FROM (
+            SELECT section, sum(price) AS total, count(*)::bigint AS n
+            FROM rows WHERE section IS NOT NULL GROUP BY section
+        ) grouped
+    ),
+    source_money AS (
+        SELECT COALESCE(jsonb_object_agg(source_of_money, jsonb_build_object('total', total, 'count', n)), '{}'::jsonb) AS value
+        FROM (
+            SELECT source_of_money, sum(price) AS total, count(*)::bigint AS n
+            FROM rows WHERE source_of_money IS NOT NULL GROUP BY source_of_money
+        ) grouped
+    ),
+    recent AS (
+        SELECT COALESCE(jsonb_agg(item ORDER BY created_at DESC), '[]'::jsonb) AS value
+        FROM (
+            SELECT to_jsonb(p) - 'notes' - 'attachments' AS item, p.created_at
+            FROM public.patients p
+            ORDER BY p.created_at DESC
+            LIMIT GREATEST(1, LEAST(COALESCE(p_recent_limit, 5), 20))
+        ) limited
+    )
+    SELECT jsonb_build_object(
+        'stats', jsonb_build_object(
+            'total', counts.total,
+            'completed', counts.completed,
+            'pending', counts.total - counts.completed,
+            'sections', section_counts.value,
+            'sources', source_counts.value
+        ),
+        'price', jsonb_build_object(
+            'sectionTotals', section_money.value,
+            'sourceTotals', source_money.value,
+            'grandTotal', (SELECT COALESCE(sum(price), 0) FROM rows),
+            'totalPatients', (SELECT count(*)::bigint FROM rows)
+        ),
+        'recent', recent.value
+    )
+    FROM counts, section_counts, source_counts, section_money, source_money, recent;
+$$;
+
+REVOKE ALL ON FUNCTION public.dashboard_overview(integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.dashboard_overview(integer) TO authenticated;
+
+-- The dashboard filters, groups and sorts the same few columns on every open.
+CREATE INDEX IF NOT EXISTS patients_section_idx ON public.patients (section);
+CREATE INDEX IF NOT EXISTS patients_created_at_idx ON public.patients (created_at DESC);
+CREATE INDEX IF NOT EXISTS patients_visit_date_idx ON public.patients (visit_date);
+CREATE INDEX IF NOT EXISTS patients_price_idx ON public.patients (price) WHERE price IS NOT NULL;
+CREATE INDEX IF NOT EXISTS patients_completed_idx ON public.patients (is_completed) WHERE is_completed = false;
+
 -- Updated at trigger
 CREATE OR REPLACE FUNCTION public.update_updated_at()
 RETURNS TRIGGER AS $$
