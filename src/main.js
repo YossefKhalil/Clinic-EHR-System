@@ -1098,7 +1098,7 @@ function app() {
             // The overview is one request and it is reused for a short window,
             // so moving between pages does not re-run the aggregates.
             const now = Date.now();
-            if (this.dashboardOverview && now - this.dashboardOverviewAt < 60_000) {
+            if (this.dashboardOverview && now - this.dashboardOverviewAt < 300_000) {
                 this.applyDashboardOverview(this.dashboardOverview);
                 return;
             }
