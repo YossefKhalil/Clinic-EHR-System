@@ -1907,3 +1907,8 @@ i.bi {
 .ia-term-line { align-items: baseline; }
 .ia-term-time, .ia-term-level { white-space: nowrap; }
 .ia-term-msg { flex: 1 1 auto; min-width: 0; word-break: break-word; text-align: left; }
+
+
+.ia-term-tools { margin-left: auto; display: flex; gap: .35rem; }
+.ia-term-btn { font: 500 .68rem/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: transparent; border: 1px solid #2a3644; color: #a3b3c7; border-radius: .3rem; padding: .22rem .5rem; }
+.ia-term-btn:hover { background: #171f29; color: #dbe4ee; border-color: #3a495b; }

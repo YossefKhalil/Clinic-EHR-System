@@ -1345,12 +1345,6 @@
                                         <span x-text="showModelLogs ? t('importAgent.logs.hide') : t('importAgent.logs.show')"></span>
                                     </button>
                                     <span class="badge text-bg-secondary" x-text="modelLog.length"></span>
-                                    <div class="ms-auto d-flex gap-2" x-show="showModelLogs" x-cloak>
-                                        <button type="button" class="btn btn-sm btn-outline-secondary" @click="copyModelLog()"
-                                            x-text="modelLogCopied ? t('importAgent.logs.copied') : t('importAgent.logs.copy')"></button>
-                                        <button type="button" class="btn btn-sm btn-outline-secondary" @click="clearModelLogs()"
-                                            x-text="t('importAgent.logs.clear')"></button>
-                                    </div>
                                 </div>
                                 <div x-show="showModelLogs" x-cloak class="mt-2">
                                     <p class="small text-muted mb-1" x-show="modelLog.length === 0" x-text="t('importAgent.logs.empty')"></p>
@@ -1358,6 +1352,7 @@
                                         <div class="ia-term-head">
                                             <span class="ia-term-title"><i class="bi bi-terminal me-2" aria-hidden="true"></i><span x-text="t('importAgent.logs.title')"></span></span>
                                             <span class="ia-term-count" x-text="modelLog.length"></span>
+<span class="ia-term-tools"><button type="button" class="ia-term-btn" @click="copyModelLog()" x-text="modelLogCopied ? t('importAgent.logs.copied') : t('importAgent.logs.copy')"></button><button type="button" class="ia-term-btn" @click="clearModelLogs()" x-text="t('importAgent.logs.clear')"></button></span>
                                         </div>
                                         <div class="ia-term-body">
                                             <template x-for="(entry, lIndex) in modelLog" :key="lIndex">
@@ -1434,6 +1429,7 @@
                                     <div class="ia-term-head">
                                         <span class="ia-term-title"><i class="bi bi-terminal me-2" aria-hidden="true"></i><span x-text="t('importAgent.logs.title')"></span></span>
                                         <span class="ia-term-count" x-text="modelLog.length"></span>
+<span class="ia-term-tools"><button type="button" class="ia-term-btn" @click="copyModelLog()" x-text="modelLogCopied ? t('importAgent.logs.copied') : t('importAgent.logs.copy')"></button><button type="button" class="ia-term-btn" @click="clearModelLogs()" x-text="t('importAgent.logs.clear')"></button></span>
                                     </div>
                                     <div class="ia-term-body">
                                         <template x-for="(entry, lIndex) in modelLog" :key="lIndex">
@@ -2830,8 +2826,11 @@
                             </div>
 
                             <div class="d-flex flex-wrap align-items-center gap-2">
-                                <button type="button" class="btn btn-primary" x-show="modelState === 'missing'" @click="downloadModel()">
-                                    <i class="bi bi-cloud-arrow-down me-1"></i><span x-text="t('importAgent.local.download')"></span>
+                                <button type="button" class="btn btn-primary" x-show="modelState === 'missing'" @click="showDiskFiles = true">
+                                    <i class="bi bi-folder2-open me-1"></i><span x-text="t('aiSettings.local.diskToggle')"></span>
+                                </button>
+                                <button type="button" class="btn btn-outline-primary" x-show="modelState === 'missing'" @click="startBrowserDownload()">
+                                    <i class="bi bi-download me-1"></i><span x-text="t('importAgent.local.download')"></span>
                                 </button>
                                 <button type="button" class="btn btn-primary" x-show="modelState === 'ready' && !modelInfo" @click="loadStoredModel()">
                                     <i class="bi bi-play-fill me-1"></i><span x-text="t('importAgent.local.load')"></span>
@@ -2843,11 +2842,10 @@
                                 <button type="button" class="btn btn-outline-secondary"
                                     x-show="modelState === 'downloading' || modelState === 'verifying' || modelState === 'loading'"
                                     @click="cancelDownload()" x-text="t('importAgent.local.cancel')"></button>
-                                <button type="button" class="btn btn-link btn-sm p-0 ms-md-2 text-decoration-none"
-                                    @click="showDiskFiles = !showDiskFiles" :aria-expanded="showDiskFiles">
-                                    <i class="bi me-1" :class="showDiskFiles ? 'bi-chevron-up' : 'bi-folder2-open'"></i>
-                                    <span x-text="t('aiSettings.local.diskToggle')"></span>
-                                </button>
+                            </div>
+
+                            <div class="alert alert-info py-2 small mt-3 mb-0" x-show="downloadStarted && modelState === 'missing'" x-cloak>
+                                <i class="bi bi-download me-1" aria-hidden="true"></i><span x-text="t('importAgent.local.downloadStarted')"></span>
                             </div>
 
                             <div x-show="showDiskFiles" x-cloak class="mt-3">
@@ -2912,17 +2910,12 @@
                                     <span class="badge text-bg-secondary ms-1" x-text="modelLog.length"></span>
                                 </button>
                                 <div x-show="showModelLogs" x-cloak class="mt-2">
-                                    <div class="d-flex justify-content-end gap-2 mb-2">
-                                        <button type="button" class="btn btn-sm btn-outline-secondary" @click="copyModelLog()"
-                                            x-text="modelLogCopied ? t('importAgent.logs.copied') : t('importAgent.logs.copy')"></button>
-                                        <button type="button" class="btn btn-sm btn-outline-secondary" @click="clearModelLogs()"
-                                            x-text="t('importAgent.logs.clear')"></button>
-                                    </div>
                                     <p class="small text-muted mb-1" x-show="modelLog.length === 0" x-text="t('importAgent.logs.empty')"></p>
                                     <div class="ia-term">
                                         <div class="ia-term-head">
                                             <span class="ia-term-title"><i class="bi bi-terminal me-2" aria-hidden="true"></i><span x-text="t('importAgent.logs.title')"></span></span>
                                             <span class="ia-term-count" x-text="modelLog.length"></span>
+<span class="ia-term-tools"><button type="button" class="ia-term-btn" @click="copyModelLog()" x-text="modelLogCopied ? t('importAgent.logs.copied') : t('importAgent.logs.copy')"></button><button type="button" class="ia-term-btn" @click="clearModelLogs()" x-text="t('importAgent.logs.clear')"></button></span>
                                         </div>
                                         <div class="ia-term-body">
                                             <template x-for="(entry, lIndex) in modelLog" :key="lIndex">

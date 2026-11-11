@@ -10,7 +10,7 @@ import { t } from '../../../services/i18n.js';
 import * as api from '../api.js';
 import { LIMITS } from '@import-core/limits.js';
 import { clampLocalConfig, localModelIdentity } from '@import-core/local-runtime.js';
-import { MODEL_MANIFEST } from './manifest.js';
+import { MODEL_MANIFEST, MODEL_URLS } from './manifest.js';
 
 function loadRuntime() {
     return import('./runtime.js');
@@ -87,6 +87,7 @@ export function modelCardState() {
         showModelLogs: false,
         showAdvanced: false,
         showDiskFiles: false,
+        downloadStarted: false,
         modelLogCopied: false,
     };
 }
@@ -374,6 +375,29 @@ export function modelCardMethods() {
                 this.localModelFailure(error);
             } finally {
                 this.modelBusy = false;
+            }
+        },
+
+        /**
+         * Send both GGUF files to the browser's own download manager.
+         * The user then picks the two files with "Use GGUF files"; nothing
+         * is fetched into OPFS and no upload happens.
+         */
+        startBrowserDownload() {
+            if (this.modelBusy) return;
+            this.downloadStarted = true;
+            this.showDiskFiles = true;
+            this.modelError = null;
+            this.pushModelLog('info', 'browser downloads started: model and vision projector');
+            for (const key of ['model', 'projector']) {
+                const file = MODEL_MANIFEST.files[key];
+                const link = document.createElement('a');
+                link.href = MODEL_URLS[key];
+                link.download = file.name;
+                link.rel = 'noopener';
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
             }
         },
 
