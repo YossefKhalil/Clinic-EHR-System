@@ -345,39 +345,42 @@
                             </template>
                         </div>
 
-                        <div x-show="statsCardOpen" x-cloak class="pt-2">
-                            <div class="dash-hero">
-                                <div class="dash-hero-main">
-                                    <div class="dash-hero-number" x-text="stats.total"></div>
-                                    <div class="text-muted" x-text="t('Total Patients')"></div>
-                                </div>
-                                <div class="dash-hero-side">
-                                    <div class="d-flex justify-content-between small mb-1">
-                                        <span class="text-success fw-semibold"><span x-text="stats.completed"></span> <span x-text="t('Completed')"></span></span>
-                                        <span class="text-danger fw-semibold"><span x-text="stats.pending"></span> <span x-text="t('Pending')"></span></span>
+                        <div x-show="statsCardOpen" x-cloak class="pt-1">
+                            <div class="d-flex flex-wrap align-items-start gap-4 mb-4">
+                                <div class="d-flex align-items-center gap-3">
+                                    <span class="rounded-3 bg-primary bg-opacity-10 p-3 flex-shrink-0">
+                                        <i class="bi bi-people-fill fs-3 text-primary" aria-hidden="true"></i>
+                                    </span>
+                                    <div>
+                                        <div class="dash-hero-number" x-text="stats.total"></div>
+                                        <div class="text-muted" x-text="t('Total Patients')"></div>
                                     </div>
-                                    <div class="progress dash-split" role="progressbar"
-                                        :aria-valuenow="completionPercent()" aria-valuemin="0" aria-valuemax="100">
-                                        <div class="progress-bar bg-success" :style="'width:' + completionPercent() + '%'"></div>
+                                </div>
+                                <div class="d-flex flex-wrap gap-4 ms-md-auto pt-md-2">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <i class="bi bi-check-circle-fill text-success fs-4" aria-hidden="true"></i>
+                                        <div>
+                                            <div class="fs-4 fw-bold text-success lh-1" x-text="stats.completed"></div>
+                                            <div class="text-muted small" x-text="t('Completed')"></div>
+                                        </div>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <i class="bi bi-exclamation-circle-fill text-danger fs-4" aria-hidden="true"></i>
+                                        <div>
+                                            <div class="fs-4 fw-bold text-danger lh-1" x-text="stats.pending"></div>
+                                            <div class="text-muted small" x-text="t('Pending')"></div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
 
-                            <div class="dash-panel mb-4" x-show="readableSectionKeys().length">
-                                <div class="dash-panel-title"><i class="bi bi-building text-primary me-2" aria-hidden="true"></i><span x-text="t('By Section')"></span></div>
-                                <div class="row row-cols-1 row-cols-md-2 g-3">
+                            <div class="mb-4" x-show="readableSectionKeys().length">
+                                <div class="text-muted small fw-semibold mb-2" x-text="t('By Section')"></div>
+                                <div class="stat-entries">
                                     <template x-for="entry in sectionStatEntries()" :key="'sec-' + entry.key">
-                                        <div class="col">
-                                            <div class="dash-meter">
-                                                <div class="d-flex justify-content-between small mb-1">
-                                                    <span x-text="entry.label"></span>
-                                                    <strong :class="'text-' + sectionColor(entry.key)" x-text="entry.count"></strong>
-                                                </div>
-                                                <div class="dash-meter-track">
-                                                    <div class="dash-meter-fill" :class="'bg-' + sectionColor(entry.key)"
-                                                        :style="'width:' + Math.round(entry.count / sectionCountMax() * 100) + '%'"></div>
-                                                </div>
-                                            </div>
+                                        <div class="stat-entry">
+                                            <span class="stat-entry-value fs-4 fw-bold" :class="'text-' + sectionColor(entry.key)" x-text="entry.count"></span>
+                                            <div class="stat-entry-label text-muted small" x-text="entry.label"></div>
                                         </div>
                                     </template>
                                 </div>
@@ -393,65 +396,78 @@
                                 <span x-text="t('Loading the financial summary...')"></span>
                             </div>
 
-                            <div x-show="hasFinancialData()">
-                                <div class="dash-money-banner mb-4">
-                                    <div>
-                                        <div class="small opacity-75" x-text="t('Grand Total')"></div>
-                                        <div class="dash-money-value">
-                                            <span x-text="formatMoney(priceStats?.grandTotal)"></span>
-                                            <span class="dash-money-currency" x-text="t('EGP')"></span>
+                            <div class="row g-3 g-md-4" x-show="hasFinancialData()">
+                                <div class="col-12 col-lg-4">
+                                    <div class="card h-100 border-0 bg-primary text-white shadow-sm">
+                                        <div class="card-body d-flex align-items-center gap-3 p-4">
+                                            <i class="bi bi-cash-stack fs-2" aria-hidden="true"></i>
+                                            <div>
+                                                <div class="small opacity-75" x-text="t('Grand Total')"></div>
+                                                <div class="fs-4 fw-bold">
+                                                    <span x-text="formatMoney(priceStats?.grandTotal)"></span>
+                                                    <span class="small fw-normal opacity-75" x-text="t('EGP')"></span>
+                                                </div>
+                                                <div class="small opacity-75">
+                                                    <span x-text="priceStats?.totalPatients ?? 0"></span>
+                                                    <span x-text="t('patients')"></span>
+                                                </div>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div class="ms-auto text-end">
-                                        <div class="dash-money-count" x-text="priceStats?.totalPatients ?? 0"></div>
-                                        <div class="small opacity-75" x-text="t('patients')"></div>
                                     </div>
                                 </div>
 
-                                <div class="row g-4">
-                                    <div class="col-12 col-lg-6">
-                                        <div class="dash-panel h-100">
-                                            <div class="dash-panel-title"><i class="bi bi-wallet2 text-primary me-2" aria-hidden="true"></i><span x-text="t('Money by Section')"></span></div>
-                                            <template x-for="entry in sectionFinancialEntries()" :key="'fin-sec-' + entry.key">
-                                                <div class="dash-money-row">
-                                                    <div class="d-flex justify-content-between align-items-baseline">
-                                                        <span class="dash-money-label">
-                                                            <span class="dash-dot-icon" :class="'bg-' + sectionColor(entry.key)"></span>
-                                                            <span x-text="entry.label"></span>
-                                                        </span>
-                                                        <span class="dash-money-amount" :class="'text-' + sectionColor(entry.key)" x-text="formatMoney(entry.total)"></span>
+                                <div class="col-12 col-lg-4">
+                                    <div class="card h-100 border-0 shadow-sm">
+                                        <div class="card-body p-0">
+                                            <h6 class="fw-semibold text-secondary px-3 py-3 mb-0 border-bottom d-flex align-items-center gap-2">
+                                                <i class="bi bi-building text-primary" aria-hidden="true"></i><span x-text="t('Money by Section')"></span>
+                                            </h6>
+                                            <div class="fin-summary-grid p-2">
+                                                <template x-for="entry in sectionFinancialEntries()" :key="'fin-sec-' + entry.key">
+                                                    <div class="fin-entry">
+                                                        <div class="rounded-circle d-flex align-items-center justify-content-center text-white flex-shrink-0" :class="'bg-' + sectionColor(entry.key)" style="width:32px;height:32px;">
+                                                            <i class="bi" :class="sectionIcon(entry.key)" aria-hidden="true"></i>
+                                                        </div>
+                                                        <div class="fin-entry-label">
+                                                            <div class="fw-semibold text-truncate" x-text="entry.label"></div>
+                                                            <div class="small text-muted"><span x-text="entry.count"></span> <span x-text="t('patients')"></span></div>
+                                                        </div>
+                                                        <div class="fin-entry-total">
+                                                            <div class="fw-bold" :class="'text-' + sectionColor(entry.key)" x-text="formatMoney(entry.total)"></div>
+                                                            <div class="small text-muted" x-text="t('EGP')"></div>
+                                                        </div>
                                                     </div>
-                                                    <div class="dash-meter-track mt-2">
-                                                        <div class="dash-meter-fill" :class="'bg-' + sectionColor(entry.key)"
-                                                            :style="'width:' + Math.round(entry.total / sectionMoneyMax() * 100) + '%'"></div>
-                                                    </div>
-                                                    <div class="small text-muted mt-1"><span x-text="entry.count"></span> <span x-text="t('patients')"></span></div>
-                                                </div>
-                                            </template>
-                                            <div class="small text-muted py-2" x-show="sectionFinancialEntries().length === 0" x-text="t('No financial data recorded yet.')"></div>
+                                                </template>
+                                                <div class="small text-muted px-2 py-2" x-show="sectionFinancialEntries().length === 0" x-text="t('No financial data recorded yet.')"></div>
+                                            </div>
                                         </div>
                                     </div>
+                                </div>
 
-                                    <div class="col-12 col-lg-6">
-                                        <div class="dash-panel h-100">
-                                            <div class="dash-panel-title"><i class="bi bi-cash-coin text-primary me-2" aria-hidden="true"></i><span x-text="t('By Source of Money')"></span></div>
-                                            <template x-for="entry in sourceFinancialEntries()" :key="'fin-src-' + entry.key">
-                                                <div class="dash-money-row">
-                                                    <div class="d-flex justify-content-between align-items-baseline">
-                                                        <span class="dash-money-label">
-                                                            <span class="dash-dot-icon" :class="'bg-' + sourceColor(entry.key)"></span>
-                                                            <span x-text="entry.label"></span>
-                                                        </span>
-                                                        <span class="dash-money-amount" :class="'text-' + sourceColor(entry.key)" x-text="formatMoney(entry.total)"></span>
+                                <div class="col-12 col-lg-4">
+                                    <div class="card h-100 border-0 shadow-sm">
+                                        <div class="card-body p-0">
+                                            <h6 class="fw-semibold text-secondary px-3 py-3 mb-0 border-bottom d-flex align-items-center gap-2">
+                                                <i class="bi bi-wallet2 text-primary" aria-hidden="true"></i><span x-text="t('By Source of Money')"></span>
+                                            </h6>
+                                            <div class="fin-summary-grid p-2">
+                                                <template x-for="entry in sourceFinancialEntries()" :key="'fin-src-' + entry.key">
+                                                    <div class="fin-entry">
+                                                        <div class="rounded-circle d-flex align-items-center justify-content-center text-white flex-shrink-0" :class="'bg-' + sourceColor(entry.key)" style="width:32px;height:32px;">
+                                                            <i class="bi" :class="sourceIcon(entry.key)" aria-hidden="true"></i>
+                                                        </div>
+                                                        <div class="fin-entry-label">
+                                                            <div class="fw-semibold text-truncate" x-text="entry.label"></div>
+                                                            <div class="small text-muted"><span x-text="entry.count"></span> <span x-text="t('patients')"></span></div>
+                                                        </div>
+                                                        <div class="fin-entry-total">
+                                                            <div class="fw-bold" :class="'text-' + sourceColor(entry.key)" x-text="formatMoney(entry.total)"></div>
+                                                            <div class="small text-muted" x-text="t('EGP')"></div>
+                                                        </div>
                                                     </div>
-                                                    <div class="dash-meter-track mt-2">
-                                                        <div class="dash-meter-fill" :class="'bg-' + sourceColor(entry.key)"
-                                                            :style="'width:' + Math.round(entry.total / sourceMoneyMax() * 100) + '%'"></div>
-                                                    </div>
-                                                    <div class="small text-muted mt-1"><span x-text="entry.count"></span> <span x-text="t('patients')"></span></div>
-                                                </div>
-                                            </template>
-                                            <div class="small text-muted py-2" x-show="sourceFinancialEntries().length === 0" x-text="t('No financial data recorded yet.')"></div>
+                                                </template>
+                                                <div class="small text-muted px-2 py-2" x-show="sourceFinancialEntries().length === 0" x-text="t('No financial data recorded yet.')"></div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
