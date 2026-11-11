@@ -330,6 +330,20 @@
                             <span><strong class="text-danger" x-text="stats.pending"></strong> <span x-text="t('Pending')"></span></span>
                             <span class="dash-dot">·</span>
                             <span><strong class="text-primary" x-text="formatMoney(priceStats?.grandTotal)"></strong> <span x-text="t('EGP')"></span></span>
+                            <template x-for="entry in sectionFinancialEntries()" :key="'fold-sec-' + entry.key">
+                                <span>
+                                    <span class="dash-dot">·</span>
+                                    <strong :class="'text-' + sectionColor(entry.key)" x-text="formatMoney(entry.total)"></strong>
+                                    <span x-text="entry.label"></span>
+                                </span>
+                            </template>
+                            <template x-for="entry in sourceFinancialEntries()" :key="'fold-src-' + entry.key">
+                                <span>
+                                    <span class="dash-dot">·</span>
+                                    <strong :class="'text-' + sourceColor(entry.key)" x-text="formatMoney(entry.total)"></strong>
+                                    <span x-text="entry.label"></span>
+                                </span>
+                            </template>
                         </div>
 
                         <div x-show="statsCardOpen" x-cloak class="pt-1">
