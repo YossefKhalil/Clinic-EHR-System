@@ -236,8 +236,8 @@ function app() {
         patientViewPanelOpen: false,
         // The dashboard cards can be folded into one line (the state is
         // remembered in this browser).
-        statsCardOpen: true,
-        financialCardOpen: true,
+        statsCardOpen: false,
+        financialCardOpen: false,
         
         // Governorates & editable options
         governorates: GOVERNORATES,
@@ -797,28 +797,25 @@ function app() {
             applyBootstrapDirectionToDocument(document, getLocale() === 'ar');
         },
 
-        // Whether the dashboard cards are folded is remembered per browser.
+        // Whether the merged overview card is folded is remembered per browser.
+        // Compact is the default; only an explicit expand is stored.
         loadCardState() {
             try {
-                const raw = localStorage.getItem('dashboardCards');
+                const raw = localStorage.getItem('dashboardOverview');
                 if (raw) {
                     const parsed = JSON.parse(raw);
-                    return {
-                        stats: parsed?.stats !== false,
-                        financial: parsed?.financial !== false,
-                    };
+                    return { stats: parsed?.open === true, financial: false };
                 }
             } catch {
                 // No storage (private mode): the default is fine.
             }
-            return { stats: true, financial: true };
+            return { stats: false, financial: false };
         },
 
         saveCardState() {
             try {
-                localStorage.setItem('dashboardCards', JSON.stringify({
-                    stats: this.statsCardOpen,
-                    financial: this.financialCardOpen,
+                localStorage.setItem('dashboardOverview', JSON.stringify({
+                    open: this.statsCardOpen,
                 }));
             } catch {
                 // No storage: the state lasts for this page only.
