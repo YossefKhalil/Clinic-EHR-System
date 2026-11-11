@@ -344,10 +344,26 @@ export function modelCardMethods() {
 
         onDiskModelPicked(event) {
             const files = [...(event.target?.files ?? [])];
+            if (event.target) event.target.value = '';
+            this.setDiskFiles(files);
+        },
+
+        onGgufDrop(event) {
+            this.setDiskFiles([...(event.dataTransfer?.files ?? [])]);
+        },
+
+        /** One stop: choosing (or dropping) both files starts verification at once. */
+        setDiskFiles(files) {
+            if (this.modelBusy) return;
             this.modelFiles = { model: null, projector: null };
             for (const file of files) {
                 if (/^mmproj/i.test(file.name)) this.modelFiles.projector = file;
                 else if (/\.gguf$/i.test(file.name)) this.modelFiles.model = file;
+            }
+            if (this.diskFilesReady()) {
+                this.useDiskModel();
+            } else if (files.length > 0) {
+                this.pushModelLog('warn', 'choose both files together: the model and the projector');
             }
         },
 

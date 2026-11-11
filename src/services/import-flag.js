@@ -28,9 +28,9 @@ export function importSupported() {
     return typeof WebAssembly !== 'undefined' && simdSupported();
 }
 
-/** OPFS is only needed to download and keep the model; local files work without it. */
+/** OPFS keeps the model; Cache Storage is the fallback on older Chromium. */
 export function importStorageSupported() {
-    return Boolean(navigator.storage?.getDirectory);
+    return Boolean(navigator.storage?.getDirectory || globalThis.caches?.open);
 }
 
 export function clearImportFlagCache() {}

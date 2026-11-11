@@ -46,11 +46,52 @@ export async function storageEstimate() {
 }
 
 export async function readStoredFile(kind) {
+    const name = MODEL_MANIFEST.files[kind].name;
     try {
-        const handle = await (await dir(false)).getFileHandle(MODEL_MANIFEST.files[kind].name);
+        const handle = await (await dir(false)).getFileHandle(name);
         return await handle.getFile();
     } catch {
+        // Older Chromium builds can miss OPFS while Cache Storage works.
+    }
+    try {
+        const cache = await cacheOpen();
+        const response = cache ? await cache.match(cacheKey(name)) : null;
+        if (!response) return null;
+        const blob = await response.blob();
+        return typeof File === 'function'
+            ? new File([blob], name, { type: 'application/octet-stream' })
+            : blob;
+    } catch {
         return null;
+    }
+}
+
+const CACHE_NAME = 'clinic-ai-model-v1';
+const cacheKey = (name) => `/__ai-model/${name}`;
+
+async function cacheOpen() {
+    if (!globalThis.caches?.open) return null;
+    try {
+        return await caches.open(CACHE_NAME);
+    } catch {
+        return null;
+    }
+}
+
+async function cachePut(file, expected) {
+    const cache = await cacheOpen();
+    if (!cache) throw new ModelStoreError('STORAGE_UNSUPPORTED');
+    await cache.put(cacheKey(expected.name), new Response(file, {
+        headers: { 'content-type': 'application/octet-stream' },
+    }));
+}
+
+async function cacheRemove(name) {
+    try {
+        const cache = await cacheOpen();
+        if (cache) await cache.delete(cacheKey(name));
+    } catch {
+        // best effort
     }
 }
 
@@ -67,8 +108,12 @@ export async function removeStoredModel() {
         const base = await root();
         await base.removeEntry(DIR_NAME, { recursive: true });
     } catch (err) {
-        if (err?.name !== 'NotFoundError') throw new ModelStoreError('STORAGE_FAILED', String(err));
+        if (err?.name !== 'NotFoundError' && err?.code !== 'STORAGE_UNSUPPORTED') {
+            throw new ModelStoreError('STORAGE_FAILED', String(err));
+        }
     }
+    await cacheRemove(MODEL_MANIFEST.files.model.name);
+    await cacheRemove(MODEL_MANIFEST.files.projector.name);
 }
 
 async function sha256OfBlob(blob, onProgress) {
@@ -235,9 +280,18 @@ export async function persistFiles(modelFile, projectorFile, { onProgress, signa
             percent: Math.min(100, ((base + loaded) / total) * 100),
         });
     };
-    await writeBlob('model', modelFile, MODEL_MANIFEST.files.model, report('model'), signal);
-    base = MODEL_MANIFEST.files.model.bytes;
-    await writeBlob('projector', projectorFile, MODEL_MANIFEST.files.projector, report('projector'), signal);
+    try {
+        await writeBlob('model', modelFile, MODEL_MANIFEST.files.model, report('model'), signal);
+        base = MODEL_MANIFEST.files.model.bytes;
+        await writeBlob('projector', projectorFile, MODEL_MANIFEST.files.projector, report('projector'), signal);
+    } catch {
+        // OPFS can be missing or too small on older Chromium builds.
+        // Cache Storage keeps the same two files for the next visit.
+        onProgress?.({ phase: 'cache', loaded: 0, total, percent: 0 });
+        await cachePut(modelFile, MODEL_MANIFEST.files.model);
+        await cachePut(projectorFile, MODEL_MANIFEST.files.projector);
+        onProgress?.({ phase: 'cache', loaded: total, total, percent: 100 });
+    }
     const files = await storedModel();
     if (!files.ready) throw new ModelStoreError('STORAGE_FAILED', 'files not readable after copy');
     return files;

@@ -2823,9 +2823,10 @@
                             </div>
 
                             <div class="d-flex flex-wrap align-items-center gap-2">
-                                <button type="button" class="btn btn-primary" x-show="modelState === 'missing'" @click="showDiskFiles = true">
+                                <label class="btn btn-primary mb-0" for="aiDiskInput" @dragover.prevent @drop.prevent="onGgufDrop($event)">
                                     <i class="bi bi-folder2-open me-1"></i><span x-text="t('aiSettings.local.diskToggle')"></span>
-                                </button>
+                                </label>
+                                <input id="aiDiskInput" type="file" class="d-none" accept=".gguf" multiple @change="onDiskModelPicked($event)">
                                 <button type="button" class="btn btn-outline-primary" x-show="modelState === 'missing'" @click="startBrowserDownload()">
                                     <i class="bi bi-download me-1"></i><span x-text="t('importAgent.local.download')"></span>
                                 </button>
@@ -2841,23 +2842,12 @@
                                     @click="cancelDownload()" x-text="t('importAgent.local.cancel')"></button>
                             </div>
 
+                            <p class="form-text mt-2 mb-0" x-show="modelState === 'missing'">
+                                <i class="bi bi-arrow-down-circle me-1" aria-hidden="true"></i><span x-text="t('importAgent.local.diskHint')"></span>
+                            </p>
+
                             <div class="alert alert-info py-2 small mt-3 mb-0" x-show="downloadStarted && modelState === 'missing'" x-cloak>
                                 <i class="bi bi-download me-1" aria-hidden="true"></i><span x-text="t('importAgent.local.downloadStarted')"></span>
-                            </div>
-
-                            <div x-show="showDiskFiles" x-cloak class="mt-3">
-                                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-                                    <span class="small text-muted" x-text="t('importAgent.local.diskLabel')"></span>
-                                    <span class="badge text-bg-success-subtle border border-success-subtle text-body fw-normal"
-                                        x-show="diskFilesReady()"
-                                        x-text="t('importAgent.local.diskReady', { count: (modelFiles.model ? 1 : 0) + (modelFiles.projector ? 1 : 0) })"></span>
-                                </div>
-                                <div class="input-group input-group-sm">
-                                    <input type="file" class="form-control" accept=".gguf" multiple
-                                        @change="onDiskModelPicked($event)" :aria-label="t('importAgent.local.diskLabel')">
-                                    <button type="button" class="btn btn-outline-primary" :disabled="!diskFilesReady() || modelBusy"
-                                        @click="useDiskModel()" x-text="t('importAgent.local.useDisk')"></button>
-                                </div>
                             </div>
 
                             <div x-show="modelState === 'unsupported'" x-cloak
