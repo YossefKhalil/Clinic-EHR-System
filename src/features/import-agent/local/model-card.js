@@ -64,6 +64,7 @@ export function modelCardState() {
         modelLog: [],
         showModelLogs: false,
         showAdvanced: false,
+        showDiskFiles: false,
         modelLogCopied: false,
     };
 }

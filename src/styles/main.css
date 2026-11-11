@@ -1883,3 +1883,19 @@ i.bi {
         inset-inline-start: 0.7rem;
     }
 }
+
+/* AI import: flat activity terminal (no window chrome) */
+.ia-term { background: #0b1016; border: 1px solid #1d2732; border-radius: .6rem; overflow: hidden; }
+.ia-term-head { display: flex; align-items: center; gap: .5rem; padding: .35rem .65rem; background: #0e141b; border-bottom: 1px solid #1d2732; }
+.ia-term-title { font: 600 .7rem/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .09em; text-transform: uppercase; color: #8d9db2; }
+.ia-term-count { font: 600 .68rem/1 ui-monospace, Menlo, Consolas, monospace; color: #6f8095; background: #161f29; border-radius: 999px; padding: .16rem .45rem; }
+.ia-term-body { font: .78rem/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: .5rem .65rem; max-height: 16rem; overflow: auto; }
+.ia-term-line { display: flex; gap: .55rem; white-space: pre-wrap; }
+.ia-term-time { color: #5d6f85; flex: none; }
+.ia-term-level { flex: none; width: 3.2rem; }
+.ia-term-info { color: #7ab7ff; }
+.ia-term-warn { color: #e6b450; }
+.ia-term-error { color: #ef6b6b; }
+.ia-term-debug { color: #8d9db2; }
+.ia-term-msg { color: #d2dae4; }
+.ia-term-detail { color: #7d8ea3; }
