@@ -1095,6 +1095,15 @@ function app() {
         async showDashboard() {
             if (!this.isLoggedIn) return;
             const epoch = this.sessionEpoch;
+            // The section and source names come from app_options; load them
+            // first or the money rows would show raw keys instead of labels.
+            if (!this.options?.section?.length) {
+                try {
+                    await this.refreshOptions();
+                } catch {
+                    // labels fall back to keys; the dashboard still loads
+                }
+            }
             // The overview is one request and it is reused for a short window,
             // so moving between pages does not re-run the aggregates.
             const now = Date.now();
