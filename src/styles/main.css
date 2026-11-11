@@ -1918,3 +1918,9 @@ i.bi {
    them as empty lines, so only the message itself keeps pre-wrap. */
 .ia-term-line { white-space: normal; }
 .ia-term-msg { white-space: pre-wrap; }
+
+
+/* Alpine keeps newlines between the spans inside .ia-term-msg; pre-wrap there
+   would render them as blank lines. Only the text spans keep pre-wrap. */
+.ia-term-msg { white-space: normal; }
+.ia-term-msg > span { white-space: pre-wrap; }

@@ -134,6 +134,7 @@ export function importAgentWizard() {
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible'
                     && this.step === 'extracting' && this.job?.id && !this.pumpActive) {
+                    this.restartPump();
                     this.pumpFailed = false;
                     this.pumpLoop();
                 }
@@ -170,6 +171,7 @@ export function importAgentWizard() {
             // Returning to an import that was running must not leave the job
             // idle with a leased chunk: pick the loop up again.
             if (this.step === 'extracting' && this.job?.id && !this.pumpActive) {
+                this.restartPump();
                 this.pumpFailed = false;
                 this.pumpLoop();
             }
@@ -233,6 +235,8 @@ export function importAgentWizard() {
         progress: { done: 0, total: 0, failed: 0, truncated: 0, nextLabel: '', tokens: null },
         cancelRequested: false,
         pumpActive: false,
+        // A new resume abandons the previous loop and its heartbeat.
+        pumpRunId: 0,
         // A pump that died (the worker hit its own limit): the import is
         // still there and can be resumed.
         pumpFailed: false,
@@ -585,13 +589,14 @@ export function importAgentWizard() {
 
         async pumpLoop() {
             if (this.pumpActive) return;
+            const runId = (this.pumpRunId += 1);
             this.pumpActive = true;
             this.cancelRequested = false;
             this.pumpFailed = false;
             try {
                 const engine = await loadRuntime().then((mod) => mod.localEngine);
                 const { extractChunk } = await loadExtract();
-                while (!this.cancelRequested && this.step === 'extracting') {
+                while (!this.cancelRequested && this.step === 'extracting' && runId === this.pumpRunId) {
                     let claim;
                     try {
                         claim = await api.callJob('local_claim', {
@@ -633,6 +638,7 @@ export function importAgentWizard() {
                     // failure leaves it running and the job looks stuck.
                     let lease = claim.lease_expires_at ?? chunk.lease_until;
                     const heartbeat = setInterval(async () => {
+                        if (runId !== this.pumpRunId) return;
                         try {
                             const beat = await api.callJob('local_heartbeat', {
                                 job_id: this.job.id,
@@ -778,14 +784,28 @@ export function importAgentWizard() {
             } catch (error) {
                 this.showFailure(error);
             } finally {
-                this.pumpActive = false;
-                this.chunkController = null;
-                if (this.chunkHeartbeat) {
-                    clearInterval(this.chunkHeartbeat);
-                    this.chunkHeartbeat = null;
+                if (runId === this.pumpRunId) {
+                    this.pumpActive = false;
+                    this.chunkController = null;
+                    if (this.chunkHeartbeat) {
+                        clearInterval(this.chunkHeartbeat);
+                        this.chunkHeartbeat = null;
+                    }
+                    this.activeChunk = null;
                 }
-                this.activeChunk = null;
             }
+        },
+
+        /** Abandon the current loop (and its lease heartbeat) and start clean. */
+        restartPump() {
+            this.pumpRunId += 1;
+            if (this.chunkHeartbeat) {
+                clearInterval(this.chunkHeartbeat);
+                this.chunkHeartbeat = null;
+            }
+            this.pumpActive = false;
+            this.chunkController = null;
+            this.activeChunk = null;
         },
 
         /** Continue an import that stopped (the worker died, the user paused). */
@@ -795,6 +815,7 @@ export function importAgentWizard() {
             this.errorBanner = null;
             this.jobStatus = 'extracting';
             this.step = 'extracting';
+            this.restartPump();
             this.pumpLoop();
         },
 
@@ -904,6 +925,7 @@ export function importAgentWizard() {
                     this.step = 'extracting';
                     this.jobStatus = 'extracting';
                     await this.loadJobOverview();
+                    this.restartPump();
                     this.pumpLoop();
                 } else {
                     // 'uploaded': sources are already attached; the add step's

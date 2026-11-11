@@ -174,6 +174,75 @@ export async function downloadModel({ onProgress, signal } = {}) {
     return files;
 }
 
+async function writeBlob(kind, blob, expected, onProgress, signal) {
+    const handle = await (await dir(true)).getFileHandle(expected.name, { create: true });
+    const writable = await handle.createWritable();
+    const hasher = await createSHA256();
+    hasher.init();
+    let loaded = 0;
+    try {
+        while (loaded < blob.size) {
+            if (signal?.aborted) throw new ModelStoreError('ABORTED');
+            const slice = blob.slice(loaded, Math.min(loaded + CHUNK, blob.size));
+            const value = new Uint8Array(await slice.arrayBuffer());
+            loaded += value.byteLength;
+            hasher.update(value);
+            await writable.write(value);
+            onProgress?.(loaded, blob.size);
+        }
+        await writable.close();
+    } catch (err) {
+        try {
+            await writable.abort();
+        } catch {
+            // ignore
+        }
+        try {
+            await (await dir(true)).removeEntry(expected.name);
+        } catch {
+            // ignore
+        }
+        throw err;
+    }
+    const digest = hasher.digest('hex');
+    if (loaded !== expected.bytes || digest.toLowerCase() !== expected.sha256.toLowerCase()) {
+        try {
+            await (await dir(true)).removeEntry(expected.name);
+        } catch {
+            // ignore
+        }
+        throw new ModelStoreError('MODEL_HASH_MISMATCH', digest);
+    }
+    return handle.getFile();
+}
+
+/**
+ * Copy files the user picked from disk into OPFS. They are verified again on
+ * the way in, so a refresh can reload the same model without asking for the
+ * two GGUF files a second time.
+ */
+export async function persistFiles(modelFile, projectorFile, { onProgress, signal } = {}) {
+    await requestPersistence();
+    const total = MODEL_MANIFEST.files.model.bytes + MODEL_MANIFEST.files.projector.bytes;
+    let base = 0;
+    const report = (kind) => (loaded, size) => {
+        onProgress?.({
+            phase: kind,
+            fileLoaded: loaded,
+            fileTotal: size,
+            loaded: base + loaded,
+            total,
+            percent: Math.min(100, ((base + loaded) / total) * 100),
+        });
+    };
+    await writeBlob('model', modelFile, MODEL_MANIFEST.files.model, report('model'), signal);
+    base = MODEL_MANIFEST.files.model.bytes;
+    await writeBlob('projector', projectorFile, MODEL_MANIFEST.files.projector, report('projector'), signal);
+    const files = await storedModel();
+    if (!files.ready) throw new ModelStoreError('STORAGE_FAILED', 'files not readable after copy');
+    return files;
+}
+
 export async function verifyLocalFiles(modelFile, projectorFile, onProgress) {
     if (!modelFile || !projectorFile) throw new ModelStoreError('MODEL_FILE_MISSING');
     onProgress?.({ phase: 'verify-model', percent: 0 });

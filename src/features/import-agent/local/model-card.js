@@ -371,6 +371,23 @@ export function modelCardMethods() {
                 );
                 this.pushModelLog('info', 'disk files verified against the pinned hashes');
                 await this.loadModelFiles(verified, 'disk');
+                // Keep a copy in OPFS so a refresh can load the same model
+                // without asking for the two files again.
+                try {
+                    this.pushModelLog('info', 'copying the model files into this browser for next time');
+                    const stored = await store.persistFiles(verified.model, verified.projector, {
+                        onProgress: (progress) => { this.modelProgress = progress; },
+                    });
+                    this.verifiedFiles = stored;
+                    this.modelSource = 'stored';
+                    setAutoLoad(true);
+                    this.modelProgress = null;
+                    this.pushModelLog('info', 'model files saved in this browser; they load automatically next visit');
+                } catch (persistError) {
+                    this.modelProgress = null;
+                    this.pushModelLog('warn', 'could not keep a copy in this browser; choose the files again next visit',
+                        persistError?.message || '');
+                }
             } catch (error) {
                 this.localModelFailure(error);
             } finally {
