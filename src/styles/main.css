@@ -1912,3 +1912,9 @@ i.bi {
 .ia-term-tools { margin-left: auto; display: flex; gap: .35rem; }
 .ia-term-btn { font: 500 .68rem/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: transparent; border: 1px solid #2a3644; color: #a3b3c7; border-radius: .3rem; padding: .22rem .5rem; }
 .ia-term-btn:hover { background: #171f29; color: #dbe4ee; border-color: #3a495b; }
+
+
+/* The source markup has newlines between log spans; pre-wrap would render
+   them as empty lines, so only the message itself keeps pre-wrap. */
+.ia-term-line { white-space: normal; }
+.ia-term-msg { white-space: pre-wrap; }

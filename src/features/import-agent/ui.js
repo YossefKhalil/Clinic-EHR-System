@@ -129,6 +129,15 @@ export function importAgentWizard() {
         // ------------------------------------------------------ lifecycle
         init() {
             window.__iaWizard = this;
+            // A hidden tab can pause the extraction loop; resume it when the
+            // user comes back instead of leaving a leased chunk idle.
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible'
+                    && this.step === 'extracting' && this.job?.id && !this.pumpActive) {
+                    this.pumpFailed = false;
+                    this.pumpLoop();
+                }
+            });
             // The card must show a real status immediately: whether the pinned
             // model is stored on this browser does not depend on the session.
             this.initLocal();
@@ -158,6 +167,12 @@ export function importAgentWizard() {
                 }
             }
             await this.loadEngine();
+            // Returning to an import that was running must not leave the job
+            // idle with a leased chunk: pick the loop up again.
+            if (this.step === 'extracting' && this.job?.id && !this.pumpActive) {
+                this.pumpFailed = false;
+                this.pumpLoop();
+            }
             if (this.step === 'add') {
                 await this.loadOpenJobs();
             }

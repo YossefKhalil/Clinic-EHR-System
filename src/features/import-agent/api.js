@@ -19,6 +19,23 @@ import { LIMITS } from '@import-core/limits.js';
 
 export const ROW_PAGE = 500;
 
+/** A function call that never answers must fail, so the pump can requeue. */
+const JOB_TIMEOUT_MS = 30_000;
+
+function withTimeout(promise, ms) {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            reject(new ImportApiError('NETWORK_TIMEOUT', 'importAgent.error.INTERNAL', {
+                detail: 'the import service did not answer in time',
+            }));
+        }, ms);
+        promise.then(
+            (value) => { clearTimeout(timer); resolve(value); },
+            (error) => { clearTimeout(timer); reject(error); },
+        );
+    });
+}
+
 // `fetchAll` is shared by four tables with different ordering columns. Asking
 // PostgREST to order import_chunks/import_sources by `seq` fails the whole
 // review load, so keep the mapping explicit.
@@ -74,9 +91,9 @@ function serviceName() {
 export async function callJob(action, payload = {}) {
     const client = supabase();
     if (!client) throw new ImportApiError('OFFLINE', 'importAgent.error.OFFLINE');
-    const { data, error } = await client.functions.invoke(serviceName(), {
+    const { data, error } = await withTimeout(client.functions.invoke(serviceName(), {
         body: { action, ...payload },
-    });
+    }), JOB_TIMEOUT_MS);
 
     if (error) {
         // Non-2xx responses land in `error` with the body in its context.

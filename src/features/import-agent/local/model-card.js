@@ -389,7 +389,10 @@ export function modelCardMethods() {
             this.showDiskFiles = true;
             this.modelError = null;
             this.pushModelLog('info', 'browser downloads started: model and vision projector');
-            for (const key of ['model', 'projector']) {
+            const files = ['model', 'projector'];
+            const clickOne = (index) => {
+                if (index >= files.length) return;
+                const key = files[index];
                 const file = MODEL_MANIFEST.files[key];
                 const link = document.createElement('a');
                 link.href = MODEL_URLS[key];
@@ -398,7 +401,11 @@ export function modelCardMethods() {
                 document.body.appendChild(link);
                 link.click();
                 link.remove();
-            }
+                // Browsers block a second automatic download fired in the same
+                // tick. Space them out so both files reach the download list.
+                if (index + 1 < files.length) window.setTimeout(() => clickOne(index + 1), 1500);
+            };
+            clickOne(0);
         },
 
         async downloadModel() {
